@@ -22,11 +22,12 @@ import { ResultsGrid } from '@/features/queries/components/ResultsGrid'
 import { SqlEditor } from '@/features/queries/components/SqlEditor'
 import { useTablesQuery } from '@/features/tables/queries'
 import { TablePropertiesDialog } from '@/features/schema/components/TablePropertiesDialog'
-import { useTableSchemaQuery } from '@/features/schema/queries'
-import { useRunQueryMutation } from '@/features/queries/queries'
+import { useTableSchemaQuery, useTablePropertiesQuery } from '@/features/schema/queries'
+import { useRunQueryMutation, useSaveResultEditsMutation } from '@/features/queries/queries'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { ConnectionSummary, TableInfo } from '@/data/types'
+import type { ResultEditPatch } from '@/features/queries/result-edits'
 
 const DEFAULT_QUERY = `select table_schema, table_name
 from information_schema.tables
@@ -137,6 +138,12 @@ function App() {
     table: selectedTable,
     enabled: Boolean(connection?.id && selectedTable),
   })
+  const tablePropertiesQuery = useTablePropertiesQuery({
+    connectionId: connection?.id,
+    table: selectedTable,
+    enabled: Boolean(connection?.id && selectedTable),
+  })
+  const saveResultEditsMutation = useSaveResultEditsMutation()
 
   const connectionsErrorMessage =
     connectionsQuery.error instanceof Error
@@ -152,6 +159,10 @@ function App() {
     schemaQuery.error instanceof Error
       ? schemaQuery.error.message
       : 'Failed to load table schema'
+  const tablePropertiesErrorMessage =
+    tablePropertiesQuery.error instanceof Error
+      ? tablePropertiesQuery.error.message
+      : 'Failed to load table properties'
 
   const tablesForUi = tablesQuery.data ?? []
 
@@ -265,6 +276,44 @@ function App() {
     connectionError instanceof Error ? connectionError.message : 'Failed to connect'
   const runQueryErrorMessage =
     runQueryMutation.error instanceof Error ? runQueryMutation.error.message : 'Failed to run query'
+  const saveResultEditsErrorMessage =
+    saveResultEditsMutation.error instanceof Error
+      ? saveResultEditsMutation.error.message
+      : 'Failed to save edited rows'
+  const primaryKeyColumns =
+    tablePropertiesQuery.data?.filter((column) => column.isPrimaryKey).map((column) => column.columnName) ?? []
+  const editableColumns =
+    tablePropertiesQuery.data?.filter((column) => !column.isPrimaryKey).map((column) => column.columnName) ?? []
+  const hasSelectedTable = Boolean(selectedTable)
+  const hasQueryResult = Boolean(runQueryMutation.data?.columns.length)
+  const hasPrimaryKey = primaryKeyColumns.length > 0
+  const isResultSingleTableEditable =
+    hasSelectedTable && hasQueryResult && hasPrimaryKey && !tablePropertiesQuery.isError
+  const saveDisabledReason = !hasSelectedTable
+    ? 'Select a table to enable row editing.'
+    : !hasQueryResult
+      ? 'Run a query to edit rows.'
+      : tablePropertiesQuery.isLoading
+        ? 'Loading table metadata...'
+        : tablePropertiesQuery.isError
+          ? tablePropertiesErrorMessage
+          : !hasPrimaryKey
+            ? 'Editing requires a primary key on the selected table.'
+            : undefined
+
+  const handleSaveResultEdits = async (patches: ResultEditPatch[]) => {
+    if (!selectedTable || !connection?.id || patches.length === 0) {
+      return
+    }
+
+    await saveResultEditsMutation.mutateAsync({
+      connectionId: connection.id,
+      table: selectedTable,
+      patches,
+    })
+
+    handleRunQuery(lastQuery || query)
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground" style={layoutStyle}>
@@ -430,6 +479,13 @@ function App() {
               <ResultsGrid
                 result={runQueryMutation.data ?? null}
                 isPending={runQueryMutation.isPending}
+                isSaving={saveResultEditsMutation.isPending}
+                canEdit={isResultSingleTableEditable}
+                editableColumns={editableColumns}
+                primaryKeyColumns={primaryKeyColumns}
+                saveDisabledReason={saveDisabledReason}
+                onRefresh={() => handleRunQuery(lastQuery || query)}
+                onSaveEdits={handleSaveResultEdits}
               />
             </ErrorBoundary>
 
@@ -448,6 +504,12 @@ function App() {
             {runQueryMutation.error ? (
               <div className="border-t border-border bg-destructive/10 px-5 py-2 text-xs text-destructive">
                 {runQueryErrorMessage}
+              </div>
+            ) : null}
+
+            {saveResultEditsMutation.error ? (
+              <div className="border-t border-border bg-destructive/10 px-5 py-2 text-xs text-destructive">
+                {saveResultEditsErrorMessage}
               </div>
             ) : null}
           </section>
