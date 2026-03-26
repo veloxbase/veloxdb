@@ -66,6 +66,7 @@ export function useApplyTablePropertiesMutation() {
 
       void queryClient.invalidateQueries({ queryKey: queryKeys.tableProperties(variables.connectionId, table) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.schema(variables.connectionId, table) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.foreignKeys(variables.connectionId) })
     },
   })
 }

@@ -24,6 +24,7 @@ import { useTablesQuery } from '@/features/tables/queries'
 import { TablePropertiesDialog } from '@/features/schema/components/TablePropertiesDialog'
 import { useTableSchemaQuery, useTablePropertiesQuery } from '@/features/schema/queries'
 import { useRunQueryMutation, useSaveResultEditsMutation } from '@/features/queries/queries'
+import { ModelWorkspace } from '@/features/model/components/ModelWorkspace'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { ConnectionSummary, TableInfo } from '@/data/types'
@@ -82,6 +83,7 @@ function App() {
     connectionId: string
     table: TableInfo
   } | null>(null)
+  const [mainWorkspace, setMainWorkspace] = useState<'query' | 'model'>('query')
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark)
@@ -373,6 +375,21 @@ function App() {
                 </Button>
               ) : null}
 
+              <Tabs
+                value={mainWorkspace}
+                onValueChange={(value) => setMainWorkspace(value as 'query' | 'model')}
+                className="shrink-0"
+              >
+                <TabsList variant="line" className="h-8">
+                  <TabsTrigger value="query" className="px-2.5 text-xs">
+                    Query
+                  </TabsTrigger>
+                  <TabsTrigger value="model" className="px-2.5 text-xs">
+                    Model
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+
               <div className="min-w-0">
                 <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
                   VeloxDB.dev
@@ -402,129 +419,148 @@ function App() {
                 {isDark ? <SunIcon /> : <MoonIcon />}
                 {isDark ? 'Light' : 'Dark'}
               </Button>
-              <Button
-                size="sm"
-                onClick={() => handleRunQuery()}
-                disabled={runQueryMutation.isPending}
-              >
-                <PlayIcon />
-                Run query
-              </Button>
+              {mainWorkspace === 'query' ? (
+                <Button
+                  size="sm"
+                  onClick={() => handleRunQuery()}
+                  disabled={runQueryMutation.isPending}
+                >
+                  <PlayIcon />
+                  Run query
+                </Button>
+              ) : null}
             </div>
           </div>
         </header>
 
-        <div ref={resultsLayoutRef} className="flex min-h-0 min-w-0 flex-col">
-          <section className="min-h-0 min-w-0 flex-1">
-            <Tabs value="query-1" className="flex h-full min-w-0 flex-col gap-0">
+        {mainWorkspace === 'query' ? (
+          <div ref={resultsLayoutRef} className="flex min-h-0 min-w-0 flex-col">
+            <section className="min-h-0 min-w-0 flex-1">
+              <Tabs value="query-1" className="flex h-full min-w-0 flex-col gap-0">
+                <div className="min-w-0 overflow-x-auto border-b border-border">
+                  <div className="flex min-w-full w-max items-center justify-between gap-3 px-3 py-2">
+                    <TabsList variant="line" className="shrink-0">
+                      <TabsTrigger value="query-1">Query 1</TabsTrigger>
+                    </TabsList>
+                    <div className="shrink-0 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                      Cmd/Ctrl + Enter
+                    </div>
+                  </div>
+                </div>
+
+                <TabsContent value="query-1" className="min-h-0 flex-1">
+                  <SqlEditor
+                    value={query}
+                    isDark={isDark}
+                    onChange={setQuery}
+                    onRun={() => handleRunQuery()}
+                  />
+                </TabsContent>
+              </Tabs>
+            </section>
+
+            <div
+              className="h-1 cursor-row-resize border-y border-border bg-muted/10 hover:bg-muted/30"
+              onPointerDown={handleResultsResizeStart}
+              title="Resize results"
+            />
+
+            <section
+              className="min-h-0 min-w-0 h-full overflow-hidden"
+              style={{ height: `${resultsHeight}px` }}
+            >
               <div className="min-w-0 overflow-x-auto border-b border-border">
-                <div className="flex min-w-full w-max items-center justify-between gap-3 px-3 py-2">
-                  <TabsList variant="line" className="shrink-0">
-                    <TabsTrigger value="query-1">Query 1</TabsTrigger>
-                  </TabsList>
-                  <div className="shrink-0 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                    Cmd/Ctrl + Enter
+                <div className="flex min-w-full w-max items-center justify-between gap-4 px-5 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+                      Results
+                    </p>
+                    <p className="truncate text-sm text-foreground">
+                      {selectedTable
+                        ? `${selectedTable.schema}.${selectedTable.name}`
+                        : 'Current query output'}
+                    </p>
+                  </div>
+
+                  <div className="shrink-0 text-right text-xs text-muted-foreground whitespace-nowrap">
+                    {schemaQuery.isLoading ? (
+                      <span>Loading columns...</span>
+                    ) : schemaQuery.isError ? (
+                      <span className="text-destructive">{schemaErrorMessage}</span>
+                    ) : schemaQuery.data?.length ? (
+                      <span>{schemaQuery.data.length} columns in selected table</span>
+                    ) : (
+                      <span>
+                        {runQueryMutation.data
+                          ? `${runQueryMutation.data.rowCount} rows in ${runQueryMutation.data.executionMs} ms`
+                          : 'No query executed yet'}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
 
-              <TabsContent value="query-1" className="min-h-0 flex-1">
-                <SqlEditor
-                  value={query}
-                  isDark={isDark}
-                  onChange={setQuery}
-                  onRun={() => handleRunQuery()}
+              <ErrorBoundary
+                fallback={
+                  <div className="flex h-full items-center justify-center p-4 text-xs text-destructive">
+                    Results failed to render.
+                  </div>
+                }
+              >
+                <ResultsGrid
+                  result={runQueryMutation.data ?? null}
+                  isPending={runQueryMutation.isPending}
+                  isSaving={saveResultEditsMutation.isPending}
+                  canEdit={isResultSingleTableEditable}
+                  editableColumns={editableColumns}
+                  primaryKeyColumns={primaryKeyColumns}
+                  saveDisabledReason={saveDisabledReason}
+                  onRefresh={() => handleRunQuery(lastQuery || query)}
+                  onSaveEdits={handleSaveResultEdits}
                 />
-              </TabsContent>
-            </Tabs>
-          </section>
+              </ErrorBoundary>
 
-          <div
-            className="h-1 cursor-row-resize border-y border-border bg-muted/10 hover:bg-muted/30"
-            onPointerDown={handleResultsResizeStart}
-            title="Resize results"
+              {runQueryMutation.data?.truncated ? (
+                <div className="border-t border-border bg-muted/20 px-5 py-2 text-xs text-muted-foreground">
+                  Result output was truncated to keep the UI responsive.
+                </div>
+              ) : null}
+
+              {connectionError ? (
+                <div className="border-t border-border bg-destructive/10 px-5 py-2 text-xs text-destructive">
+                  {connectionErrorMessage}
+                </div>
+              ) : null}
+
+              {runQueryMutation.error ? (
+                <div className="border-t border-border bg-destructive/10 px-5 py-2 text-xs text-destructive">
+                  {runQueryErrorMessage}
+                </div>
+              ) : null}
+
+              {saveResultEditsMutation.error ? (
+                <div className="border-t border-border bg-destructive/10 px-5 py-2 text-xs text-destructive">
+                  {saveResultEditsErrorMessage}
+                </div>
+              ) : null}
+            </section>
+          </div>
+        ) : connection?.id ? (
+          <ModelWorkspace
+            key={connection.id}
+            connectionId={connection.id}
+            defaultDatabaseName={connection.database}
+            isDark={isDark}
+            tables={tablesForUi}
+            tablesErrorMessage={tablesQuery.isError ? tablesErrorMessage : undefined}
+            isTablesLoading={tablesQuery.isLoading}
+            selectedTable={selectedTable}
           />
-
-          <section
-            className="min-h-0 min-w-0 h-full overflow-hidden"
-            style={{ height: `${resultsHeight}px` }}
-          >
-            <div className="min-w-0 overflow-x-auto border-b border-border">
-              <div className="flex min-w-full w-max items-center justify-between gap-4 px-5 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-                    Results
-                  </p>
-                  <p className="truncate text-sm text-foreground">
-                    {selectedTable
-                      ? `${selectedTable.schema}.${selectedTable.name}`
-                      : 'Current query output'}
-                  </p>
-                </div>
-
-                <div className="shrink-0 text-right text-xs text-muted-foreground whitespace-nowrap">
-                  {schemaQuery.isLoading ? (
-                    <span>Loading columns...</span>
-                  ) : schemaQuery.isError ? (
-                    <span className="text-destructive">{schemaErrorMessage}</span>
-                  ) : schemaQuery.data?.length ? (
-                    <span>{schemaQuery.data.length} columns in selected table</span>
-                  ) : (
-                    <span>
-                      {runQueryMutation.data
-                        ? `${runQueryMutation.data.rowCount} rows in ${runQueryMutation.data.executionMs} ms`
-                        : 'No query executed yet'}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <ErrorBoundary
-              fallback={
-                <div className="flex h-full items-center justify-center p-4 text-xs text-destructive">
-                  Results failed to render.
-                </div>
-              }
-            >
-              <ResultsGrid
-                result={runQueryMutation.data ?? null}
-                isPending={runQueryMutation.isPending}
-                isSaving={saveResultEditsMutation.isPending}
-                canEdit={isResultSingleTableEditable}
-                editableColumns={editableColumns}
-                primaryKeyColumns={primaryKeyColumns}
-                saveDisabledReason={saveDisabledReason}
-                onRefresh={() => handleRunQuery(lastQuery || query)}
-                onSaveEdits={handleSaveResultEdits}
-              />
-            </ErrorBoundary>
-
-            {runQueryMutation.data?.truncated ? (
-              <div className="border-t border-border bg-muted/20 px-5 py-2 text-xs text-muted-foreground">
-                Result output was truncated to keep the UI responsive.
-              </div>
-            ) : null}
-
-            {connectionError ? (
-              <div className="border-t border-border bg-destructive/10 px-5 py-2 text-xs text-destructive">
-                {connectionErrorMessage}
-              </div>
-            ) : null}
-
-            {runQueryMutation.error ? (
-              <div className="border-t border-border bg-destructive/10 px-5 py-2 text-xs text-destructive">
-                {runQueryErrorMessage}
-              </div>
-            ) : null}
-
-            {saveResultEditsMutation.error ? (
-              <div className="border-t border-border bg-destructive/10 px-5 py-2 text-xs text-destructive">
-                {saveResultEditsErrorMessage}
-              </div>
-            ) : null}
-          </section>
-        </div>
+        ) : (
+          <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
+            Connect to a database to use the model workspace.
+          </div>
+        )}
       </main>
 
       <ConnectionDialog

@@ -113,6 +113,25 @@ pub struct TablePropertiesApplyRequest {
     pub columns: Vec<ColumnPropertiesUpdateInput>,
 }
 
+/// One column-pair from a foreign-key constraint (composite FKs yield multiple rows).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignKeyEdge {
+    pub from_schema: String,
+    pub from_table: String,
+    pub from_column: String,
+    pub to_schema: String,
+    pub to_table: String,
+    pub to_column: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DdlBatchRequest {
+    pub connection_id: Option<String>,
+    pub statements: Vec<String>,
+}
+
 impl StoredConnection {
     pub fn from_input(id: String, input: ConnectionInput) -> Self {
         Self {

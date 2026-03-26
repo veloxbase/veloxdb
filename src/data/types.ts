@@ -70,3 +70,18 @@ export type QueryResult = {
   commandTag: number | null
 }
 
+/** One column-pair from a foreign key (composite keys yield multiple rows). */
+export type ForeignKeyEdge = {
+  fromSchema: string
+  fromTable: string
+  fromColumn: string
+  toSchema: string
+  toTable: string
+  toColumn: string
+}
+
+export type DdlBatchRequest = {
+  connectionId?: string
+  statements: string[]
+}
+

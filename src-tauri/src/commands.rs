@@ -11,9 +11,13 @@ use crate::db::{
     MAX_QUERY_ROWS,
 };
 use crate::models::{
-    ColumnInfo, ColumnProperties, ConnectionInput, ConnectionSummary, QueryRequest,
-    QueryResult, SchemaRequest, StoredConnection, TableInfo, TablePropertiesApplyRequest,
+    ColumnInfo, ColumnProperties, ConnectionInput, ConnectionSummary, DdlBatchRequest,
+    ForeignKeyEdge, QueryRequest, QueryResult, SchemaRequest, StoredConnection, TableInfo,
+    TablePropertiesApplyRequest,
 };
+
+/// Cap FK rows returned to the UI to keep IPC payloads bounded.
+const MAX_FOREIGN_KEY_ROWS: i64 = 5000;
 
 #[tauri::command]
 pub async fn connect_db(
@@ -574,6 +578,98 @@ pub async fn apply_table_properties(
         }
     }
 
+    txn.commit().await.map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_foreign_keys(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    connection_id: Option<String>,
+) -> Result<Vec<ForeignKeyEdge>, String> {
+    let connection_id = resolve_connection_id(&state, connection_id).await?;
+    let pool = get_or_create_pool(&app, &state, &connection_id).await?;
+    let client = pool.get().await.map_err(|error| error.to_string())?;
+
+    let rows = client
+        .query(
+            "
+            select
+              src_ns.nspname::text as from_schema,
+              src_cls.relname::text as from_table,
+              src_att.attname::text as from_column,
+              tgt_ns.nspname::text as to_schema,
+              tgt_cls.relname::text as to_table,
+              tgt_att.attname::text as to_column
+            from pg_constraint c
+            join pg_class src_cls on src_cls.oid = c.conrelid
+            join pg_namespace src_ns on src_ns.oid = src_cls.relnamespace
+            join pg_class tgt_cls on tgt_cls.oid = c.confrelid
+            join pg_namespace tgt_ns on tgt_ns.oid = tgt_cls.relnamespace
+            cross join lateral unnest(c.conkey, c.confkey) as u(attnum, confattnum)
+            join pg_attribute src_att
+              on src_att.attrelid = c.conrelid
+             and src_att.attnum = u.attnum
+             and not src_att.attisdropped
+            join pg_attribute tgt_att
+              on tgt_att.attrelid = c.confrelid
+             and tgt_att.attnum = u.confattnum
+             and not tgt_att.attisdropped
+            where c.contype = 'f'
+              and src_ns.nspname not in ('pg_catalog', 'information_schema')
+            order by src_ns.nspname, src_cls.relname, c.conname, u.attnum
+            limit $1
+            ",
+            &[&MAX_FOREIGN_KEY_ROWS],
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| ForeignKeyEdge {
+            from_schema: row.get(0),
+            from_table: row.get(1),
+            from_column: row.get(2),
+            to_schema: row.get(3),
+            to_table: row.get(4),
+            to_column: row.get(5),
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn execute_ddl_transaction(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: DdlBatchRequest,
+) -> Result<(), String> {
+    let DdlBatchRequest {
+        connection_id: requested_connection_id,
+        statements,
+    } = input;
+
+    let connection_id = resolve_connection_id(&state, requested_connection_id).await?;
+    let pool = get_or_create_pool(&app, &state, &connection_id).await?;
+    let mut client = pool.get().await.map_err(|error| error.to_string())?;
+
+    let stmts: Vec<String> = statements
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if stmts.is_empty() {
+        return Err("No SQL statements to execute.".to_string());
+    }
+
+    let txn = client.transaction().await.map_err(|error| error.to_string())?;
+    for sql in &stmts {
+        txn.execute(sql.as_str(), &[])
+            .await
+            .map_err(|error| error.to_string())?;
+    }
     txn.commit().await.map_err(|error| error.to_string())?;
     Ok(())
 }

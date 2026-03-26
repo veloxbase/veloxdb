@@ -5,6 +5,8 @@ import type {
   ConnectionSummary,
   ColumnInfo,
   ColumnProperties,
+  DdlBatchRequest,
+  ForeignKeyEdge,
   QueryRequest,
   QueryResult,
   TableInfo,
@@ -61,6 +63,14 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
 
   async applyTableProperties(request: TablePropertiesApplyRequest): Promise<void> {
     await invoke('apply_table_properties', { input: request })
+  }
+
+  async getForeignKeys(connectionId?: string): Promise<ForeignKeyEdge[]> {
+    return invoke<ForeignKeyEdge[]>('get_foreign_keys', { connectionId })
+  }
+
+  async executeDdlTransaction(request: DdlBatchRequest): Promise<void> {
+    await invoke('execute_ddl_transaction', { input: request })
   }
 }
 

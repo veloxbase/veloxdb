@@ -11,6 +11,9 @@ export const queryKeys = {
 
   tableProperties: (connectionId: string | undefined, table?: TableInfo | null) =>
     ['tableProperties', connectionId ?? null, table?.schema ?? null, table?.name ?? null] as const,
+
+  foreignKeys: (connectionId?: string | null) =>
+    ['foreignKeys', connectionId ?? null] as const,
 } as const
 
 export type QueryKeys = typeof queryKeys
