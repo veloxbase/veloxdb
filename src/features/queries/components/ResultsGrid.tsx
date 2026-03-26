@@ -504,7 +504,7 @@ export function ResultsGrid({
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-w-0 flex-col overflow-hidden">
       <ResultsToolbar
         columns={table.getAllLeafColumns().map((column) => ({
           id: column.id,

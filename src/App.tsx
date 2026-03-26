@@ -358,68 +358,73 @@ function App() {
       ) : null}
 
       <main className="grid min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)]">
-        <header className="flex items-center justify-between gap-4 border-b border-border px-5 py-3">
-          <div className="flex min-w-0 items-center gap-3">
-            {isSidebarCollapsed ? (
+        <header className="min-w-0 shrink-0 overflow-x-auto border-b border-border">
+          <div className="flex min-w-full w-max items-center justify-between gap-4 px-5 py-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              {isSidebarCollapsed ? (
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  className="shrink-0"
+                  onClick={() => setIsSidebarCollapsed(false)}
+                  aria-label="Open sidebar"
+                >
+                  <SidebarSimpleIcon />
+                </Button>
+              ) : null}
+
+              <div className="min-w-0">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+                  VeloxDB.dev
+                </p>
+                <p className="truncate text-sm text-foreground">
+                  {connection
+                    ? `Connected to ${connection.database} on ${connection.host}:${connection.port}`
+                    : 'Choose a saved connection or create a new one to start querying'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2">
               <Button
                 variant="outline"
-                size="icon-sm"
-                onClick={() => setIsSidebarCollapsed(false)}
-                aria-label="Open sidebar"
+                size="sm"
+                onClick={() => setCommandPaletteOpen(true)}
               >
                 <SidebarSimpleIcon />
+                Palette
               </Button>
-            ) : null}
-
-            <div className="min-w-0">
-              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-                VeloxDB.dev
-              </p>
-              <p className="truncate text-sm text-foreground">
-                {connection
-                  ? `Connected to ${connection.database} on ${connection.host}:${connection.port}`
-                  : 'Choose a saved connection or create a new one to start querying'}
-              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsDark((current) => !current)}
+              >
+                {isDark ? <SunIcon /> : <MoonIcon />}
+                {isDark ? 'Light' : 'Dark'}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => handleRunQuery()}
+                disabled={runQueryMutation.isPending}
+              >
+                <PlayIcon />
+                Run query
+              </Button>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCommandPaletteOpen(true)}
-            >
-              <SidebarSimpleIcon />
-              Palette
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsDark((current) => !current)}
-            >
-              {isDark ? <SunIcon /> : <MoonIcon />}
-              {isDark ? 'Light' : 'Dark'}
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => handleRunQuery()}
-              disabled={runQueryMutation.isPending}
-            >
-              <PlayIcon />
-              Run query
-            </Button>
           </div>
         </header>
 
-        <div ref={resultsLayoutRef} className="min-h-0 flex flex-col">
-          <section className="min-h-0 flex-1">
-            <Tabs value="query-1" className="flex h-full flex-col gap-0">
-              <div className="flex items-center justify-between border-b border-border px-3 py-2">
-                <TabsList variant="line">
-                  <TabsTrigger value="query-1">Query 1</TabsTrigger>
-                </TabsList>
-                <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                  Cmd/Ctrl + Enter
+        <div ref={resultsLayoutRef} className="flex min-h-0 min-w-0 flex-col">
+          <section className="min-h-0 min-w-0 flex-1">
+            <Tabs value="query-1" className="flex h-full min-w-0 flex-col gap-0">
+              <div className="min-w-0 overflow-x-auto border-b border-border">
+                <div className="flex min-w-full w-max items-center justify-between gap-3 px-3 py-2">
+                  <TabsList variant="line" className="shrink-0">
+                    <TabsTrigger value="query-1">Query 1</TabsTrigger>
+                  </TabsList>
+                  <div className="shrink-0 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                    Cmd/Ctrl + Enter
+                  </div>
                 </div>
               </div>
 
@@ -440,33 +445,38 @@ function App() {
             title="Resize results"
           />
 
-          <section className="min-h-0 h-full overflow-hidden" style={{ height: `${resultsHeight}px` }}>
-            <div className="flex items-center justify-between border-b border-border px-5 py-3">
-              <div className="min-w-0">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-                  Results
-                </p>
-                <p className="truncate text-sm text-foreground">
-                  {selectedTable
-                    ? `${selectedTable.schema}.${selectedTable.name}`
-                    : 'Current query output'}
-                </p>
-              </div>
+          <section
+            className="min-h-0 min-w-0 h-full overflow-hidden"
+            style={{ height: `${resultsHeight}px` }}
+          >
+            <div className="min-w-0 overflow-x-auto border-b border-border">
+              <div className="flex min-w-full w-max items-center justify-between gap-4 px-5 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+                    Results
+                  </p>
+                  <p className="truncate text-sm text-foreground">
+                    {selectedTable
+                      ? `${selectedTable.schema}.${selectedTable.name}`
+                      : 'Current query output'}
+                  </p>
+                </div>
 
-              <div className="text-right text-xs text-muted-foreground">
-                {schemaQuery.isLoading ? (
-                  <span>Loading columns...</span>
-                ) : schemaQuery.isError ? (
-                  <span className="text-destructive">{schemaErrorMessage}</span>
-                ) : schemaQuery.data?.length ? (
-                  <span>{schemaQuery.data.length} columns in selected table</span>
-                ) : (
-                  <span>
-                    {runQueryMutation.data
-                      ? `${runQueryMutation.data.rowCount} rows in ${runQueryMutation.data.executionMs} ms`
-                      : 'No query executed yet'}
-                  </span>
-                )}
+                <div className="shrink-0 text-right text-xs text-muted-foreground whitespace-nowrap">
+                  {schemaQuery.isLoading ? (
+                    <span>Loading columns...</span>
+                  ) : schemaQuery.isError ? (
+                    <span className="text-destructive">{schemaErrorMessage}</span>
+                  ) : schemaQuery.data?.length ? (
+                    <span>{schemaQuery.data.length} columns in selected table</span>
+                  ) : (
+                    <span>
+                      {runQueryMutation.data
+                        ? `${runQueryMutation.data.rowCount} rows in ${runQueryMutation.data.executionMs} ms`
+                        : 'No query executed yet'}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
