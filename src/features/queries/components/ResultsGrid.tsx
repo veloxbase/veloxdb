@@ -102,34 +102,80 @@ function ResultEditInput({
 }
 
 function renderLoadingSkeleton() {
-  const placeholderColumns = 5
-  const placeholderRows = 8
-  const columnKeys = Array.from({ length: placeholderColumns }, (_, index) => `column-${index + 1}`)
-  const rowKeys = Array.from({ length: placeholderRows }, (_, index) => `row-${index + 1}`)
+  const dataColumnCount = 4
+  const placeholderRows = 10
+  const skeletonTemplateColumns = [
+    `${SELECT_COLUMN_WIDTH_PX}px`,
+    ...Array.from({ length: dataColumnCount }, () => `${DEFAULT_DATA_COLUMN_WIDTH_PX}px`),
+  ].join(' ')
+  const columnIndices = Array.from({ length: 1 + dataColumnCount }, (_, index) => index)
+  const rowKeys = Array.from({ length: placeholderRows }, (_, index) => `skeleton-row-${index}`)
+
+  const toolbarColumns = [
+    { id: '__select', label: 'Select', visible: true, canHide: false },
+    ...Array.from({ length: dataColumnCount }, (_, index) => ({
+      id: `__skeleton_col_${index}`,
+      label: `Column ${index + 1}`,
+      visible: true,
+      canHide: true,
+    })),
+  ]
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="grid border-b border-border bg-muted/20" style={{ gridTemplateColumns: `repeat(${placeholderColumns}, minmax(150px, 1fr))` }}>
-        {columnKeys.map((columnKey) => (
-          <div key={columnKey} className="border-r border-border px-3 py-2 last:border-r-0">
-            <div className="h-3 w-16 animate-pulse bg-muted" />
+    <div className="flex h-full min-w-0 flex-col overflow-hidden">
+      <ResultsToolbar
+        columns={toolbarColumns}
+        canEdit={false}
+        isDirty={false}
+        isBusy
+        onToggleColumn={() => {}}
+        onRefresh={() => {}}
+        onCopy={() => {}}
+        onDownloadCsv={() => {}}
+        onDownloadJson={() => {}}
+        onSave={() => {}}
+      />
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-auto">
+        <div className="flex h-full w-max min-w-full flex-col">
+          <div
+            className="sticky top-0 z-10 grid w-max min-w-full shrink-0 border-b border-border bg-muted/30"
+            style={{ gridTemplateColumns: skeletonTemplateColumns }}
+          >
+            {columnIndices.map((columnIndex) => (
+              <div
+                key={`sk-h-${columnIndex}`}
+                className="relative min-w-0 truncate border-r border-border px-3 py-2 pr-2 last:border-r-0"
+              >
+                <div
+                  className={`h-3 animate-pulse rounded-sm bg-muted ${columnIndex === 0 ? 'w-10' : 'w-24 max-w-full'}`}
+                />
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden p-3">
-        <div className="space-y-2">
-          {rowKeys.map((rowKey) => (
-            <div
-              key={rowKey}
-              className="grid gap-2"
-              style={{ gridTemplateColumns: `repeat(${placeholderColumns}, minmax(150px, 1fr))` }}
-            >
-              {columnKeys.map((columnKey) => (
-                <div key={`${rowKey}-${columnKey}`} className="h-6 animate-pulse bg-muted/80" />
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+            <div className="w-max min-w-full">
+              {rowKeys.map((rowKey) => (
+                <div
+                  key={rowKey}
+                  className="grid w-max min-w-full border-b border-border/60 bg-background text-xs"
+                  style={{ gridTemplateColumns: skeletonTemplateColumns, height: 36 }}
+                >
+                  {columnIndices.map((columnIndex) => (
+                    <div
+                      key={`${rowKey}-c${columnIndex}`}
+                      className="flex min-w-0 items-center border-r border-border/60 px-3 py-2 last:border-r-0"
+                    >
+                      <div className="h-3.5 w-full max-w-[85%] animate-pulse rounded-sm bg-muted/80" />
+                    </div>
+                  ))}
+                </div>
               ))}
             </div>
-          ))}
+          </div>
         </div>
+      </div>
+      <div className="border-t border-border bg-muted/10 px-3 py-1.5 text-[11px] text-muted-foreground">
+        <span className="inline-block h-3 w-40 animate-pulse rounded-sm bg-muted/60" aria-hidden />
       </div>
     </div>
   )
