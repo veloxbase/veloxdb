@@ -26,10 +26,23 @@ export function useSaveResultEditsMutation() {
         return
       }
 
-      await veloxDbRepository.runQuery({
-        connectionId: request.connectionId,
-        sql: `BEGIN;\n${statements.join('\n')}\nCOMMIT;`,
-      })
+      try {
+        await veloxDbRepository.runQuery({
+          connectionId: request.connectionId,
+          sql: `BEGIN;\n${statements.join('\n')}\nCOMMIT;`,
+        })
+      } catch (error) {
+        // Best-effort rollback in case the previous transaction failed mid-flight.
+        try {
+          await veloxDbRepository.runQuery({
+            connectionId: request.connectionId,
+            sql: 'ROLLBACK;',
+          })
+        } catch {
+          // Ignore rollback failure; surface original save failure to the UI.
+        }
+        throw error
+      }
     },
   })
 }

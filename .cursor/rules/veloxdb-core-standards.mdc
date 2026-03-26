@@ -1,0 +1,33 @@
+---
+description: Core VeloxDB engineering standards for Cursor agent work
+alwaysApply: true
+---
+
+# VeloxDB Core Standards
+
+Apply these conventions for every task unless the user explicitly asks otherwise.
+
+- Use `pnpm` only for JS/TS tooling (`pnpm install`, `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm tauri`).
+- Keep code in the expected places:
+  - `src/features/<area>/` for feature UI and feature-local query hooks
+  - `src/data/` for shared repositories, query keys, and data contracts
+  - `src/components/ui/` for reusable design-system primitives
+  - `src/lib/` for small shared helpers
+  - `src-tauri/` for Rust commands, DB access, and Tauri integration
+- Preserve desktop-friendly TanStack Query defaults from `src/data/query-client.ts`; override per-query only with clear reason.
+- For large result sets, prioritize bounded reads and virtualization:
+  - Respect backend row caps and `truncated` behavior
+  - Avoid unbounded IPC payloads and large in-memory vectors
+  - Use virtualized rendering for heavy tables and grids
+- In Rust/Tauri code, prefer async handlers and pooled PostgreSQL access; avoid blocking I/O in command handlers.
+- In React, avoid `useEffect` for derivable state:
+  - Prefer render-time derivation, event handlers, refs, and TanStack Query callbacks
+  - Use `useEffect` only for external synchronization (subscriptions, listeners, imperative APIs)
+- Match existing shadcn-style component patterns and extend via variants rather than one-off inline styling.
+- Keep changes scoped to the request; do not refactor unrelated areas.
+
+## Good Defaults
+
+- Reuse existing repository and `invoke` patterns instead of creating ad hoc data paths.
+- Consider scale explicitly (rows, tree size, query frequency, number of open pools).
+- Keep edits incremental, testable, and easy to reason about.

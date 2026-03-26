@@ -152,8 +152,14 @@ export function ResultsGrid({
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
   const [pendingEdits, setPendingEdits] = useState<Record<string, Record<string, string | null>>>({})
   const [editingCell, setEditingCell] = useState<{ rowId: string; columnId: string } | null>(null)
+  const [gridError, setGridError] = useState<string | null>(null)
 
   const columns = useMemo(() => result?.columns ?? [], [result?.columns])
+  const columnsFingerprint = columns.join('\u0001')
+  const queryResultEditResetKey =
+    result != null
+      ? `${result.executionMs}\u0000${result.rowCount}\u0000${columnsFingerprint}`
+      : ''
   const editableColumnSet = useMemo(() => new Set(editableColumns), [editableColumns])
   const primaryKeySet = useMemo(() => new Set(primaryKeyColumns), [primaryKeyColumns])
 
@@ -286,8 +292,8 @@ export function ResultsGrid({
     [canEdit, columnHelper, columns, editableColumnSet, editingCell, originalByRowId, primaryKeySet],
   )
 
-  // TanStack table is intentionally used directly here for dynamic grid state.
-  // eslint-disable-next-line react-hooks/incompatible-library
+  // TanStack Table: React Compiler skips memoizing this hook by design.
+  // eslint-disable-next-line react-hooks/incompatible-library -- useReactTable is intentionally dynamic
   const table = useReactTable({
     data,
     columns: columnDefs,
@@ -378,10 +384,15 @@ export function ResultsGrid({
     setPendingEdits({})
     setRowSelection({})
     setEditingCell(null)
-  }, [result])
+    setGridError(null)
+  }, [queryResultEditResetKey])
 
   const handleSave = async () => {
     if (!onSaveEdits) {
+      return
+    }
+    if (!canEdit) {
+      setGridError(saveDisabledReason ?? 'Editing is disabled for this result set.')
       return
     }
 
@@ -401,11 +412,18 @@ export function ResultsGrid({
       .filter((patch): patch is ResultEditPatch => patch !== null)
 
     if (patches.length === 0) {
+      setGridError('No editable row changes found. Ensure rows have primary keys and edited values differ.')
       return
     }
 
-    await onSaveEdits(patches)
-    setPendingEdits({})
+    setGridError(null)
+    try {
+      await onSaveEdits(patches)
+      setPendingEdits({})
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save edits.'
+      setGridError(message)
+    }
   }
 
   const getRowsForAction = () => {
@@ -417,26 +435,51 @@ export function ResultsGrid({
 
   const handleCopy = async () => {
     const selectedRows = getRowsForAction()
-    await copyRows(
-      visibleColumns.filter((column) => column.id !== '__select').map((column) => column.id),
-      selectedRows,
-    )
+    const exportColumns = visibleColumns.filter((column) => column.id !== '__select').map((column) => column.id)
+    if (exportColumns.length === 0) {
+      setGridError('No visible data columns to copy.')
+      return
+    }
+
+    setGridError(null)
+    try {
+      await copyRows(exportColumns, selectedRows)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to copy rows.'
+      setGridError(message)
+    }
   }
 
   const handleDownloadCsv = () => {
-    downloadRowsAsCsv(
-      'query-results.csv',
-      visibleColumns.filter((column) => column.id !== '__select').map((column) => column.id),
-      getRowsForAction(),
-    )
+    const exportColumns = visibleColumns.filter((column) => column.id !== '__select').map((column) => column.id)
+    if (exportColumns.length === 0) {
+      setGridError('No visible data columns to export.')
+      return
+    }
+
+    setGridError(null)
+    try {
+      downloadRowsAsCsv('query-results.csv', exportColumns, getRowsForAction())
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to download CSV.'
+      setGridError(message)
+    }
   }
 
   const handleDownloadJson = () => {
-    downloadRowsAsJson(
-      'query-results.json',
-      visibleColumns.filter((column) => column.id !== '__select').map((column) => column.id),
-      getRowsForAction(),
-    )
+    const exportColumns = visibleColumns.filter((column) => column.id !== '__select').map((column) => column.id)
+    if (exportColumns.length === 0) {
+      setGridError('No visible data columns to export.')
+      return
+    }
+
+    setGridError(null)
+    try {
+      downloadRowsAsJson('query-results.json', exportColumns, getRowsForAction())
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to download JSON.'
+      setGridError(message)
+    }
   }
 
   if (isPending) {
@@ -483,69 +526,75 @@ export function ResultsGrid({
           void handleSave()
         }}
       />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-auto">
-        <div
-          className="grid w-max min-w-full shrink-0 border-b border-border bg-muted/30"
-          style={{ gridTemplateColumns: templateColumns }}
-        >
-          {visibleColumns.map((column) => (
-            <div
-              key={column.id}
-              className="relative min-w-0 truncate border-r border-border px-3 py-2 pr-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground last:border-r-0"
-            >
-              <span className="block truncate">{column.id === '__select' ? 'Select' : column.id}</span>
-              <button
-                type="button"
-                tabIndex={-1}
-                aria-label={`Resize column ${column.id === '__select' ? 'Select' : column.id}`}
-                className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize select-none border-0 bg-transparent p-0 hover:bg-primary/20"
-                onPointerDown={(event) => handleColumnResizePointerDown(column.id, event)}
-              />
-            </div>
-          ))}
-        </div>
-
-        <div ref={parentRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-auto">
+        <div className="flex h-full w-max min-w-full flex-col">
           <div
-            className="relative w-max min-w-full"
-            style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+            className="sticky top-0 z-10 grid w-max min-w-full shrink-0 border-b border-border bg-muted/30"
+            style={{ gridTemplateColumns: templateColumns }}
           >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-              const row = table.getRowModel().rows[virtualRow.index]
-              if (!row) {
-                return null
-              }
+            {visibleColumns.map((column) => (
+              <div
+                key={column.id}
+                className="relative min-w-0 truncate border-r border-border px-3 py-2 pr-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground last:border-r-0"
+              >
+                <span className="block truncate">{column.id === '__select' ? 'Select' : column.id}</span>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label={`Resize column ${column.id === '__select' ? 'Select' : column.id}`}
+                  className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize select-none border-0 bg-transparent p-0 hover:bg-primary/20"
+                  onPointerDown={(event) => handleColumnResizePointerDown(column.id, event)}
+                />
+              </div>
+            ))}
+          </div>
+          <div ref={parentRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+            <div
+              className="relative w-max min-w-full"
+              style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const row = table.getRowModel().rows[virtualRow.index]
+                if (!row) {
+                  return null
+                }
 
-              return (
-                <div
-                  key={row.id}
-                  className={`absolute left-0 top-0 grid w-max min-w-full border-b border-border/60 text-xs ${
-                    row.getIsSelected() ? 'bg-muted/40' : 'bg-background'
-                  }`}
-                  style={{
-                    height: `${virtualRow.size}px`,
-                    transform: `translateY(${virtualRow.start}px)`,
-                    gridTemplateColumns: templateColumns,
-                  }}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <div
-                      key={cell.id}
-                      className="min-w-0 truncate border-r border-border/60 px-3 py-2 last:border-r-0"
-                      title={formatValue(cell.getValue() as string | null)}
-                    >
-                      {renderBodyCell(cell)}
-                    </div>
-                  ))}
-                </div>
-              )
-            })}
+                return (
+                  <div
+                    key={row.id}
+                    className={`absolute left-0 top-0 grid w-max min-w-full border-b border-border/60 text-xs ${
+                      row.getIsSelected() ? 'bg-muted/40' : 'bg-background'
+                    }`}
+                    style={{
+                      height: `${virtualRow.size}px`,
+                      transform: `translateY(${virtualRow.start}px)`,
+                      gridTemplateColumns: templateColumns,
+                    }}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <div
+                        key={cell.id}
+                        className="min-w-0 truncate border-r border-border/60 px-3 py-2 last:border-r-0"
+                        title={formatValue(cell.getValue() as string | null)}
+                      >
+                        {renderBodyCell(cell)}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
       </div>
       <div className="border-t border-border bg-muted/10 px-3 py-1.5 text-[11px] text-muted-foreground">
         {saveDisabledReason && !canEdit ? saveDisabledReason : `${Object.keys(rowSelection).length} row(s) selected`}
       </div>
+      {gridError ? (
+        <div className="border-t border-border bg-destructive/10 px-3 py-1.5 text-[11px] text-destructive">
+          {gridError}
+        </div>
+      ) : null}
     </div>
   )
 }

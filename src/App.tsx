@@ -236,7 +236,8 @@ function App() {
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const deltaY = moveEvent.clientY - startY
-      setResultsHeight(clampResultsHeight(startHeight + deltaY))
+      // Splitter sits above the results panel: moving the handle up (negative deltaY) grows the bottom section.
+      setResultsHeight(clampResultsHeight(startHeight - deltaY))
     }
 
     const handlePointerUp = () => {
