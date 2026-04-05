@@ -14,6 +14,9 @@ export const queryKeys = {
 
   foreignKeys: (connectionId?: string | null) =>
     ['foreignKeys', connectionId ?? null] as const,
+
+  tableIndexes: (connectionId: string | undefined, table?: TableInfo | null) =>
+    ['tableIndexes', connectionId ?? null, table?.schema ?? null, table?.name ?? null] as const,
 } as const
 
 export type QueryKeys = typeof queryKeys

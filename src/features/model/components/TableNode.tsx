@@ -29,6 +29,8 @@ export type TableNodeProps = {
   spaceHeld?: boolean
   onBeginCanvasPan?: (clientX: number, clientY: number) => void
   onSelect: (shiftKey: boolean) => void
+  onDragStart?: () => void
+  onDragMove?: (x: number, y: number) => void
   onDragEnd: (x: number, y: number) => void
   onRequestColumns: () => void
   onConnectColumnPointerDown?: (columnName: string, e: KonvaEventObject<MouseEvent>) => void
@@ -48,6 +50,8 @@ function TableNodeInner({
   spaceHeld = false,
   onBeginCanvasPan,
   onSelect,
+  onDragStart,
+  onDragMove,
   onDragEnd,
   onRequestColumns,
   onConnectColumnPointerDown,
@@ -84,6 +88,12 @@ function TableNodeInner({
         }
         e.cancelBubble = true
         onSelect(e.evt.shiftKey)
+      }}
+      onDragStart={() => {
+        onDragStart?.()
+      }}
+      onDragMove={(e) => {
+        onDragMove?.(e.target.x(), e.target.y())
       }}
       onDragEnd={(e) => {
         onDragEnd(e.target.x(), e.target.y())

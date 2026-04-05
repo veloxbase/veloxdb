@@ -132,6 +132,39 @@ pub struct DdlBatchRequest {
     pub statements: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DdlStatementRequest {
+    pub connection_id: Option<String>,
+    pub statement: String,
+}
+
+/// One index on a table (includes usage stats when available).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexInfo {
+    pub index_schema: String,
+    pub index_name: String,
+    pub table_schema: String,
+    pub table_name: String,
+    pub is_unique: bool,
+    pub is_primary: bool,
+    pub is_valid: bool,
+    pub is_partial: bool,
+    pub definition: String,
+    pub index_bytes: i64,
+    pub idx_scan: i64,
+    pub idx_tup_read: i64,
+    pub idx_tup_fetch: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TableIndexesResult {
+    pub indexes: Vec<IndexInfo>,
+    pub truncated: bool,
+}
+
 impl StoredConnection {
     pub fn from_input(id: String, input: ConnectionInput) -> Self {
         Self {

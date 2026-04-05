@@ -23,11 +23,15 @@ import { SqlEditor } from '@/features/queries/components/SqlEditor'
 import { useTablesQuery } from '@/features/tables/queries'
 import { TablePropertiesDialog } from '@/features/schema/components/TablePropertiesDialog'
 import { useTableSchemaQuery, useTablePropertiesQuery } from '@/features/schema/queries'
-import { useRunQueryMutation, useSaveResultEditsMutation } from '@/features/queries/queries'
+import {
+  useExplainPlanMutation,
+  useRunQueryMutation,
+  useSaveResultEditsMutation,
+} from '@/features/queries/queries'
 import { ModelWorkspace } from '@/features/model/components/ModelWorkspace'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import type { ConnectionSummary, TableInfo } from '@/data/types'
+import type { ConnectionSummary, QueryResult, TableInfo } from '@/data/types'
 import type { ResultEditPatch } from '@/features/queries/result-edits'
 
 const DEFAULT_QUERY = `select table_schema, table_name
@@ -84,6 +88,8 @@ function App() {
     table: TableInfo
   } | null>(null)
   const [mainWorkspace, setMainWorkspace] = useState<'query' | 'model'>('query')
+  const [resultsTab, setResultsTab] = useState<'results' | 'plan'>('results')
+  const [planResult, setPlanResult] = useState<QueryResult | null>(null)
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark)
@@ -106,6 +112,15 @@ function App() {
   const runQueryMutation = useRunQueryMutation({
     onSuccess: (_result, variables) => {
       setLastQuery(variables.sql)
+      setResultsTab('results')
+      setPlanResult(null)
+    },
+  })
+
+  const explainPlanMutation = useExplainPlanMutation({
+    onSuccess: (result) => {
+      setPlanResult(result)
+      setResultsTab('plan')
     },
   })
 
@@ -117,6 +132,9 @@ function App() {
       setIsSidebarCollapsed(false)
       setConnectionDialogOpen(false)
       runQueryMutation.reset()
+      explainPlanMutation.reset()
+      setPlanResult(null)
+      setResultsTab('results')
       setTablePropertiesDialogOpen(false)
       setTablePropertiesTarget(null)
     },
@@ -128,6 +146,9 @@ function App() {
       setSelectedTable(null)
       setTableSearch('')
       runQueryMutation.reset()
+      explainPlanMutation.reset()
+      setPlanResult(null)
+      setResultsTab('results')
       setTablePropertiesDialogOpen(false)
       setTablePropertiesTarget(null)
     },
@@ -183,6 +204,16 @@ function App() {
       connectionId: connection.id,
       sql,
     })
+  }
+
+  const handleExplainPlan = () => {
+    if (!connection?.id) {
+      setConnectionDialogOpen(true)
+      return
+    }
+    const sql = query.trim()
+    if (!sql) return
+    explainPlanMutation.mutate({ connectionId: connection.id, sql })
   }
 
   const handleSelectTable = (table: TableInfo) => {
@@ -279,6 +310,10 @@ function App() {
     connectionError instanceof Error ? connectionError.message : 'Failed to connect'
   const runQueryErrorMessage =
     runQueryMutation.error instanceof Error ? runQueryMutation.error.message : 'Failed to run query'
+  const explainPlanErrorMessage =
+    explainPlanMutation.error instanceof Error
+      ? explainPlanMutation.error.message
+      : 'Failed to run EXPLAIN'
   const saveResultEditsErrorMessage =
     saveResultEditsMutation.error instanceof Error
       ? saveResultEditsMutation.error.message
@@ -420,14 +455,24 @@ function App() {
                 {isDark ? 'Light' : 'Dark'}
               </Button>
               {mainWorkspace === 'query' ? (
-                <Button
-                  size="sm"
-                  onClick={() => handleRunQuery()}
-                  disabled={runQueryMutation.isPending}
-                >
-                  <PlayIcon />
-                  Run query
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleExplainPlan()}
+                    disabled={explainPlanMutation.isPending}
+                  >
+                    Explain (analyze)
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => handleRunQuery()}
+                    disabled={runQueryMutation.isPending}
+                  >
+                    <PlayIcon />
+                    Run query
+                  </Button>
+                </>
               ) : null}
             </div>
           </div>
@@ -469,60 +514,106 @@ function App() {
               className="min-h-0 min-w-0 h-full overflow-hidden"
               style={{ height: `${resultsHeight}px` }}
             >
-              <div className="min-w-0 overflow-x-auto border-b border-border">
-                <div className="flex min-w-full w-max items-center justify-between gap-4 px-5 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-                      Results
-                    </p>
-                    <p className="truncate text-sm text-foreground">
-                      {selectedTable
-                        ? `${selectedTable.schema}.${selectedTable.name}`
-                        : 'Current query output'}
-                    </p>
-                  </div>
+              <Tabs
+                value={resultsTab}
+                onValueChange={(v) => setResultsTab(v as 'results' | 'plan')}
+                className="flex h-full min-h-0 flex-col"
+              >
+                <div className="min-w-0 shrink-0 overflow-x-auto border-b border-border">
+                  <div className="flex min-w-full w-max flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <TabsList variant="line" className="h-8">
+                        <TabsTrigger value="results" className="text-xs">
+                          Results
+                        </TabsTrigger>
+                        <TabsTrigger value="plan" className="text-xs">
+                          Explain plan
+                        </TabsTrigger>
+                      </TabsList>
+                      <p className="mt-1 truncate text-sm text-foreground">
+                        {resultsTab === 'plan'
+                          ? 'EXPLAIN (ANALYZE, BUFFERS) output'
+                          : selectedTable
+                            ? `${selectedTable.schema}.${selectedTable.name}`
+                            : 'Current query output'}
+                      </p>
+                    </div>
 
-                  <div className="shrink-0 text-right text-xs text-muted-foreground whitespace-nowrap">
-                    {schemaQuery.isLoading ? (
-                      <span>Loading columns...</span>
-                    ) : schemaQuery.isError ? (
-                      <span className="text-destructive">{schemaErrorMessage}</span>
-                    ) : schemaQuery.data?.length ? (
-                      <span>{schemaQuery.data.length} columns in selected table</span>
-                    ) : (
-                      <span>
-                        {runQueryMutation.data
-                          ? `${runQueryMutation.data.rowCount} rows in ${runQueryMutation.data.executionMs} ms`
-                          : 'No query executed yet'}
-                      </span>
-                    )}
+                    <div className="shrink-0 text-right text-xs text-muted-foreground whitespace-nowrap">
+                      {resultsTab === 'plan' ? (
+                        <span>
+                          {planResult
+                            ? `${planResult.rowCount} plan lines in ${planResult.executionMs} ms`
+                            : explainPlanMutation.isPending
+                              ? 'Running EXPLAIN…'
+                              : 'Run Explain (analyze) from the header'}
+                        </span>
+                      ) : schemaQuery.isLoading ? (
+                        <span>Loading columns...</span>
+                      ) : schemaQuery.isError ? (
+                        <span className="text-destructive">{schemaErrorMessage}</span>
+                      ) : schemaQuery.data?.length ? (
+                        <span>{schemaQuery.data.length} columns in selected table</span>
+                      ) : (
+                        <span>
+                          {runQueryMutation.data
+                            ? `${runQueryMutation.data.rowCount} rows in ${runQueryMutation.data.executionMs} ms`
+                            : 'No query executed yet'}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <ErrorBoundary
-                fallback={
-                  <div className="flex h-full items-center justify-center p-4 text-xs text-destructive">
-                    Results failed to render.
-                  </div>
-                }
-              >
-                <ResultsGrid
-                  result={runQueryMutation.data ?? null}
-                  isPending={runQueryMutation.isPending}
-                  isSaving={saveResultEditsMutation.isPending}
-                  canEdit={isResultSingleTableEditable}
-                  editableColumns={editableColumns}
-                  primaryKeyColumns={primaryKeyColumns}
-                  saveDisabledReason={saveDisabledReason}
-                  onRefresh={() => handleRunQuery(lastQuery || query)}
-                  onSaveEdits={handleSaveResultEdits}
-                />
-              </ErrorBoundary>
+                <TabsContent value="results" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+                  <ErrorBoundary
+                    fallback={
+                      <div className="flex h-full items-center justify-center p-4 text-xs text-destructive">
+                        Results failed to render.
+                      </div>
+                    }
+                  >
+                    <ResultsGrid
+                      result={runQueryMutation.data ?? null}
+                      isPending={runQueryMutation.isPending}
+                      isSaving={saveResultEditsMutation.isPending}
+                      canEdit={isResultSingleTableEditable}
+                      editableColumns={editableColumns}
+                      primaryKeyColumns={primaryKeyColumns}
+                      saveDisabledReason={saveDisabledReason}
+                      onRefresh={() => handleRunQuery(lastQuery || query)}
+                      onSaveEdits={handleSaveResultEdits}
+                    />
+                  </ErrorBoundary>
+                </TabsContent>
 
-              {runQueryMutation.data?.truncated ? (
+                <TabsContent value="plan" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
+                  <ErrorBoundary
+                    fallback={
+                      <div className="flex h-full items-center justify-center p-4 text-xs text-destructive">
+                        Explain output failed to render.
+                      </div>
+                    }
+                  >
+                    <ResultsGrid
+                      result={planResult}
+                      isPending={explainPlanMutation.isPending}
+                      isSaving={false}
+                      canEdit={false}
+                      editableColumns={[]}
+                      primaryKeyColumns={[]}
+                      saveDisabledReason="Editing is not available for EXPLAIN output."
+                      onRefresh={() => handleExplainPlan()}
+                      onSaveEdits={async () => {}}
+                    />
+                  </ErrorBoundary>
+                </TabsContent>
+              </Tabs>
+
+              {(resultsTab === 'results' && runQueryMutation.data?.truncated) ||
+              (resultsTab === 'plan' && planResult?.truncated) ? (
                 <div className="border-t border-border bg-muted/20 px-5 py-2 text-xs text-muted-foreground">
-                  Result output was truncated to keep the UI responsive.
+                  Output was truncated to keep the UI responsive.
                 </div>
               ) : null}
 
@@ -535,6 +626,12 @@ function App() {
               {runQueryMutation.error ? (
                 <div className="border-t border-border bg-destructive/10 px-5 py-2 text-xs text-destructive">
                   {runQueryErrorMessage}
+                </div>
+              ) : null}
+
+              {explainPlanMutation.error ? (
+                <div className="border-t border-border bg-destructive/10 px-5 py-2 text-xs text-destructive">
+                  {explainPlanErrorMessage}
                 </div>
               ) : null}
 

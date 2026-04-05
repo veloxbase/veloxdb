@@ -4,11 +4,13 @@ import type {
   ConnectionInput,
   ConnectionSummary,
   DdlBatchRequest,
+  DdlStatementRequest,
   ForeignKeyEdge,
-  TablePropertiesApplyRequest,
   QueryRequest,
   QueryResult,
   TableInfo,
+  TableIndexesResult,
+  TablePropertiesApplyRequest,
 } from '@/data/types'
 
 /**
@@ -25,6 +27,11 @@ export interface VeloxDbRepository {
   getTableProperties(connectionId: string | undefined, table: TableInfo): Promise<ColumnProperties[]>
   applyTableProperties(request: TablePropertiesApplyRequest): Promise<void>
   getForeignKeys(connectionId?: string): Promise<ForeignKeyEdge[]>
+  getTableIndexes(
+    connectionId: string | undefined,
+    table: TableInfo,
+  ): Promise<TableIndexesResult>
   executeDdlTransaction(request: DdlBatchRequest): Promise<void>
+  executeDdlStatement(request: DdlStatementRequest): Promise<void>
 }
 

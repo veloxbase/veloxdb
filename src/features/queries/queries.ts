@@ -17,6 +17,28 @@ export function useRunQueryMutation(options: UseRunQueryMutationOptions = {}) {
   })
 }
 
+type UseExplainPlanMutationOptions = {
+  onSuccess?: (result: QueryResult, variables: { connectionId: string; sql: string }) => void
+}
+
+/** Runs EXPLAIN (ANALYZE, BUFFERS) unless the SQL already starts with EXPLAIN or PREPARE. */
+export function useExplainPlanMutation(options: UseExplainPlanMutationOptions = {}) {
+  return useMutation({
+    mutationFn: ({ connectionId, sql }: { connectionId: string; sql: string }) => {
+      const trimmed = sql.trim()
+      const upper = trimmed.toUpperCase()
+      const body =
+        upper.startsWith('EXPLAIN') || upper.startsWith('PREPARE')
+          ? trimmed
+          : `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)\n${trimmed}`
+      return veloxDbRepository.runQuery({ connectionId, sql: body })
+    },
+    onSuccess: (result, variables) => {
+      options.onSuccess?.(result, variables)
+    },
+  })
+}
+
 export function useSaveResultEditsMutation() {
   return useMutation({
     mutationFn: async (request: SaveResultEditsRequest) => {

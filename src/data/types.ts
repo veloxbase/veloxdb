@@ -85,3 +85,29 @@ export type DdlBatchRequest = {
   statements: string[]
 }
 
+export type DdlStatementRequest = {
+  connectionId?: string
+  statement: string
+}
+
+export type IndexInfo = {
+  indexSchema: string
+  indexName: string
+  tableSchema: string
+  tableName: string
+  isUnique: boolean
+  isPrimary: boolean
+  isValid: boolean
+  isPartial: boolean
+  definition: string
+  indexBytes: number
+  idxScan: number
+  idxTupRead: number
+  idxTupFetch: number
+}
+
+export type TableIndexesResult = {
+  indexes: IndexInfo[]
+  truncated: boolean
+}
+

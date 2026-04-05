@@ -11,6 +11,7 @@ import type {
   TableIdentityDraft,
 } from '@/features/model/apply-entire-model'
 import { tableKey, type TableKey } from '@/features/model/model-types'
+import { IndexInspectorSection } from '@/features/model/components/IndexInspectorSection'
 import { useTablePropertiesQuery } from '@/features/schema/queries'
 import { cn } from '@/lib/utils'
 
@@ -27,9 +28,9 @@ type ModelInspectorProps = {
   connectionId: string
   table: TableInfo | null
   tableKeyStr: TableKey | null
-  /** Theme default header color as `#rrggbb` for the native color input. */
+  /** Default header `#rrggbb` when the user has not picked a custom color (diagram uses a distinct color per table). */
   defaultDiagramHeaderHex: string
-  /** User override for diagram node header; omit to use theme default. */
+  /** User override for diagram node header; omit to use the distinct default for this table. */
   tableHeaderColor?: string
   onTableHeaderColorChange: (hex: string | null) => void
   identityDraft: TableIdentityDraft | null
@@ -262,6 +263,12 @@ export function ModelInspector({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
+        <IndexInspectorSection
+          connectionId={connectionId}
+          table={table}
+          columnNames={columns.map((c) => c.columnName)}
+        />
+
         <div className="mb-4 space-y-2 border-b border-border pb-4">
           <p className="text-[10px] font-medium text-muted-foreground">Add column (pending)</p>
           <p className="text-[10px] leading-snug text-muted-foreground">

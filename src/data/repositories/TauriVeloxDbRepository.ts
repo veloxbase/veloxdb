@@ -6,10 +6,12 @@ import type {
   ColumnInfo,
   ColumnProperties,
   DdlBatchRequest,
+  DdlStatementRequest,
   ForeignKeyEdge,
   QueryRequest,
   QueryResult,
   TableInfo,
+  TableIndexesResult,
   TablePropertiesApplyRequest,
 } from '@/data/types'
 import type { VeloxDbRepository } from '@/data/repositories/VeloxDbRepository'
@@ -69,8 +71,25 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
     return invoke<ForeignKeyEdge[]>('get_foreign_keys', { connectionId })
   }
 
+  async getTableIndexes(
+    connectionId: string | undefined,
+    table: TableInfo,
+  ): Promise<TableIndexesResult> {
+    return invoke<TableIndexesResult>('get_table_indexes', {
+      input: {
+        connectionId,
+        tableSchema: table.schema,
+        tableName: table.name,
+      },
+    })
+  }
+
   async executeDdlTransaction(request: DdlBatchRequest): Promise<void> {
     await invoke('execute_ddl_transaction', { input: request })
+  }
+
+  async executeDdlStatement(request: DdlStatementRequest): Promise<void> {
+    await invoke('execute_ddl_statement', { input: request })
   }
 }
 

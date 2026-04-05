@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { Stage as KonvaStage } from 'konva/lib/Stage'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react'
 import { Layer, Line, Rect, Stage } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 
@@ -32,8 +41,12 @@ type DiagramCanvasProps = {
   onTableSelect: (key: TableKey, shiftKey: boolean) => void
   onClearSelection: () => void
   onMarqueeSelect: (keys: TableKey[], shiftKey: boolean) => void
+  onTableDragStart?: (key: TableKey) => void
+  onTableDragMove?: (key: TableKey, x: number, y: number) => void
   onMoveTable: (key: TableKey, x: number, y: number) => void
   onRequestColumns: (key: TableKey) => void
+  /** Set from parent to call Stage.toDataURL / export. */
+  stageRef?: RefObject<KonvaStage | null>
   onConnectColumns?: (fromKey: TableKey, fromColumn: string, toKey: TableKey, toColumn: string) => void
   /** Per-table header fill (`#rrggbb`); missing keys use theme default. */
   headerColors?: Record<TableKey, string>
@@ -57,10 +70,13 @@ export function DiagramCanvas({
   onTableSelect,
   onClearSelection,
   onMarqueeSelect,
+  onTableDragStart,
+  onTableDragMove,
   onMoveTable,
   onRequestColumns,
   onConnectColumns,
   headerColors = {},
+  stageRef,
 }: DiagramCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 640, h: 480 })
@@ -493,6 +509,7 @@ export function DiagramCanvas({
         {toolHint}
       </p>
       <Stage
+        ref={stageRef}
         width={size.w}
         height={size.h}
         x={viewport.x}
@@ -567,6 +584,10 @@ export function DiagramCanvas({
                 spaceHeld={spaceHeld}
                 onBeginCanvasPan={beginPanFromTable}
                 onSelect={(shiftKey) => onTableSelect(t.key, shiftKey)}
+                onDragStart={onTableDragStart ? () => onTableDragStart(t.key) : undefined}
+                onDragMove={
+                  onTableDragMove ? (nx, ny) => onTableDragMove(t.key, nx, ny) : undefined
+                }
                 onDragEnd={(nx, ny) => onMoveTable(t.key, nx, ny)}
                 onRequestColumns={() => onRequestColumns(t.key)}
                 onConnectColumnPointerDown={

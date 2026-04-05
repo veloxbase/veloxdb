@@ -12,12 +12,15 @@ use crate::db::{
 };
 use crate::models::{
     ColumnInfo, ColumnProperties, ConnectionInput, ConnectionSummary, DdlBatchRequest,
-    ForeignKeyEdge, QueryRequest, QueryResult, SchemaRequest, StoredConnection, TableInfo,
-    TablePropertiesApplyRequest,
+    DdlStatementRequest, ForeignKeyEdge, IndexInfo, QueryRequest, QueryResult, SchemaRequest,
+    StoredConnection, TableIndexesResult, TableInfo, TablePropertiesApplyRequest,
 };
 
 /// Cap FK rows returned to the UI to keep IPC payloads bounded.
 const MAX_FOREIGN_KEY_ROWS: i64 = 5000;
+
+/// Cap index rows per table (fetch limit + 1 to detect truncation).
+const MAX_TABLE_INDEX_ROWS: i64 = 500;
 
 #[tauri::command]
 pub async fn connect_db(
@@ -640,6 +643,83 @@ pub async fn get_foreign_keys(
 }
 
 #[tauri::command]
+pub async fn get_table_indexes(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: SchemaRequest,
+) -> Result<TableIndexesResult, String> {
+    let connection_id = resolve_connection_id(&state, input.connection_id).await?;
+    let pool = get_or_create_pool(&app, &state, &connection_id).await?;
+    let client = pool.get().await.map_err(|error| error.to_string())?;
+
+    let table_schema = input.table_schema;
+    let table_name = input.table_name;
+    let fetch_limit = MAX_TABLE_INDEX_ROWS + 1;
+
+    let rows = client
+        .query(
+            "
+            select
+              ins.nspname::text as index_schema,
+              ic.relname::text as index_name,
+              tn.nspname::text as table_schema,
+              tc.relname::text as table_name,
+              i.indisunique as is_unique,
+              i.indisprimary as is_primary,
+              i.indisvalid as is_valid,
+              (i.indpred is not null) as is_partial,
+              pg_get_indexdef(i.indexrelid) as definition,
+              coalesce(pg_relation_size(i.indexrelid::regclass), 0)::bigint as index_bytes,
+              coalesce(s.idx_scan, 0)::bigint as idx_scan,
+              coalesce(s.idx_tup_read, 0)::bigint as idx_tup_read,
+              coalesce(s.idx_tup_fetch, 0)::bigint as idx_tup_fetch
+            from pg_index i
+            join pg_class ic on ic.oid = i.indexrelid
+            join pg_namespace ins on ins.oid = ic.relnamespace
+            join pg_class tc on tc.oid = i.indrelid
+            join pg_namespace tn on tn.oid = tc.relnamespace
+            left join pg_stat_user_indexes s on s.indexrelid = i.indexrelid
+            where tn.nspname = $1
+              and tc.relname = $2
+              and ins.nspname not in ('pg_catalog', 'information_schema')
+            order by ic.relname
+            limit $3
+            ",
+            &[&table_schema, &table_name, &fetch_limit],
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let truncated = rows.len() as i64 > MAX_TABLE_INDEX_ROWS;
+    let take = if truncated {
+        MAX_TABLE_INDEX_ROWS as usize
+    } else {
+        rows.len()
+    };
+
+    let mut indexes = Vec::with_capacity(take);
+    for row in rows.into_iter().take(take) {
+        indexes.push(IndexInfo {
+            index_schema: row.get(0),
+            index_name: row.get(1),
+            table_schema: row.get(2),
+            table_name: row.get(3),
+            is_unique: row.get(4),
+            is_primary: row.get(5),
+            is_valid: row.get(6),
+            is_partial: row.get(7),
+            definition: row.get(8),
+            index_bytes: row.get(9),
+            idx_scan: row.get(10),
+            idx_tup_read: row.get(11),
+            idx_tup_fetch: row.get(12),
+        });
+    }
+
+    Ok(TableIndexesResult { indexes, truncated })
+}
+
+#[tauri::command]
 pub async fn execute_ddl_transaction(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -671,5 +751,28 @@ pub async fn execute_ddl_transaction(
             .map_err(|error| error.to_string())?;
     }
     txn.commit().await.map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Run a single DDL statement outside an explicit transaction (required for `CREATE INDEX CONCURRENTLY`).
+#[tauri::command]
+pub async fn execute_ddl_statement(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: DdlStatementRequest,
+) -> Result<(), String> {
+    let connection_id = resolve_connection_id(&state, input.connection_id).await?;
+    let pool = get_or_create_pool(&app, &state, &connection_id).await?;
+    let client = pool.get().await.map_err(|error| error.to_string())?;
+
+    let sql = input.statement.trim().to_string();
+    if sql.is_empty() {
+        return Err("No SQL statement to execute.".to_string());
+    }
+
+    client
+        .execute(sql.as_str(), &[])
+        .await
+        .map_err(|error| error.to_string())?;
     Ok(())
 }

@@ -4,6 +4,26 @@ import { queryKeys } from '@/data/query-keys'
 import { veloxDbRepository } from '@/data/repositories'
 import type { TableInfo, TablePropertiesApplyRequest } from '@/data/types'
 
+type UseTableIndexesQueryArgs = {
+  connectionId: string | undefined
+  table: TableInfo | null
+  enabled: boolean
+}
+
+export function useTableIndexesQuery({ connectionId, table, enabled }: UseTableIndexesQueryArgs) {
+  return useQuery({
+    queryKey: queryKeys.tableIndexes(connectionId, table),
+    queryFn: () => {
+      if (!table) {
+        throw new Error('Table is required for indexes query.')
+      }
+      return veloxDbRepository.getTableIndexes(connectionId, table)
+    },
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 type UseTableSchemaQueryArgs = {
   connectionId: string | undefined
   table: TableInfo | null
@@ -67,6 +87,7 @@ export function useApplyTablePropertiesMutation() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.tableProperties(variables.connectionId, table) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.schema(variables.connectionId, table) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.foreignKeys(variables.connectionId) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tableIndexes(variables.connectionId, table) })
     },
   })
 }

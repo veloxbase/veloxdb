@@ -12,6 +12,8 @@ export type ViewportState = {
   y: number
 }
 
+export type DiagramToolPersisted = 'select' | 'pan' | 'connect'
+
 export type DiagramLayoutSnapshot = {
   positions: Record<TableKey, { x: number; y: number }>
   viewport: ViewportState
@@ -20,6 +22,10 @@ export type DiagramLayoutSnapshot = {
   modelTitle?: string
   /** Per-table diagram header fill (`#rrggbb`); overrides theme default. */
   headerColors?: Record<TableKey, string>
+  /** Last diagram toolbar tool; defaults to select when missing. */
+  diagramTool?: DiagramToolPersisted
+  /** When false, table positions are not snapped to the diagram grid. Defaults to true. */
+  snapToGrid?: boolean
 }
 
 export type ModelTableView = {

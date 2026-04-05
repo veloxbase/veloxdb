@@ -10,6 +10,8 @@ type DiagramMinimapProps = {
   tableKeys: readonly TableKey[]
   positions: Record<TableKey, { x: number; y: number }>
   columnsByKey: Record<TableKey, ColumnInfo[] | null>
+  /** Resolved header fills (including per-table defaults); omit for neutral blocks. */
+  tableHeaderColors?: Record<TableKey, string>
   viewport: ViewportState
   onViewportChange: (v: ViewportState) => void
   canvasWidth: number
@@ -25,6 +27,7 @@ export function DiagramMinimap({
   tableKeys,
   positions,
   columnsByKey,
+  tableHeaderColors,
   viewport,
   onViewportChange,
   canvasWidth,
@@ -143,15 +146,23 @@ export function DiagramMinimap({
           const { x, y } = worldToMap(p.x, p.y)
           const w = TABLE_NODE_WIDTH * scale
           const hh = h * scale
+          const fill = tableHeaderColors?.[k]
           return (
             <div
               key={k}
-              className="absolute rounded-[2px] bg-muted-foreground/35"
+              className={fill ? 'absolute rounded-[2px]' : 'absolute rounded-[2px] bg-muted-foreground/35'}
               style={{
                 left: x,
                 top: y,
                 width: Math.max(2, w),
                 height: Math.max(2, hh),
+                ...(fill
+                  ? {
+                      backgroundColor: fill,
+                      opacity: isDark ? 0.85 : 0.9,
+                      boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.12)',
+                    }
+                  : {}),
               }}
             />
           )

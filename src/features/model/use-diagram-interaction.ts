@@ -71,8 +71,8 @@ function selectionReducer(s: SelectionState, a: SelectionAction): SelectionState
   }
 }
 
-export function useDiagramInteraction() {
-  const [tool, setTool] = useState<DiagramTool>('select')
+export function useDiagramInteraction(initialTool: DiagramTool | (() => DiagramTool) = 'select') {
+  const [tool, setTool] = useState<DiagramTool>(initialTool)
   const [selection, dispatchSelection] = useReducer(selectionReducer, {
     selectedKeys: [],
     primaryKey: null,

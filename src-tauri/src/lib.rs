@@ -3,8 +3,9 @@ mod db;
 mod models;
 
 use commands::{
-  apply_table_properties, connect_db, execute_ddl_transaction, get_foreign_keys, get_schema,
-  get_table_properties, get_tables, list_connections_command, run_query, set_active_connection,
+  apply_table_properties, connect_db, execute_ddl_statement, execute_ddl_transaction,
+  get_foreign_keys, get_schema, get_table_indexes, get_table_properties, get_tables,
+  list_connections_command, run_query, set_active_connection,
 };
 use db::AppState;
 
@@ -33,7 +34,9 @@ pub fn run() {
       get_table_properties,
       apply_table_properties,
       get_foreign_keys,
-      execute_ddl_transaction
+      get_table_indexes,
+      execute_ddl_transaction,
+      execute_ddl_statement
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

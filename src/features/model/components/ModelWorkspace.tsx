@@ -1,3 +1,4 @@
+import type { Stage as KonvaStage } from 'konva/lib/Stage'
 import { useQueries, useQueryClient } from '@tanstack/react-query'
 import {
   AlignBottomIcon,
@@ -5,8 +6,11 @@ import {
   AlignRightIcon,
   AlignTopIcon,
   CursorIcon,
+  DownloadSimpleIcon,
+  GridFourIcon,
   HandGrabbingIcon,
   LinkSimpleIcon,
+  MagnetIcon,
 } from '@phosphor-icons/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -37,9 +41,11 @@ import {
 } from '@/features/model/diagram-geometry/snap'
 import {
   ensurePositions,
+  gridPositionForIndex,
   loadDiagramLayout,
   saveDiagramLayout,
 } from '@/features/model/model-layout-storage'
+import { defaultDiagramHeaderHex as distinctDiagramHeaderHex } from '@/features/model/diagram-header-palette'
 import { readKonvaPalette } from '@/features/model/konva-theme'
 import { tableKey, type TableKey, type ViewportState } from '@/features/model/model-types'
 import { useForeignKeysQuery } from '@/features/model/queries'
@@ -81,12 +87,18 @@ export function ModelWorkspace({
     clearSelection,
     applyMarquee,
     selectSingleFromCatalog,
-  } = useDiagramInteraction()
+  } = useDiagramInteraction(() => {
+    const t = loadDiagramLayout(connectionId)?.diagramTool
+    return t === 'pan' || t === 'connect' || t === 'select' ? t : 'select'
+  })
 
   const diagramWrapRef = useRef<HTMLDivElement>(null)
   const diagramAreaSize = useContainerSize(diagramWrapRef)
 
   const [hadStoredLayout] = useState(() => loadDiagramLayout(connectionId) !== null)
+  const [snapToGrid, setSnapToGrid] = useState(
+    () => loadDiagramLayout(connectionId)?.snapToGrid !== false,
+  )
   const [onCanvas, setOnCanvas] = useState<TableKey[]>(
     () => loadDiagramLayout(connectionId)?.onCanvas ?? [],
   )
@@ -185,7 +197,7 @@ export function ModelWorkspace({
   })
 
   const diagramPalette = useMemo(() => readKonvaPalette(isDark), [isDark])
-  const defaultDiagramHeaderHex = useMemo(
+  const themeDiagramHeaderHex = useMemo(
     () => rgbCssToHex(diagramPalette.header),
     [diagramPalette.header],
   )
@@ -212,11 +224,23 @@ export function ModelWorkspace({
         positions,
         viewport,
         modelTitle: modelTitle.trim() || defaultDatabaseName,
+        diagramTool,
+        snapToGrid,
         ...(Object.keys(headerColorsByKey).length > 0 ? { headerColors: headerColorsByKey } : {}),
       })
     }, 400)
     return () => window.clearTimeout(t)
-  }, [connectionId, defaultDatabaseName, headerColorsByKey, modelTitle, onCanvas, positions, viewport])
+  }, [
+    connectionId,
+    defaultDatabaseName,
+    diagramTool,
+    headerColorsByKey,
+    modelTitle,
+    onCanvas,
+    positions,
+    snapToGrid,
+    viewport,
+  ])
 
   const onCanvasSet = useMemo(() => new Set(onCanvas), [onCanvas])
 
@@ -241,6 +265,14 @@ export function ModelWorkspace({
     })
   }, [tablesOnCanvas, identityDraftByKey])
 
+  const resolvedHeaderColors = useMemo(() => {
+    const out: Record<TableKey, string> = {}
+    for (const t of tableDisplays) {
+      out[t.key] = headerColorsByKey[t.key] ?? distinctDiagramHeaderHex(t.key, isDark)
+    }
+    return out
+  }, [tableDisplays, headerColorsByKey, isDark])
+
   const inspectorTable = useMemo(() => {
     if (!primaryKey) return null
     return tablesByKey.get(primaryKey) ?? null
@@ -255,6 +287,21 @@ export function ModelWorkspace({
   }, [primaryKey, inspectorTable, identityDraftByKey])
 
   const selectedKeysSet = useMemo(() => new Set(selectedKeys), [selectedKeys])
+
+  const positionsRef = useRef(positions)
+  positionsRef.current = positions
+  const selectedKeysRef = useRef(selectedKeys)
+  selectedKeysRef.current = selectedKeys
+  const onCanvasRef = useRef(onCanvas)
+  onCanvasRef.current = onCanvas
+
+  type TableDragState = {
+    draggedKey: TableKey
+    keys: TableKey[]
+    start: Record<TableKey, { x: number; y: number }>
+  }
+  const tableDragStateRef = useRef<TableDragState | null>(null)
+  const diagramStageRef = useRef<KonvaStage | null>(null)
 
   const isModelDirty = useMemo(() => {
     if (pendingForeignKeys.length > 0) return true
@@ -333,12 +380,93 @@ export function ModelWorkspace({
       return next
     })
     setPendingForeignKeys((prev) => prev.filter((fk) => fk.fromKey !== k && fk.toKey !== k))
+    setHeaderColorsByKey((prev) => {
+      if (prev[k] == null) return prev
+      const next = { ...prev }
+      delete next[k]
+      return next
+    })
   }, [setSelectedKeys])
 
-  const handleMoveTable = useCallback((key: TableKey, x: number, y: number) => {
-    const snapped = snapPoint({ x, y })
-    setPositions((prev) => ({ ...prev, [key]: snapped }))
+  const snapIf = useCallback(
+    (p: { x: number; y: number }) => (snapToGrid ? snapPoint(p) : p),
+    [snapToGrid],
+  )
+
+  const applyTableDragPositions = useCallback(
+    (key: TableKey, x: number, y: number) => {
+      const d = tableDragStateRef.current
+      if (!d || d.draggedKey !== key) {
+        setPositions((prev) => ({ ...prev, [key]: snapIf({ x, y }) }))
+        return
+      }
+      const startPrimary = d.start[key]
+      const deltaX = x - startPrimary.x
+      const deltaY = y - startPrimary.y
+      setPositions((prev) => {
+        const next = { ...prev }
+        for (const k of d.keys) {
+          const s = d.start[k]
+          if (!s) continue
+          next[k] = snapIf({ x: s.x + deltaX, y: s.y + deltaY })
+        }
+        return next
+      })
+    },
+    [snapIf],
+  )
+
+  const handleTableDragStart = useCallback((key: TableKey) => {
+    const pos = positionsRef.current
+    const sel = selectedKeysRef.current
+    const canvasKeys = new Set(onCanvasRef.current)
+    let keys =
+      sel.length > 1 && sel.includes(key) ? sel.filter((k) => canvasKeys.has(k)) : [key]
+    if (keys.length === 0) keys = [key]
+    const start: Record<TableKey, { x: number; y: number }> = {}
+    for (const k of keys) {
+      const p = pos[k]
+      start[k] = p ? { ...p } : { x: 0, y: 0 }
+    }
+    tableDragStateRef.current = { draggedKey: key, keys, start }
   }, [])
+
+  const handleTableDragMove = useCallback(
+    (key: TableKey, x: number, y: number) => {
+      applyTableDragPositions(key, x, y)
+    },
+    [applyTableDragPositions],
+  )
+
+  const handleMoveTable = useCallback(
+    (key: TableKey, x: number, y: number) => {
+      applyTableDragPositions(key, x, y)
+      tableDragStateRef.current = null
+    },
+    [applyTableDragPositions],
+  )
+
+  const handleAutoLayoutGrid = useCallback(() => {
+    setPositions((prev) => {
+      const next = { ...prev }
+      onCanvas.forEach((k, i) => {
+        const raw = gridPositionForIndex(i)
+        next[k] = snapToGrid ? snapPoint(raw) : raw
+      })
+      return next
+    })
+  }, [onCanvas, snapToGrid])
+
+  const handleExportDiagramPng = useCallback(() => {
+    const stage = diagramStageRef.current
+    if (!stage) return
+    const data = stage.toDataURL({ pixelRatio: 2 })
+    const a = document.createElement('a')
+    a.href = data
+    const safe = (modelTitle.trim() || defaultDatabaseName).replace(/[^\w.-]+/g, '_')
+    a.download = `${safe}-diagram.png`
+    a.click()
+  }, [defaultDatabaseName, modelTitle])
 
   const handleConnectColumns = useCallback(
     (fromKey: TableKey, fromColumn: string, toKey: TableKey, toColumn: string) => {
@@ -387,16 +515,22 @@ export function ModelWorkspace({
 
       let nextOnCanvas = [...onCanvas]
       const nextPos = { ...positions }
+      const nextHeaderColors = { ...headerColorsByKey }
       for (const { from, to } of result.renamed) {
         nextOnCanvas = nextOnCanvas.map((x) => (x === from ? to : x))
         if (nextPos[from]) {
           nextPos[to] = nextPos[from]
           delete nextPos[from]
         }
+        if (nextHeaderColors[from]) {
+          nextHeaderColors[to] = nextHeaderColors[from]
+          delete nextHeaderColors[from]
+        }
       }
 
       setOnCanvas(nextOnCanvas)
       setPositions(nextPos)
+      setHeaderColorsByKey(nextHeaderColors)
       setIdentityDraftByKey({})
       setColumnOverridesByKey({})
       setPendingAddColumnsByKey({})
@@ -419,6 +553,7 @@ export function ModelWorkspace({
       void queryClient.invalidateQueries({ queryKey: queryKeys.foreignKeys(connectionId) })
       void queryClient.invalidateQueries({ queryKey: ['schema'] })
       void queryClient.invalidateQueries({ queryKey: ['tableProperties'] })
+      void queryClient.invalidateQueries({ queryKey: ['tableIndexes'] })
     } catch (err) {
       setApplyError(err instanceof Error ? err.message : 'Failed to apply model')
     } finally {
@@ -430,6 +565,7 @@ export function ModelWorkspace({
     identityDraftByKey,
     onCanvas,
     pendingAddColumnsByKey,
+    headerColorsByKey,
     pendingForeignKeys,
     positions,
     primaryKey,
@@ -597,9 +733,57 @@ export function ModelWorkspace({
               >
                 <AlignBottomIcon className="size-4" aria-hidden />
               </Button>
+              <div className="mx-1 hidden h-5 w-px bg-border sm:block" />
+              <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">Layout</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className={cn('size-8', snapToGrid && 'border-primary bg-primary/10')}
+                title={snapToGrid ? 'Snap to grid (on)' : 'Snap to grid (off)'}
+                aria-pressed={snapToGrid}
+                onClick={() => setSnapToGrid((v) => !v)}
+              >
+                <MagnetIcon className="size-4" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                title="Arrange tables on a grid"
+                disabled={onCanvas.length === 0}
+                onClick={() => handleAutoLayoutGrid()}
+              >
+                <GridFourIcon className="size-4" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                title="Export diagram as PNG"
+                disabled={onCanvas.length === 0}
+                onClick={() => handleExportDiagramPng()}
+              >
+                <DownloadSimpleIcon className="size-4" aria-hidden />
+              </Button>
             </div>
             <div className="flex min-h-0 min-w-0 flex-1">
               <div ref={diagramWrapRef} className="relative min-h-0 min-w-0 flex-1">
+                {onCanvas.length === 0 && tables.length > 0 ? (
+                  <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center px-6">
+                    <div className="max-w-sm rounded-md border border-border/80 bg-background/90 px-4 py-3 text-center shadow-sm backdrop-blur-sm">
+                      <p className="text-xs font-medium text-foreground">Diagram is empty</p>
+                      <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+                        Open the <span className="font-medium text-foreground">Catalog</span> tab and add tables.
+                        Use the <span className="font-medium text-foreground">Select</span> tool to drag tables;{' '}
+                        <span className="font-medium text-foreground">Hand</span> pans the canvas (
+                        <span className="font-medium text-foreground">Space</span> + drag also pans).
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
                 <DiagramCanvas
                   isDark={isDark}
                   viewport={viewport}
@@ -613,15 +797,19 @@ export function ModelWorkspace({
                   onTableSelect={selectTable}
                   onClearSelection={clearSelection}
                   onMarqueeSelect={applyMarquee}
+                  onTableDragStart={handleTableDragStart}
+                  onTableDragMove={handleTableDragMove}
                   onMoveTable={handleMoveTable}
                   onRequestColumns={requestColumns}
                   onConnectColumns={handleConnectColumns}
-                  headerColors={headerColorsByKey}
+                  headerColors={resolvedHeaderColors}
+                  stageRef={diagramStageRef}
                 />
                 <DiagramMinimap
                   tableKeys={onCanvas}
                   positions={positions}
                   columnsByKey={columnsByKey}
+                  tableHeaderColors={resolvedHeaderColors}
                   viewport={viewport}
                   onViewportChange={setViewport}
                   canvasWidth={diagramAreaSize.w}
@@ -633,7 +821,9 @@ export function ModelWorkspace({
                 connectionId={connectionId}
                 table={inspectorTable}
                 tableKeyStr={primaryKey}
-                defaultDiagramHeaderHex={defaultDiagramHeaderHex}
+                defaultDiagramHeaderHex={
+                  primaryKey ? distinctDiagramHeaderHex(primaryKey, isDark) : themeDiagramHeaderHex
+                }
                 tableHeaderColor={primaryKey ? headerColorsByKey[primaryKey] : undefined}
                 onTableHeaderColorChange={(hex) => {
                   if (!primaryKey) return
