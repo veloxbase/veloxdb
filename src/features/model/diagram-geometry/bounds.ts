@@ -1,14 +1,19 @@
 import type { ColumnInfo } from '@/data/types'
+import type { ColumnDetailLevel } from '@/features/model/model-types'
 import { TABLE_NODE_WIDTH, tableNodeHeight } from '@/features/model/table-node-metrics'
 
 export type Aabb = { x: number; y: number; w: number; h: number }
 
-export function tableAabb(pos: { x: number; y: number }, columns: ColumnInfo[] | null): Aabb {
+export function tableAabb(
+  pos: { x: number; y: number },
+  columns: ColumnInfo[] | null,
+  columnDetail: ColumnDetailLevel = 'full',
+): Aabb {
   return {
     x: pos.x,
     y: pos.y,
     w: TABLE_NODE_WIDTH,
-    h: tableNodeHeight(columns),
+    h: tableNodeHeight(columns, columnDetail),
   }
 }
 

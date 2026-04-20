@@ -4,6 +4,7 @@ import type { KonvaEventObject } from 'konva/lib/Node'
 
 import type { ColumnInfo } from '@/data/types'
 import type { KonvaPalette } from '@/features/model/konva-theme'
+import type { ColumnDetailLevel } from '@/features/model/model-types'
 import { TABLE_NODE_WIDTH, tableNodeHeight } from '@/features/model/table-node-metrics'
 import { contrastTextForBg } from '@/lib/contrast-text-for-bg'
 import type { DiagramTool } from '@/features/model/use-diagram-interaction'
@@ -35,6 +36,9 @@ export type TableNodeProps = {
   onRequestColumns: () => void
   onConnectColumnPointerDown?: (columnName: string, e: KonvaEventObject<MouseEvent>) => void
   onConnectColumnPointerUp?: (columnName: string, e: KonvaEventObject<MouseEvent>) => void
+  columnDetail?: ColumnDetailLevel
+  /** Column names to emphasize (e.g. FK edge hover). */
+  highlightColumnNames?: ReadonlySet<string>
 }
 
 function TableNodeInner({
@@ -56,8 +60,13 @@ function TableNodeInner({
   onRequestColumns,
   onConnectColumnPointerDown,
   onConnectColumnPointerUp,
+  columnDetail = 'full',
+  highlightColumnNames,
 }: TableNodeProps) {
-  const height = useMemo(() => tableNodeHeight(columns), [columns])
+  const height = useMemo(
+    () => tableNodeHeight(columns, columnDetail),
+    [columns, columnDetail],
+  )
 
   const headerStop = Math.min(Math.max(HEADER_H / height, 0.12), 0.42)
 
@@ -72,7 +81,11 @@ function TableNodeInner({
   const headerTitle = useMemo(() => `${name} (${schema})`, [name, schema])
 
   const draggable = !spaceHeld && diagramTool === 'select'
-  const showConnectColumns = diagramTool === 'connect' && columns != null && columns.length > 0
+  const showConnectColumns =
+    diagramTool === 'connect' &&
+    columnDetail !== 'header' &&
+    columns != null &&
+    columns.length > 0
 
   return (
     <Group
@@ -152,7 +165,7 @@ function TableNodeInner({
         perfectDrawEnabled={false}
         ellipsis
       />
-      {columns == null ? (
+      {columnDetail === 'header' ? null : columns == null ? (
         <Text
           x={PAD}
           y={HEADER_H + 8}
@@ -193,7 +206,9 @@ function TableNodeInner({
                 text={`${col.columnName}  ·  ${col.dataType}`}
                 fontSize={11}
                 fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-                fill={palette.foreground}
+                fill={
+                  highlightColumnNames?.has(col.columnName) ? palette.borderFocus : palette.foreground
+                }
                 listening={false}
                 perfectDrawEnabled={false}
                 ellipsis

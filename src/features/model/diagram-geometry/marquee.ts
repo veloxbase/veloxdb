@@ -1,6 +1,7 @@
 import type { ColumnInfo } from '@/data/types'
 import type { TableKey } from '@/features/model/model-types'
 import { aabbIntersects, tableAabb, type Aabb } from '@/features/model/diagram-geometry/bounds'
+import type { ColumnDetailLevel } from '@/features/model/model-types'
 
 export type MarqueeRect = { x: number; y: number; w: number; h: number }
 
@@ -17,6 +18,7 @@ export function keysInMarquee(
   positions: Record<TableKey, { x: number; y: number }>,
   columnsByKey: Record<TableKey, ColumnInfo[] | null>,
   marquee: MarqueeRect,
+  columnDetail: ColumnDetailLevel = 'full',
 ): TableKey[] {
   const m: Aabb = marquee
   const out: TableKey[] = []
@@ -24,7 +26,7 @@ export function keysInMarquee(
     const pos = positions[k]
     if (!pos) continue
     const cols = columnsByKey[k] ?? null
-    const aabb = tableAabb(pos, cols)
+    const aabb = tableAabb(pos, cols, columnDetail)
     if (aabbIntersects(aabb, m)) out.push(k)
   }
   return out

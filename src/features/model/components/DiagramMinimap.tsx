@@ -3,13 +3,14 @@ import { useCallback, useMemo, useRef } from 'react'
 import type { ColumnInfo } from '@/data/types'
 import { diagramContentBounds } from '@/features/model/diagram-geometry/content-bounds'
 import { worldViewportBounds } from '@/features/model/diagram-geometry/view-transform'
-import type { TableKey, ViewportState } from '@/features/model/model-types'
+import type { ColumnDetailLevel, TableKey, ViewportState } from '@/features/model/model-types'
 import { TABLE_NODE_WIDTH, tableNodeHeight } from '@/features/model/table-node-metrics'
 
 type DiagramMinimapProps = {
   tableKeys: readonly TableKey[]
   positions: Record<TableKey, { x: number; y: number }>
   columnsByKey: Record<TableKey, ColumnInfo[] | null>
+  columnDetail?: ColumnDetailLevel
   /** Resolved header fills (including per-table defaults); omit for neutral blocks. */
   tableHeaderColors?: Record<TableKey, string>
   viewport: ViewportState
@@ -27,6 +28,7 @@ export function DiagramMinimap({
   tableKeys,
   positions,
   columnsByKey,
+  columnDetail = 'full',
   tableHeaderColors,
   viewport,
   onViewportChange,
@@ -37,8 +39,8 @@ export function DiagramMinimap({
   const dragRef = useRef<{ sx: number; sy: number; vx: number; vy: number } | null>(null)
 
   const bounds = useMemo(
-    () => diagramContentBounds(tableKeys, positions, columnsByKey),
-    [columnsByKey, positions, tableKeys],
+    () => diagramContentBounds(tableKeys, positions, columnsByKey, 80, columnDetail),
+    [columnDetail, columnsByKey, positions, tableKeys],
   )
 
   const contentW = Math.max(1, bounds.maxX - bounds.minX)
@@ -142,7 +144,7 @@ export function DiagramMinimap({
         {tableKeys.map((k) => {
           const p = positions[k]
           if (!p) return null
-          const h = tableNodeHeight(columnsByKey[k] ?? null)
+          const h = tableNodeHeight(columnsByKey[k] ?? null, columnDetail)
           const { x, y } = worldToMap(p.x, p.y)
           const w = TABLE_NODE_WIDTH * scale
           const hh = h * scale

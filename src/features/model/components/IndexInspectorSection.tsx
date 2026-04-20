@@ -306,9 +306,10 @@ export function IndexInspectorSection({ connectionId, table, columnNames }: Inde
           </pre>
           {txnMutation.isError || stmtMutation.isError ? (
             <p className="text-xs text-destructive">
-              {(txnMutation.error ?? stmtMutation.error) instanceof Error
-                ? (txnMutation.error ?? stmtMutation.error)?.message
-                : 'Execution failed'}
+              {(() => {
+                const err = txnMutation.error ?? stmtMutation.error
+                return err instanceof Error ? err.message : 'Execution failed'
+              })()}
             </p>
           ) : null}
           <DialogFooter className="gap-2 sm:gap-0">

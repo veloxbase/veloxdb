@@ -8,19 +8,23 @@ import {
   useState,
   type RefObject,
 } from 'react'
-import { Layer, Line, Rect, Stage } from 'react-konva'
+import { Arrow, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 
-import type { ForeignKeyEdge } from '@/data/types'
+import type { PendingModelForeignKey } from '@/features/model/apply-entire-model'
+import { buildRoutedDiagramEdges, type RoutedDiagramEdge } from '@/features/model/diagram-geometry/edge-routing'
+import {
+  diagramGroupWorldBounds,
+  groupLabelWorldPosition,
+} from '@/features/model/diagram-geometry/group-bounds'
 import { columnAnchorWorld } from '@/features/model/diagram-geometry/node-anchors'
 import { keysInMarquee, normalizeMarquee } from '@/features/model/diagram-geometry/marquee'
 import { stagePointerToWorld } from '@/features/model/diagram-geometry/view-transform'
-import type { TableKey, ViewportState } from '@/features/model/model-types'
+import type { ColumnDetailLevel, DiagramGroup, TableKey, ViewportState } from '@/features/model/model-types'
 import { TableNode } from '@/features/model/components/TableNode'
 import { readKonvaPalette } from '@/features/model/konva-theme'
-import { TABLE_NODE_WIDTH, tableNodeHeight } from '@/features/model/table-node-metrics'
 import type { DiagramTool } from '@/features/model/use-diagram-interaction'
-import type { ColumnInfo } from '@/data/types'
+import type { ColumnInfo, ForeignKeyEdge } from '@/data/types'
 
 export type TableDisplay = {
   key: TableKey
@@ -50,6 +54,9 @@ type DiagramCanvasProps = {
   onConnectColumns?: (fromKey: TableKey, fromColumn: string, toKey: TableKey, toColumn: string) => void
   /** Per-table header fill (`#rrggbb`); missing keys use theme default. */
   headerColors?: Record<TableKey, string>
+  pendingForeignKeys?: PendingModelForeignKey[]
+  columnDetail?: ColumnDetailLevel
+  diagramGroups?: DiagramGroup[]
 }
 
 const HIT_SIZE = 16000
@@ -77,6 +84,9 @@ export function DiagramCanvas({
   onConnectColumns,
   headerColors = {},
   stageRef,
+  pendingForeignKeys = [],
+  columnDetail = 'full',
+  diagramGroups = [],
 }: DiagramCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 640, h: 480 })
@@ -99,6 +109,8 @@ export function DiagramCanvas({
   const [connectFrom, setConnectFrom] = useState<{ key: TableKey; column: string } | null>(null)
   const [connectPointerWorld, setConnectPointerWorld] = useState<{ x: number; y: number } | null>(null)
   const connectFromRef = useRef<{ key: TableKey; column: string } | null>(null)
+
+  const [hoveredEdge, setHoveredEdge] = useState<RoutedDiagramEdge | null>(null)
 
   const onMarqueeSelectRef = useRef(onMarqueeSelect)
   const onClearSelectionRef = useRef(onClearSelection)
@@ -161,36 +173,40 @@ export function DiagramCanvas({
 
   const onCanvasSet = useMemo(() => new Set(tableDisplays.map((t) => t.key)), [tableDisplays])
 
-  const edgeSegments = useMemo(() => {
-    const seen = new Set<string>()
-    const out: number[][] = []
-    for (const fk of foreignKeys) {
-      const fromKey = `${fk.fromSchema}.${fk.fromTable}`
-      const toKey = `${fk.toSchema}.${fk.toTable}`
-      if (!onCanvasSet.has(fromKey) || !onCanvasSet.has(toKey)) continue
+  const { committed: committedEdges, pending: pendingEdges } = useMemo(
+    () =>
+      buildRoutedDiagramEdges({
+        foreignKeys,
+        pendingForeignKeys,
+        onCanvasSet,
+        positions,
+        columnsByKey,
+        columnDetail,
+      }),
+    [columnDetail, columnsByKey, foreignKeys, onCanvasSet, pendingForeignKeys, positions],
+  )
 
-      const dedupeKey = `${fromKey}\0${toKey}`
-      if (seen.has(dedupeKey)) continue
-      seen.add(dedupeKey)
+  const groupFrames = useMemo(() => {
+    return diagramGroups
+      .map((g) => {
+        const b = diagramGroupWorldBounds(g, positions, columnsByKey, columnDetail, 10)
+        const labelPos = groupLabelWorldPosition(g, positions, columnsByKey, columnDetail, 10)
+        if (!b || !labelPos) return null
+        return { group: g, bounds: b, labelPos }
+      })
+      .filter((x): x is NonNullable<typeof x> => x != null)
+  }, [columnDetail, columnsByKey, diagramGroups, positions])
 
-      const fromPos = positions[fromKey]
-      const toPos = positions[toKey]
-      if (!fromPos || !toPos) continue
-
-      const fromCols = columnsByKey[fromKey] ?? null
-      const toCols = columnsByKey[toKey] ?? null
-      const h0 = tableNodeHeight(fromCols)
-      const h1 = tableNodeHeight(toCols)
-
-      const x0 = fromPos.x + TABLE_NODE_WIDTH / 2
-      const y0 = fromPos.y + h0 / 2
-      const x1 = toPos.x + TABLE_NODE_WIDTH / 2
-      const y1 = toPos.y + h1 / 2
-
-      out.push([x0, y0, x1, y1])
-    }
-    return out
-  }, [columnsByKey, foreignKeys, onCanvasSet, positions])
+  const highlightColumnsForTable = useCallback(
+    (tableKey: TableKey): ReadonlySet<string> | undefined => {
+      if (!hoveredEdge) return undefined
+      const s = new Set<string>()
+      if (hoveredEdge.fromKey === tableKey) s.add(hoveredEdge.fromColumn)
+      if (hoveredEdge.toKey === tableKey) s.add(hoveredEdge.toColumn)
+      return s.size > 0 ? s : undefined
+    },
+    [hoveredEdge],
+  )
 
   const gridLines = useMemo(() => {
     const { w, h } = size
@@ -225,6 +241,15 @@ export function DiagramCanvas({
       const stage = e.target.getStage()
       if (!stage) return
 
+      if (!e.evt.ctrlKey && !e.evt.metaKey) {
+        onViewportChange({
+          scale: viewport.scale,
+          x: viewport.x - e.evt.deltaX,
+          y: viewport.y - e.evt.deltaY,
+        })
+        return
+      }
+
       const scaleBy = 1.08
       const oldScale = viewport.scale
       const direction = e.evt.deltaY > 0 ? -1 : 1
@@ -250,6 +275,7 @@ export function DiagramCanvas({
 
   const beginPan = useCallback(
     (clientX: number, clientY: number) => {
+      setHoveredEdge(null)
       panRef.current = {
         sx: clientX,
         sy: clientY,
@@ -280,9 +306,10 @@ export function DiagramCanvas({
       positions,
       columnsByKey,
       rect,
+      columnDetail,
     )
     onMarqueeSelectRef.current(keys, m.shiftKey)
-  }, [columnsByKey, positions, tableDisplays])
+  }, [columnDetail, columnsByKey, positions, tableDisplays])
 
   const beginMarquee = useCallback((worldX: number, worldY: number, shiftKey: boolean) => {
     marqueeRef.current = {
@@ -323,6 +350,8 @@ export function DiagramCanvas({
 
       const world = stagePointerToWorld(stage.getPointerPosition(), viewport)
       if (!world) return
+
+      setHoveredEdge(null)
 
       if (diagramTool === 'pan' || spaceHeld) {
         if (!spaceHeld && diagramTool === 'pan') onClearSelection()
@@ -489,10 +518,10 @@ export function DiagramCanvas({
 
   const toolHint =
     diagramTool === 'pan'
-      ? 'Hand: drag to pan · Wheel zoom · +/- · 0 reset · Space+drag also pans'
+      ? 'Hand: drag to pan · ⌃/⌘ + wheel zoom · Wheel pan · +/- · 0 reset viewport · Space+drag also pans'
       : diagramTool === 'connect'
         ? 'Connect: drag from column to column · Switch to Select to move tables · Esc or click empty canvas to cancel'
-        : 'Select: drag tables · Shift+click multi-select · Drag empty = box select · Space+drag pans · Wheel zoom'
+        : 'Select: drag tables · Shift+click multi-select · Drag empty = box select · Space+drag pans · ⌃/⌘ + wheel zoom · Wheel pan'
 
   return (
     <div
@@ -543,19 +572,82 @@ export function DiagramCanvas({
               perfectDrawEnabled={false}
             />
           ))}
-        </Layer>
-        <Layer listening={false} perfectDrawEnabled={false}>
-          {edgeSegments.map((points, i) => (
-            <Line
-              key={i}
-              points={points}
-              stroke={palette.edge}
-              strokeWidth={1.5}
-              lineCap="round"
+          {groupFrames.map((gf) => (
+            <Rect
+              key={gf.group.id}
+              x={gf.bounds.x}
+              y={gf.bounds.y}
+              width={gf.bounds.w}
+              height={gf.bounds.h}
+              cornerRadius={palette.cornerRadiusPx}
+              stroke={palette.groupFrame}
+              strokeWidth={1}
+              dash={[6, 4]}
+              fill="rgba(0,0,0,0.02)"
               listening={false}
               perfectDrawEnabled={false}
             />
           ))}
+          {groupFrames.map((gf) => (
+            <Text
+              key={`${gf.group.id}-label`}
+              x={gf.labelPos.x}
+              y={gf.labelPos.y}
+              text={gf.group.name}
+              fontSize={11}
+              fontStyle="bold"
+              fill={palette.mutedForeground}
+              listening={false}
+              perfectDrawEnabled={false}
+            />
+          ))}
+        </Layer>
+        <Layer perfectDrawEnabled={false}>
+          {committedEdges.map((edge) => {
+            const isHover = hoveredEdge?.id === edge.id
+            return (
+              <Arrow
+                key={edge.id}
+                points={edge.points}
+                stroke={isHover ? palette.edgeHover : palette.edge}
+                fill={isHover ? palette.edgeHover : palette.edge}
+                strokeWidth={isHover ? 2.5 : 1.5}
+                pointerLength={10}
+                pointerWidth={10}
+                pointerAtBeginning={false}
+                pointerAtEnding
+                lineCap="round"
+                lineJoin="round"
+                hitStrokeWidth={14}
+                onMouseEnter={() => setHoveredEdge(edge)}
+                onMouseLeave={() => setHoveredEdge((h) => (h?.id === edge.id ? null : h))}
+                perfectDrawEnabled={false}
+              />
+            )
+          })}
+          {pendingEdges.map((edge) => {
+            const isHover = hoveredEdge?.id === edge.id
+            return (
+              <Arrow
+                key={edge.id}
+                points={edge.points}
+                stroke={isHover ? palette.edgeHover : palette.edgePending}
+                fill={isHover ? palette.edgeHover : palette.edgePending}
+                strokeWidth={isHover ? 2.5 : 2}
+                dash={[8, 5]}
+                pointerLength={8}
+                pointerWidth={8}
+                pointerAtBeginning={false}
+                pointerAtEnding
+                lineCap="round"
+                lineJoin="round"
+                hitStrokeWidth={14}
+                onMouseEnter={() => setHoveredEdge(edge)}
+                onMouseLeave={() => setHoveredEdge((h) => (h?.id === edge.id ? null : h))}
+                perfectDrawEnabled={false}
+              />
+            )
+          })}
         </Layer>
         <Layer>
           <Rect
@@ -596,6 +688,8 @@ export function DiagramCanvas({
                 onConnectColumnPointerUp={
                   onConnectColumns ? (col, e) => handleConnectColumnPointerUp(t.key, col, e) : undefined
                 }
+                columnDetail={columnDetail}
+                highlightColumnNames={highlightColumnsForTable(t.key)}
               />
             )
           })}

@@ -11,6 +11,12 @@ export type KonvaPalette = {
   foreground: string
   mutedForeground: string
   edge: string
+  /** Pending / draft relationship lines */
+  edgePending: string
+  /** Edge stroke when hovered */
+  edgeHover: string
+  /** Diagram group frame stroke */
+  groupFrame: string
   gridMinor: string
   gridMajor: string
   shadow: string
@@ -56,7 +62,10 @@ function readCornerRadiusPx(root: HTMLElement): number {
   return px
 }
 
-function readKonvaPaletteFromDom(): Omit<KonvaPalette, 'gridMinor' | 'gridMajor' | 'shadow'> {
+function readKonvaPaletteFromDom(): Omit<
+  KonvaPalette,
+  'gridMinor' | 'gridMajor' | 'shadow'
+> {
   const root = document.documentElement
   return {
     canvasBg: readColorVar(root, 'backgroundColor', '--background'),
@@ -67,6 +76,9 @@ function readKonvaPaletteFromDom(): Omit<KonvaPalette, 'gridMinor' | 'gridMajor'
     foreground: readColorVar(root, 'color', '--card-foreground'),
     mutedForeground: readColorVar(root, 'color', '--muted-foreground'),
     edge: readColorVar(root, 'backgroundColor', '--sidebar-border'),
+    edgePending: readColorVar(root, 'backgroundColor', '--primary'),
+    edgeHover: readColorVar(root, 'backgroundColor', '--ring'),
+    groupFrame: readColorVar(root, 'backgroundColor', '--muted'),
     cornerRadiusPx: readCornerRadiusPx(root),
   }
 }

@@ -1,5 +1,5 @@
 import type { ColumnInfo } from '@/data/types'
-import type { TableKey } from '@/features/model/model-types'
+import type { ColumnDetailLevel, TableKey } from '@/features/model/model-types'
 import { TABLE_NODE_WIDTH, tableNodeHeight } from '@/features/model/table-node-metrics'
 
 export type ContentBounds = { minX: number; minY: number; maxX: number; maxY: number }
@@ -11,6 +11,7 @@ export function diagramContentBounds(
   positions: Record<TableKey, { x: number; y: number }>,
   columnsByKey: Record<TableKey, ColumnInfo[] | null>,
   pad: number = DEFAULT_PAD,
+  columnDetail: ColumnDetailLevel = 'full',
 ): ContentBounds {
   let minX = Infinity
   let minY = Infinity
@@ -19,7 +20,7 @@ export function diagramContentBounds(
   for (const k of keys) {
     const p = positions[k]
     if (!p) continue
-    const h = tableNodeHeight(columnsByKey[k] ?? null)
+    const h = tableNodeHeight(columnsByKey[k] ?? null, columnDetail)
     minX = Math.min(minX, p.x)
     minY = Math.min(minY, p.y)
     maxX = Math.max(maxX, p.x + TABLE_NODE_WIDTH)

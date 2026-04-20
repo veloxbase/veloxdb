@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
+import { CrosshairIcon } from '@phosphor-icons/react'
+
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import type { TableInfo } from '@/data/types'
@@ -15,6 +17,8 @@ type ModelCatalogProps = {
   onAddToCanvas: (table: TableInfo) => void
   onRemoveFromCanvas: (table: TableInfo) => void
   onRequestColumns: (key: TableKey) => void
+  /** When set, tables on the diagram show a control to pan/zoom the canvas to that table. */
+  onLocateOnDiagram?: (key: TableKey) => void
 }
 
 const ROW_H = 40
@@ -27,6 +31,7 @@ export function ModelCatalog({
   onAddToCanvas,
   onRemoveFromCanvas,
   onRequestColumns,
+  onLocateOnDiagram,
 }: ModelCatalogProps) {
   const [needle, setNeedle] = useState('')
   const parentRef = useRef<HTMLDivElement>(null)
@@ -100,15 +105,33 @@ export function ModelCatalog({
                   ) : null}
                 </button>
                 {onCanvas ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 shrink-0 px-2 text-[11px]"
-                    onClick={() => onRemoveFromCanvas(table)}
-                  >
-                    Remove
-                  </Button>
+                  <>
+                    {onLocateOnDiagram ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 shrink-0"
+                        title="Show on diagram"
+                        aria-label={`Show ${key} on diagram`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onLocateOnDiagram(key)
+                        }}
+                      >
+                        <CrosshairIcon className="size-4" aria-hidden />
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 shrink-0 px-2 text-[11px]"
+                      onClick={() => onRemoveFromCanvas(table)}
+                    >
+                      Remove
+                    </Button>
+                  </>
                 ) : (
                   <Button
                     type="button"

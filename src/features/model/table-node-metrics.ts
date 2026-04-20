@@ -1,4 +1,5 @@
 import type { ColumnInfo } from '@/data/types'
+import type { ColumnDetailLevel } from '@/features/model/model-types'
 
 export const TABLE_NODE_WIDTH = 248
 
@@ -8,7 +9,13 @@ const MAX_ROWS = 8
 const BODY_TOP = 8
 const BODY_PAD = 10
 
-export function tableNodeHeight(columns: ColumnInfo[] | null): number {
+export function tableNodeHeight(
+  columns: ColumnInfo[] | null,
+  columnDetail: ColumnDetailLevel = 'full',
+): number {
+  if (columnDetail === 'header') {
+    return HEADER_H + BODY_PAD
+  }
   if (columns == null) {
     return HEADER_H + BODY_TOP + 22 + BODY_PAD
   }

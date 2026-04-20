@@ -14,6 +14,16 @@ export type ViewportState = {
 
 export type DiagramToolPersisted = 'select' | 'pan' | 'connect'
 
+export const DEFAULT_DIAGRAM_VIEW_ID = 'default'
+
+export type ColumnDetailLevel = 'full' | 'keys' | 'header'
+
+export type DiagramGroup = {
+  id: string
+  name: string
+  tableKeys: TableKey[]
+}
+
 export type DiagramLayoutSnapshot = {
   positions: Record<TableKey, { x: number; y: number }>
   viewport: ViewportState
@@ -26,6 +36,20 @@ export type DiagramLayoutSnapshot = {
   diagramTool?: DiagramToolPersisted
   /** When false, table positions are not snapped to the diagram grid. Defaults to true. */
   snapToGrid?: boolean
+  /** Which columns to list on table cards. Defaults to full. */
+  columnDetail?: ColumnDetailLevel
+  /** User-defined frames grouping tables (visual only). */
+  diagramGroups?: DiagramGroup[]
+}
+
+export type DiagramViewEntry = {
+  id: string
+  name: string
+}
+
+export type DiagramViewsRegistry = {
+  activeViewId: string
+  views: DiagramViewEntry[]
 }
 
 export type ModelTableView = {

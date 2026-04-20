@@ -5,12 +5,19 @@ import {
   AlignLeftIcon,
   AlignRightIcon,
   AlignTopIcon,
+  ArrowsClockwiseIcon,
+  ArrowsInSimpleIcon,
   CursorIcon,
   DownloadSimpleIcon,
+  FilePdfIcon,
   GridFourIcon,
   HandGrabbingIcon,
   LinkSimpleIcon,
   MagnetIcon,
+  PlusIcon,
+  SquaresFourIcon,
+  TrashIcon,
+  TreeStructureIcon,
 } from '@phosphor-icons/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -39,15 +46,29 @@ import {
   alignSelectedTop,
   snapPoint,
 } from '@/features/model/diagram-geometry/snap'
+import { topologicalLayoutOrder } from '@/features/model/diagram-geometry/topological-layout-order'
 import {
+  deleteDiagramViewLayout,
+  duplicateLayoutSnapshotForNewView,
   ensurePositions,
   gridPositionForIndex,
   loadDiagramLayout,
+  loadDiagramViewsRegistry,
   saveDiagramLayout,
+  saveDiagramViewsRegistry,
 } from '@/features/model/model-layout-storage'
 import { defaultDiagramHeaderHex as distinctDiagramHeaderHex } from '@/features/model/diagram-header-palette'
+import { TABLE_NODE_WIDTH, tableNodeHeight } from '@/features/model/table-node-metrics'
 import { readKonvaPalette } from '@/features/model/konva-theme'
-import { tableKey, type TableKey, type ViewportState } from '@/features/model/model-types'
+import {
+  DEFAULT_DIAGRAM_VIEW_ID,
+  tableKey,
+  type ColumnDetailLevel,
+  type DiagramGroup,
+  type DiagramLayoutSnapshot,
+  type TableKey,
+  type ViewportState,
+} from '@/features/model/model-types'
 import { useForeignKeysQuery } from '@/features/model/queries'
 import { useContainerSize } from '@/features/model/use-container-size'
 import { useDiagramInteraction } from '@/features/model/use-diagram-interaction'
@@ -76,6 +97,13 @@ export function ModelWorkspace({
   const queryClient = useQueryClient()
   const foreignKeysQuery = useForeignKeysQuery(connectionId)
 
+  const boot = useMemo(() => {
+    const vr = loadDiagramViewsRegistry(connectionId)
+    const aid = vr.activeViewId
+    const snap = loadDiagramLayout(connectionId, aid)
+    return { vr, aid, snap }
+  }, [connectionId])
+
   const {
     tool: diagramTool,
     setTool: setDiagramTool,
@@ -88,31 +116,37 @@ export function ModelWorkspace({
     applyMarquee,
     selectSingleFromCatalog,
   } = useDiagramInteraction(() => {
-    const t = loadDiagramLayout(connectionId)?.diagramTool
+    const t = boot.snap?.diagramTool
     return t === 'pan' || t === 'connect' || t === 'select' ? t : 'select'
   })
 
   const diagramWrapRef = useRef<HTMLDivElement>(null)
   const diagramAreaSize = useContainerSize(diagramWrapRef)
 
-  const [hadStoredLayout] = useState(() => loadDiagramLayout(connectionId) !== null)
-  const [snapToGrid, setSnapToGrid] = useState(
-    () => loadDiagramLayout(connectionId)?.snapToGrid !== false,
-  )
-  const [onCanvas, setOnCanvas] = useState<TableKey[]>(
-    () => loadDiagramLayout(connectionId)?.onCanvas ?? [],
-  )
+  const [viewsRegistry, setViewsRegistry] = useState(() => boot.vr)
+  const activeViewId = viewsRegistry.activeViewId
+
+  const [hadStoredLayout] = useState(() => boot.snap !== null)
+  const [snapToGrid, setSnapToGrid] = useState(() => boot.snap?.snapToGrid !== false)
+  const [onCanvas, setOnCanvas] = useState<TableKey[]>(() => boot.snap?.onCanvas ?? [])
   const [positions, setPositions] = useState<Record<TableKey, { x: number; y: number }>>(
-    () => loadDiagramLayout(connectionId)?.positions ?? {},
+    () => boot.snap?.positions ?? {},
   )
   const [viewport, setViewport] = useState<ViewportState>(
-    () => loadDiagramLayout(connectionId)?.viewport ?? { scale: 1, x: 0, y: 0 },
+    () => boot.snap?.viewport ?? { scale: 1, x: 0, y: 0 },
   )
   const [modelTitle, setModelTitle] = useState(
-    () => loadDiagramLayout(connectionId)?.modelTitle?.trim() || defaultDatabaseName,
+    () => boot.snap?.modelTitle?.trim() || defaultDatabaseName,
   )
   const [headerColorsByKey, setHeaderColorsByKey] = useState<Record<TableKey, string>>(
-    () => ({ ...(loadDiagramLayout(connectionId)?.headerColors ?? {}) }),
+    () => ({ ...(boot.snap?.headerColors ?? {}) }),
+  )
+  const [columnDetail, setColumnDetail] = useState<ColumnDetailLevel>(() => {
+    const c = boot.snap?.columnDetail
+    return c === 'keys' || c === 'header' ? c : 'full'
+  })
+  const [diagramGroups, setDiagramGroups] = useState<DiagramGroup[]>(
+    () => boot.snap?.diagramGroups ?? [],
   )
   const [columnRequestKeys, setColumnRequestKeys] = useState<TableKey[]>([])
   const [modelTab, setModelTab] = useState<'diagram' | 'catalog'>('diagram')
@@ -219,30 +253,100 @@ export function ModelWorkspace({
 
   useEffect(() => {
     const t = window.setTimeout(() => {
-      saveDiagramLayout(connectionId, {
-        onCanvas,
-        positions,
-        viewport,
-        modelTitle: modelTitle.trim() || defaultDatabaseName,
-        diagramTool,
-        snapToGrid,
-        ...(Object.keys(headerColorsByKey).length > 0 ? { headerColors: headerColorsByKey } : {}),
-      })
+      saveDiagramLayout(
+        connectionId,
+        {
+          onCanvas,
+          positions,
+          viewport,
+          modelTitle: modelTitle.trim() || defaultDatabaseName,
+          diagramTool,
+          snapToGrid,
+          columnDetail,
+          ...(diagramGroups.length > 0 ? { diagramGroups } : {}),
+          ...(Object.keys(headerColorsByKey).length > 0 ? { headerColors: headerColorsByKey } : {}),
+        },
+        activeViewId,
+      )
+      saveDiagramViewsRegistry(connectionId, viewsRegistry)
     }, 400)
     return () => window.clearTimeout(t)
   }, [
+    activeViewId,
+    columnDetail,
     connectionId,
     defaultDatabaseName,
+    diagramGroups,
     diagramTool,
     headerColorsByKey,
     modelTitle,
     onCanvas,
     positions,
     snapToGrid,
+    viewsRegistry,
     viewport,
   ])
 
   const onCanvasSet = useMemo(() => new Set(onCanvas), [onCanvas])
+
+  const fkColumnNamesByKey = useMemo(() => {
+    const m = new Map<TableKey, Set<string>>()
+    const add = (tab: TableKey, col: string) => {
+      if (!onCanvasSet.has(tab)) return
+      if (!m.has(tab)) m.set(tab, new Set())
+      m.get(tab)!.add(col)
+    }
+    for (const fk of foreignKeysQuery.data ?? []) {
+      add(`${fk.fromSchema}.${fk.fromTable}` as TableKey, fk.fromColumn)
+      add(`${fk.toSchema}.${fk.toTable}` as TableKey, fk.toColumn)
+    }
+    for (const p of pendingForeignKeys) {
+      add(p.fromKey, p.fromColumn)
+      add(p.toKey, p.toColumn)
+    }
+    return m
+  }, [foreignKeysQuery.data, onCanvasSet, pendingForeignKeys])
+
+  const diagramDisplayColumnsByKey = useMemo((): Record<TableKey, ColumnInfo[] | null> => {
+    const out: Record<TableKey, ColumnInfo[] | null> = {}
+    for (const k of onCanvas) {
+      const cols = columnsByKey[k] ?? null
+      if (columnDetail === 'header') {
+        out[k] = []
+        continue
+      }
+      if (columnDetail === 'keys' && cols?.length) {
+        const set = fkColumnNamesByKey.get(k)
+        const filtered = set?.size ? cols.filter((c) => set.has(c.columnName)) : cols.slice(0, 4)
+        out[k] = filtered.length > 0 ? filtered : cols.slice(0, 4)
+        continue
+      }
+      out[k] = cols
+    }
+    return out
+  }, [columnDetail, columnsByKey, fkColumnNamesByKey, onCanvas])
+
+  useEffect(() => {
+    const keys = new Set<TableKey>()
+    for (const fk of foreignKeysQuery.data ?? []) {
+      const fromK = `${fk.fromSchema}.${fk.fromTable}` as TableKey
+      const toK = `${fk.toSchema}.${fk.toTable}` as TableKey
+      if (onCanvasSet.has(fromK)) keys.add(fromK)
+      if (onCanvasSet.has(toK)) keys.add(toK)
+    }
+    for (const p of pendingForeignKeys) {
+      keys.add(p.fromKey)
+      keys.add(p.toKey)
+    }
+    if (keys.size === 0) return
+    setColumnRequestKeys((prev) => {
+      let next = prev
+      for (const k of keys) {
+        if (!next.includes(k)) next = [...next, k]
+      }
+      return next
+    })
+  }, [foreignKeysQuery.data, onCanvasSet, pendingForeignKeys])
 
   const tablesOnCanvas = useMemo(() => {
     const list: TableInfo[] = []
@@ -493,11 +597,215 @@ export function ModelWorkspace({
         if (mode === 'left') return alignSelectedLeft(selectedKeys, prev)
         if (mode === 'right') return alignSelectedRight(selectedKeys, prev)
         if (mode === 'top') return alignSelectedTop(selectedKeys, prev)
-        return alignSelectedBottom(selectedKeys, prev, columnsByKey)
+        return alignSelectedBottom(selectedKeys, prev, diagramDisplayColumnsByKey, columnDetail)
       })
     },
-    [columnsByKey, selectedKeys],
+    [columnDetail, diagramDisplayColumnsByKey, selectedKeys],
   )
+
+  const handleAutoLayoutTopo = useCallback(() => {
+    const order = topologicalLayoutOrder(onCanvas, foreignKeysQuery.data ?? [])
+    setPositions((prev) => {
+      const next = { ...prev }
+      order.forEach((k, i) => {
+        const raw = gridPositionForIndex(i)
+        next[k] = snapToGrid ? snapPoint(raw) : raw
+      })
+      return next
+    })
+  }, [foreignKeysQuery.data, onCanvas, snapToGrid])
+
+  const handleResetViewport = useCallback(() => {
+    setViewport({ scale: 1, x: 0, y: 0 })
+  }, [])
+
+  const handleResetLayout = useCallback(() => {
+    setPositions((prev) => {
+      const next = { ...prev }
+      onCanvas.forEach((k, i) => {
+        const raw = gridPositionForIndex(i)
+        next[k] = snapToGrid ? snapPoint(raw) : raw
+      })
+      return next
+    })
+  }, [onCanvas, snapToGrid])
+
+  const handleDiagramViewChange = useCallback(
+    (nextId: string) => {
+      if (nextId === activeViewId) return
+      saveDiagramLayout(
+        connectionId,
+        {
+          onCanvas,
+          positions,
+          viewport,
+          modelTitle: modelTitle.trim() || defaultDatabaseName,
+          diagramTool,
+          snapToGrid,
+          columnDetail,
+          ...(diagramGroups.length > 0 ? { diagramGroups } : {}),
+          ...(Object.keys(headerColorsByKey).length > 0 ? { headerColors: headerColorsByKey } : {}),
+        },
+        activeViewId,
+      )
+      const nextReg = { ...viewsRegistry, activeViewId: nextId }
+      saveDiagramViewsRegistry(connectionId, nextReg)
+      setViewsRegistry(nextReg)
+      const snap = loadDiagramLayout(connectionId, nextId)
+      if (snap) {
+        setSnapToGrid(snap.snapToGrid !== false)
+        setOnCanvas([...snap.onCanvas])
+        setPositions({ ...snap.positions })
+        setViewport({ ...snap.viewport })
+        setModelTitle(snap.modelTitle?.trim() || defaultDatabaseName)
+        setHeaderColorsByKey({ ...(snap.headerColors ?? {}) })
+        const tool = snap.diagramTool
+        if (tool === 'pan' || tool === 'connect' || tool === 'select') setDiagramTool(tool)
+        const cd = snap.columnDetail
+        setColumnDetail(cd === 'keys' || cd === 'header' ? cd : 'full')
+        setDiagramGroups(snap.diagramGroups ?? [])
+      }
+    },
+    [
+      activeViewId,
+      columnDetail,
+      connectionId,
+      defaultDatabaseName,
+      diagramGroups,
+      diagramTool,
+      headerColorsByKey,
+      modelTitle,
+      onCanvas,
+      positions,
+      snapToGrid,
+      setDiagramTool,
+      viewport,
+      viewsRegistry,
+    ],
+  )
+
+  const handleNewDiagramView = useCallback(() => {
+    const id = crypto.randomUUID()
+    const name = `View ${viewsRegistry.views.length + 1}`
+    const snap: DiagramLayoutSnapshot = {
+      onCanvas,
+      positions,
+      viewport,
+      modelTitle: modelTitle.trim() || defaultDatabaseName,
+      diagramTool,
+      snapToGrid,
+      columnDetail,
+      ...(diagramGroups.length > 0 ? { diagramGroups } : {}),
+      ...(Object.keys(headerColorsByKey).length > 0 ? { headerColors: headerColorsByKey } : {}),
+    }
+    duplicateLayoutSnapshotForNewView(connectionId, activeViewId, id, snap)
+    const nextReg = {
+      activeViewId: id,
+      views: [...viewsRegistry.views, { id, name }],
+    }
+    saveDiagramViewsRegistry(connectionId, nextReg)
+    setViewsRegistry(nextReg)
+  }, [
+    activeViewId,
+    columnDetail,
+    connectionId,
+    defaultDatabaseName,
+    diagramGroups,
+    diagramTool,
+    headerColorsByKey,
+    modelTitle,
+    onCanvas,
+    positions,
+    snapToGrid,
+    viewsRegistry.views,
+    viewport,
+  ])
+
+  const handleDeleteDiagramView = useCallback(() => {
+    if (activeViewId === DEFAULT_DIAGRAM_VIEW_ID) return
+    if (viewsRegistry.views.length < 2) return
+    deleteDiagramViewLayout(connectionId, activeViewId)
+    const remaining = viewsRegistry.views.filter((v) => v.id !== activeViewId)
+    const nextId = remaining[0]?.id ?? DEFAULT_DIAGRAM_VIEW_ID
+    const nextReg = { activeViewId: nextId, views: remaining }
+    saveDiagramViewsRegistry(connectionId, nextReg)
+    setViewsRegistry(nextReg)
+    const snap = loadDiagramLayout(connectionId, nextId)
+    if (snap) {
+      setSnapToGrid(snap.snapToGrid !== false)
+      setOnCanvas([...snap.onCanvas])
+      setPositions({ ...snap.positions })
+      setViewport({ ...snap.viewport })
+      setModelTitle(snap.modelTitle?.trim() || defaultDatabaseName)
+      setHeaderColorsByKey({ ...(snap.headerColors ?? {}) })
+      const tool = snap.diagramTool
+      if (tool === 'pan' || tool === 'connect' || tool === 'select') setDiagramTool(tool)
+      const cd = snap.columnDetail
+      setColumnDetail(cd === 'keys' || cd === 'header' ? cd : 'full')
+      setDiagramGroups(snap.diagramGroups ?? [])
+    }
+  }, [
+    activeViewId,
+    connectionId,
+    defaultDatabaseName,
+    setDiagramTool,
+    viewsRegistry.views,
+  ])
+
+  const handleFitTableOnDiagram = useCallback(
+    (key: TableKey) => {
+      requestColumns(key)
+      const pos = positions[key]
+      if (!pos) return
+      const cols = diagramDisplayColumnsByKey[key] ?? null
+      const w = TABLE_NODE_WIDTH
+      const h = tableNodeHeight(cols, columnDetail)
+      const cw = diagramAreaSize.w
+      const ch = diagramAreaSize.h
+      if (cw < 32 || ch < 32) return
+      const pad = 48
+      const scale = Math.min(cw / (w + pad * 2), ch / (h + pad * 2), 2.5)
+      const scaleClamped = Math.max(0.15, scale)
+      const cx = pos.x + w / 2
+      const cy = pos.y + h / 2
+      setViewport({
+        scale: scaleClamped,
+        x: cw / 2 - cx * scaleClamped,
+        y: ch / 2 - cy * scaleClamped,
+      })
+      setModelTab('diagram')
+    },
+    [columnDetail, diagramAreaSize.h, diagramAreaSize.w, diagramDisplayColumnsByKey, positions, requestColumns],
+  )
+
+  const handleExportDiagramPdf = useCallback(() => {
+    const stage = diagramStageRef.current
+    if (!stage) return
+    const data = stage.toDataURL({ pixelRatio: 2 })
+    const safe = (modelTitle.trim() || defaultDatabaseName).replace(/[^\w.-]+/g, '_')
+    const w = window.open('')
+    if (!w) return
+    w.document.write(
+      `<!DOCTYPE html><html><head><title>${safe}</title></head><body style="margin:0;display:flex;justify-content:center;align-items:center;background:#111;">` +
+        `<img src="${data}" style="max-width:100%;height:auto;" alt="diagram" />` +
+        `<script>window.onload=function(){window.print()}</script></body></html>`,
+    )
+    w.document.close()
+  }, [defaultDatabaseName, modelTitle])
+
+  const handleAddGroupFromSelection = useCallback(() => {
+    if (selectedKeys.length < 2) return
+    const keysOnCanvas = selectedKeys.filter((k) => onCanvas.includes(k))
+    if (keysOnCanvas.length < 2) return
+    setDiagramGroups((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        name: `Group ${prev.length + 1}`,
+        tableKeys: keysOnCanvas,
+      },
+    ])
+  }, [onCanvas, selectedKeys])
 
   const handleApplyEntireModel = useCallback(async () => {
     setApplyError(null)
@@ -734,6 +1042,57 @@ export function ModelWorkspace({
                 <AlignBottomIcon className="size-4" aria-hidden />
               </Button>
               <div className="mx-1 hidden h-5 w-px bg-border sm:block" />
+              <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">Views</span>
+              <label className="sr-only" htmlFor="diagram-view-select">
+                Diagram view
+              </label>
+              <select
+                id="diagram-view-select"
+                className="h-8 max-w-[9rem] rounded-md border border-input bg-background px-2 text-xs"
+                value={activeViewId}
+                onChange={(e) => handleDiagramViewChange(e.target.value)}
+              >
+                {viewsRegistry.views.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                title="New diagram view (copies current layout)"
+                onClick={() => handleNewDiagramView()}
+              >
+                <PlusIcon className="size-4" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                title="Delete current view"
+                disabled={activeViewId === DEFAULT_DIAGRAM_VIEW_ID || viewsRegistry.views.length < 2}
+                onClick={() => handleDeleteDiagramView()}
+              >
+                <TrashIcon className="size-4" aria-hidden />
+              </Button>
+              <label className="sr-only" htmlFor="column-detail-select">
+                Column detail
+              </label>
+              <select
+                id="column-detail-select"
+                className="h-8 max-w-[7.5rem] rounded-md border border-input bg-background px-2 text-xs"
+                value={columnDetail}
+                onChange={(e) => setColumnDetail(e.target.value as ColumnDetailLevel)}
+              >
+                <option value="full">All cols</option>
+                <option value="keys">FK cols</option>
+                <option value="header">Headers</option>
+              </select>
+              <div className="mx-1 hidden h-5 w-px bg-border sm:block" />
               <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">Layout</span>
               <Button
                 type="button"
@@ -762,11 +1121,66 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
+                title="Arrange by FK dependency (parents left)"
+                disabled={onCanvas.length === 0}
+                onClick={() => handleAutoLayoutTopo()}
+              >
+                <TreeStructureIcon className="size-4" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                title="Reset viewport (zoom/pan)"
+                disabled={onCanvas.length === 0}
+                onClick={() => handleResetViewport()}
+              >
+                <ArrowsInSimpleIcon className="size-4" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                title="Reset table positions to grid"
+                disabled={onCanvas.length === 0}
+                onClick={() => handleResetLayout()}
+              >
+                <ArrowsClockwiseIcon className="size-4" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                title="Group selected tables (visual frame)"
+                disabled={selectedKeys.length < 2}
+                onClick={() => handleAddGroupFromSelection()}
+              >
+                <SquaresFourIcon className="size-4" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
                 title="Export diagram as PNG"
                 disabled={onCanvas.length === 0}
                 onClick={() => handleExportDiagramPng()}
               >
                 <DownloadSimpleIcon className="size-4" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                title="Print / save as PDF (opens print dialog)"
+                disabled={onCanvas.length === 0}
+                onClick={() => handleExportDiagramPdf()}
+              >
+                <FilePdfIcon className="size-4" aria-hidden />
               </Button>
             </div>
             <div className="flex min-h-0 min-w-0 flex-1">
@@ -790,8 +1204,11 @@ export function ModelWorkspace({
                   onViewportChange={setViewport}
                   tableDisplays={tableDisplays}
                   positions={positions}
-                  columnsByKey={columnsByKey}
+                  columnsByKey={diagramDisplayColumnsByKey}
                   foreignKeys={foreignKeysQuery.data ?? []}
+                  pendingForeignKeys={pendingForeignKeys}
+                  columnDetail={columnDetail}
+                  diagramGroups={diagramGroups}
                   selectedKeys={selectedKeysSet}
                   diagramTool={diagramTool}
                   onTableSelect={selectTable}
@@ -808,7 +1225,8 @@ export function ModelWorkspace({
                 <DiagramMinimap
                   tableKeys={onCanvas}
                   positions={positions}
-                  columnsByKey={columnsByKey}
+                  columnsByKey={diagramDisplayColumnsByKey}
+                  columnDetail={columnDetail}
                   tableHeaderColors={resolvedHeaderColors}
                   viewport={viewport}
                   onViewportChange={setViewport}
@@ -888,6 +1306,7 @@ export function ModelWorkspace({
             onAddToCanvas={handleAddToCanvas}
             onRemoveFromCanvas={handleRemoveFromCanvas}
             onRequestColumns={requestColumns}
+            onLocateOnDiagram={handleFitTableOnDiagram}
           />
         </TabsContent>
       </Tabs>

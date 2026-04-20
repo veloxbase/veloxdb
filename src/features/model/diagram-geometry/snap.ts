@@ -1,5 +1,5 @@
 import type { ColumnInfo } from '@/data/types'
-import type { TableKey } from '@/features/model/model-types'
+import type { ColumnDetailLevel, TableKey } from '@/features/model/model-types'
 import { TABLE_NODE_WIDTH, tableNodeHeight } from '@/features/model/table-node-metrics'
 
 export const DEFAULT_DIAGRAM_GRID = 8
@@ -69,13 +69,18 @@ export function alignSelectedTop(keys: TableKey[], positions: PosMap): PosMap {
   return next
 }
 
-export function alignSelectedBottom(keys: TableKey[], positions: PosMap, columnsByKey: ColMap): PosMap {
+export function alignSelectedBottom(
+  keys: TableKey[],
+  positions: PosMap,
+  columnsByKey: ColMap,
+  columnDetail: ColumnDetailLevel = 'full',
+): PosMap {
   if (keys.length === 0) return positions
   let maxBottom = -Infinity
   for (const k of keys) {
     const p = positions[k]
     if (!p) continue
-    const h = tableNodeHeight(columnsByKey[k] ?? null)
+    const h = tableNodeHeight(columnsByKey[k] ?? null, columnDetail)
     maxBottom = Math.max(maxBottom, p.y + h)
   }
   if (!Number.isFinite(maxBottom)) return positions
@@ -83,7 +88,7 @@ export function alignSelectedBottom(keys: TableKey[], positions: PosMap, columns
   for (const k of keys) {
     const p = next[k]
     if (!p) continue
-    const h = tableNodeHeight(columnsByKey[k] ?? null)
+    const h = tableNodeHeight(columnsByKey[k] ?? null, columnDetail)
     next[k] = { ...p, y: maxBottom - h }
   }
   return next
