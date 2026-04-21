@@ -14,6 +14,8 @@ const HEADER_H = 40
 const ROW_H = 18
 const MAX_ROWS = 8
 const PAD = 10
+/** Reserved width for right-aligned data type column (db-diagram style). */
+const TYPE_COL_W = 80
 
 export type TableNodeProps = {
   x: number
@@ -202,13 +204,26 @@ function TableNodeInner({
               <Text
                 x={PAD}
                 y={HEADER_H + 8 + i * ROW_H}
-                width={NODE_WIDTH - PAD * 2}
-                text={`${col.columnName}  ·  ${col.dataType}`}
-                fontSize={11}
-                fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                width={NODE_WIDTH - PAD * 2 - TYPE_COL_W}
+                text={col.columnName}
+                fontSize={12}
+                fontFamily="system-ui, -apple-system, Segoe UI, sans-serif"
                 fill={
                   highlightColumnNames?.has(col.columnName) ? palette.borderFocus : palette.foreground
                 }
+                listening={false}
+                perfectDrawEnabled={false}
+                ellipsis
+              />
+              <Text
+                x={NODE_WIDTH - PAD - TYPE_COL_W}
+                y={HEADER_H + 8 + i * ROW_H}
+                width={TYPE_COL_W}
+                text={col.dataType}
+                align="right"
+                fontSize={11}
+                fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                fill={palette.mutedForeground}
                 listening={false}
                 perfectDrawEnabled={false}
                 ellipsis
