@@ -258,6 +258,7 @@ export function ResultsGrid({
 	onInsertRowSuccess = () => {},
 }: ResultsGridProps) {
 	const parentRef = useRef<HTMLDivElement | null>(null);
+	const horizontalScrollRef = useRef<HTMLDivElement | null>(null);
 	const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 	const [columnVisibility, setColumnVisibility] = useState<
 		Record<string, boolean>
@@ -273,6 +274,12 @@ export function ResultsGrid({
 	const [gridError, setGridError] = useState<string | null>(null);
 	const [showInsertRow, setShowInsertRow] = useState(false);
 	const [insertDraft, setInsertDraft] = useState<Record<string, string>>({});
+	const pendingEditsRef = useRef(pendingEdits);
+	const editingCellRef = useRef(editingCell);
+	const insertDraftRef = useRef(insertDraft);
+	const lastInsertRowTriggerRef = useRef(insertRowTrigger);
+	const resizeRafRef = useRef<number | null>(null);
+	const pendingResizeWidthsRef = useRef<Record<string, number>>({});
 
 	const insertMutation = useInsertRowMutation({
 		onError: (error) => {
@@ -410,18 +417,64 @@ export function ResultsGrid({
 	const appendInsertRow = showInsertRow && canInsertRow && columns.length > 0;
 
 	const data = useMemo(() => {
-		const base = indexedRows.map((item) => {
-			const rowEdits = pendingEdits[item.rowId];
-			if (!rowEdits) {
-				return item.row;
-			}
-			return { ...item.row, ...rowEdits };
-		});
+		const base = indexedRows.map((item) => item.row);
 		if (appendInsertRow) {
 			return [...base, insertPlaceholderRow];
 		}
 		return base;
-	}, [appendInsertRow, indexedRows, insertPlaceholderRow, pendingEdits]);
+	}, [appendInsertRow, indexedRows, insertPlaceholderRow]);
+
+	useEffect(() => {
+		pendingEditsRef.current = pendingEdits;
+	}, [pendingEdits]);
+
+	useEffect(() => {
+		editingCellRef.current = editingCell;
+	}, [editingCell]);
+
+	useEffect(() => {
+		insertDraftRef.current = insertDraft;
+	}, [insertDraft]);
+
+	useEffect(
+		() => () => {
+			if (resizeRafRef.current !== null) {
+				window.cancelAnimationFrame(resizeRafRef.current);
+				resizeRafRef.current = null;
+			}
+		},
+		[],
+	);
+
+	const applyPendingEdit = useCallback(
+		(rowId: string, columnId: string, raw: string) => {
+			const nextValue = raw === "" ? null : raw;
+			const originalValue = originalByRowId[rowId]?.[columnId] ?? null;
+			setPendingEdits((current) => {
+				const next = { ...current };
+				const existing = { ...(next[rowId] ?? {}) };
+				if (nextValue === originalValue) {
+					delete existing[columnId];
+				} else {
+					existing[columnId] = nextValue;
+				}
+
+				if (Object.keys(existing).length === 0) {
+					delete next[rowId];
+				} else {
+					next[rowId] = existing;
+				}
+				return next;
+			});
+		},
+		[originalByRowId],
+	);
+
+	const resolveCellValue = useCallback(
+		(rowId: string, columnId: string, fallback: string | null | undefined) =>
+			pendingEditsRef.current[rowId]?.[columnId] ?? fallback ?? null,
+		[],
+	);
 
 	const columnHelper = createColumnHelper<ResultRow>();
 	const columnDefs = useMemo(
@@ -457,9 +510,14 @@ export function ResultsGrid({
 					cell: (context) => {
 						const rowId = context.row.id;
 						const columnId = context.column.id;
-						const value = context.getValue();
+						const value = resolveCellValue(
+							rowId,
+							columnId,
+							context.getValue() as string | null | undefined,
+						);
 						const isCellEditing =
-							editingCell?.rowId === rowId && editingCell.columnId === columnId;
+							editingCellRef.current?.rowId === rowId &&
+							editingCellRef.current.columnId === columnId;
 						const normalizedColumnId = normalizeColumnId(columnId);
 						const isColumnEditable =
 							canEdit &&
@@ -477,7 +535,7 @@ export function ResultsGrid({
 							}
 							return (
 								<InsertRowInput
-									value={insertDraft[mappedInsertColumn] ?? ""}
+									value={insertDraftRef.current[mappedInsertColumn] ?? ""}
 									onChange={(next) =>
 										setInsertDraft((previous) => ({
 											...previous,
@@ -505,28 +563,7 @@ export function ResultsGrid({
 									defaultValue={toEditableValue(value)}
 									onEscape={() => setEditingCell(null)}
 									onBlurCommit={(raw) => {
-										const nextValue = raw === "" ? null : raw;
-										const originalValue =
-											originalByRowId[rowId]?.[columnId] ?? null;
-
-										setPendingEdits((current) => {
-											const next = { ...current };
-											const existing = { ...(next[rowId] ?? {}) };
-
-											if (nextValue === originalValue) {
-												delete existing[columnId];
-											} else {
-												existing[columnId] = nextValue;
-											}
-
-											if (Object.keys(existing).length === 0) {
-												delete next[rowId];
-											} else {
-												next[rowId] = existing;
-											}
-
-											return next;
-										});
+										applyPendingEdit(rowId, columnId, raw);
 										setEditingCell(null);
 									}}
 								/>
@@ -548,16 +585,15 @@ export function ResultsGrid({
 			),
 		],
 		[
+			applyPendingEdit,
 			canEdit,
 			columnHelper,
 			columns,
 			editableColumnsByLower,
-			editingCell,
 			insertBindingByResultColumn,
-			insertDraft,
 			metaByLowerName,
-			originalByRowId,
 			primaryKeyColumnsByLower,
+			resolveCellValue,
 		],
 	);
 
@@ -590,6 +626,11 @@ export function ResultsGrid({
 	});
 
 	const visibleColumns = table.getVisibleLeafColumns();
+	const selectColumn = visibleColumns.find((column) => column.id === "__select");
+	const dataVisibleColumns = useMemo(
+		() => visibleColumns.filter((column) => column.id !== "__select"),
+		[visibleColumns],
+	);
 
 	const getColumnWidthPx = useCallback(
 		(columnId: string) =>
@@ -606,6 +647,30 @@ export function ResultsGrid({
 					.map((column) => `${getColumnWidthPx(column.id)}px`)
 					.join(" ")
 			: "minmax(0, 1fr)";
+	void templateColumns;
+
+	const columnVirtualizer = useVirtualizer({
+		horizontal: true,
+		count: dataVisibleColumns.length,
+		getScrollElement: () => horizontalScrollRef.current,
+		estimateSize: (index) => getColumnWidthPx(dataVisibleColumns[index]?.id ?? ""),
+		overscan: 4,
+	});
+
+	useEffect(() => {
+		columnVirtualizer.measure();
+	}, [columnVirtualizer]);
+
+	const virtualDataColumns = columnVirtualizer.getVirtualItems();
+	const virtualPaddingLeft = virtualDataColumns[0]?.start ?? 0;
+	const virtualPaddingRight =
+		columnVirtualizer.getTotalSize() -
+		(virtualDataColumns[virtualDataColumns.length - 1]?.end ?? 0);
+	const selectColumnWidthPx = selectColumn
+		? getColumnWidthPx(selectColumn.id)
+		: SELECT_COLUMN_WIDTH_PX;
+	const totalDataColumnsWidthPx = columnVirtualizer.getTotalSize();
+	const totalGridWidthPx = selectColumnWidthPx + totalDataColumnsWidthPx;
 
 	const handleColumnResizePointerDown = useCallback(
 		(columnId: string, event: PointerEvent<HTMLElement>) => {
@@ -620,10 +685,27 @@ export function ResultsGrid({
 			const onPointerMove = (moveEvent: globalThis.PointerEvent) => {
 				const delta = moveEvent.clientX - startX;
 				const nextWidth = clampWidth(startWidth + delta);
-				setColumnWidths((current) => ({ ...current, [columnId]: nextWidth }));
+				pendingResizeWidthsRef.current[columnId] = nextWidth;
+				if (resizeRafRef.current === null) {
+					resizeRafRef.current = window.requestAnimationFrame(() => {
+						resizeRafRef.current = null;
+						const pending = pendingResizeWidthsRef.current;
+						pendingResizeWidthsRef.current = {};
+						setColumnWidths((current) => ({ ...current, ...pending }));
+					});
+				}
 			};
 
 			const onPointerUp = () => {
+				if (resizeRafRef.current !== null) {
+					window.cancelAnimationFrame(resizeRafRef.current);
+					resizeRafRef.current = null;
+				}
+				if (Object.keys(pendingResizeWidthsRef.current).length > 0) {
+					const pending = pendingResizeWidthsRef.current;
+					pendingResizeWidthsRef.current = {};
+					setColumnWidths((current) => ({ ...current, ...pending }));
+				}
 				window.removeEventListener("pointermove", onPointerMove);
 				window.removeEventListener("pointerup", onPointerUp);
 				window.removeEventListener("pointercancel", onPointerUp);
@@ -679,13 +761,16 @@ export function ResultsGrid({
 	}, [canInsertRow]);
 
 	useEffect(() => {
-		if (insertRowTrigger > 0 && canInsertRow && columns.length > 0) {
-			setShowInsertRow(true);
+		const isNewInsertTrigger = insertRowTrigger > lastInsertRowTriggerRef.current;
+		lastInsertRowTriggerRef.current = insertRowTrigger;
+		if (!isNewInsertTrigger || !canInsertRow) {
+			return;
 		}
-	}, [insertRowTrigger, canInsertRow, columns.length]);
-
-	useEffect(() => {
-		if (insertRowTrigger > 0 && canInsertRow && columns.length === 0) {
+		if (columns.length > 0) {
+			setShowInsertRow(true);
+			return;
+		}
+		if (columns.length === 0) {
 			setGridError(
 				"Run a query that returns at least one column (for example SELECT * FROM your_table LIMIT 1), then use Add row again.",
 			);
@@ -949,31 +1034,77 @@ export function ResultsGrid({
 				insertDisabled={insertDisabled}
 			/>
 			{hasRowset ? (
-				<div className="min-h-0 min-w-0 flex-1 overflow-x-auto">
-					<div className="flex h-full w-max min-w-full flex-col">
+				<div
+					ref={horizontalScrollRef}
+					className="min-h-0 min-w-0 flex-1 overflow-x-auto"
+				>
+					<div
+						className="flex h-full min-w-full flex-col"
+						style={{ width: `${Math.max(totalGridWidthPx, 0)}px` }}
+					>
 						<div
-							className="sticky top-0 z-10 grid w-max min-w-full shrink-0 border-b border-border bg-muted/30"
-							style={{ gridTemplateColumns: templateColumns }}
+							className="sticky top-0 z-10 flex min-w-full shrink-0 border-b border-border bg-muted/30"
 						>
-							{visibleColumns.map((column) => (
+							{selectColumn ? (
 								<div
-									key={column.id}
+									key={selectColumn.id}
 									className="relative min-w-0 truncate border-r border-border px-3 py-2 pr-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground last:border-r-0"
+									style={{ width: `${selectColumnWidthPx}px` }}
 								>
 									<span className="block truncate">
-										{column.id === "__select" ? "Select" : column.id}
+										Select
 									</span>
 									<button
 										type="button"
 										tabIndex={-1}
-										aria-label={`Resize column ${column.id === "__select" ? "Select" : column.id}`}
+										aria-label="Resize column Select"
 										className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize select-none border-0 bg-transparent p-0 hover:bg-primary/20"
 										onPointerDown={(event) =>
-											handleColumnResizePointerDown(column.id, event)
+											handleColumnResizePointerDown(selectColumn.id, event)
 										}
 									/>
 								</div>
-							))}
+							) : null}
+							{virtualPaddingLeft > 0 ? (
+								<div
+									aria-hidden
+									style={{ width: `${virtualPaddingLeft}px`, minWidth: `${virtualPaddingLeft}px` }}
+								/>
+							) : null}
+							{virtualDataColumns.map((virtualColumn) => {
+								const column = dataVisibleColumns[virtualColumn.index];
+								if (!column) {
+									return null;
+								}
+								const widthPx = getColumnWidthPx(column.id);
+								return (
+									<div
+										key={column.id}
+										className="relative min-w-0 truncate border-r border-border px-3 py-2 pr-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground last:border-r-0"
+										style={{ width: `${widthPx}px`, minWidth: `${widthPx}px` }}
+									>
+										<span className="block truncate">{column.id}</span>
+										<button
+											type="button"
+											tabIndex={-1}
+											aria-label={`Resize column ${column.id}`}
+											className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize select-none border-0 bg-transparent p-0 hover:bg-primary/20"
+											onPointerDown={(event) =>
+												handleColumnResizePointerDown(column.id, event)
+											}
+										/>
+									</div>
+								);
+							})}
+							{virtualPaddingRight > 0 ? (
+								<div
+									aria-hidden
+									style={{
+										width: `${virtualPaddingRight}px`,
+										minWidth: `${virtualPaddingRight}px`,
+									}}
+								/>
+							) : null}
 						</div>
 						<div
 							ref={parentRef}
@@ -994,7 +1125,7 @@ export function ResultsGrid({
 									return (
 										<div
 											key={row.id}
-											className={`absolute left-0 top-0 grid w-max min-w-full border-b border-border/60 text-xs ${
+											className={`absolute left-0 top-0 flex w-max min-w-full border-b border-border/60 text-xs ${
 												isInsert
 													? "bg-muted/25"
 													: row.getIsSelected()
@@ -1004,18 +1135,82 @@ export function ResultsGrid({
 											style={{
 												height: `${virtualRow.size}px`,
 												transform: `translateY(${virtualRow.start}px)`,
-												gridTemplateColumns: templateColumns,
+												width: `${Math.max(totalGridWidthPx, 0)}px`,
 											}}
 										>
-											{row.getVisibleCells().map((cell) => (
-												<div
-													key={cell.id}
-													className="min-w-0 truncate border-r border-border/60 px-3 py-2 last:border-r-0"
-													title={formatValue(cell.getValue() as string | null)}
-												>
-													{renderBodyCell(cell)}
-												</div>
-											))}
+											{(() => {
+												const rowCells = row.getVisibleCells();
+												const rowCellByColumn = new Map(
+													rowCells.map((cell) => [cell.column.id, cell]),
+												);
+												const selectCell = selectColumn
+													? rowCellByColumn.get(selectColumn.id)
+													: undefined;
+												return (
+													<>
+														{selectCell ? (
+															<div
+																key={selectCell.id}
+																className="min-w-0 truncate border-r border-border/60 px-3 py-2"
+																style={{
+																	width: `${selectColumnWidthPx}px`,
+																	minWidth: `${selectColumnWidthPx}px`,
+																}}
+															>
+																{renderBodyCell(selectCell)}
+															</div>
+														) : null}
+														{virtualPaddingLeft > 0 ? (
+															<div
+																aria-hidden
+																style={{
+																	width: `${virtualPaddingLeft}px`,
+																	minWidth: `${virtualPaddingLeft}px`,
+																}}
+															/>
+														) : null}
+														{virtualDataColumns.map((virtualColumn) => {
+															const column =
+																dataVisibleColumns[virtualColumn.index];
+															if (!column) {
+																return null;
+															}
+															const cell = rowCellByColumn.get(column.id);
+															if (!cell) {
+																return null;
+															}
+															const widthPx = getColumnWidthPx(column.id);
+															const cellValue = resolveCellValue(
+																row.id,
+																column.id,
+																cell.getValue() as string | null | undefined,
+															);
+															return (
+																<div
+																	key={cell.id}
+																	className="min-w-0 truncate border-r border-border/60 px-3 py-2"
+																	style={{
+																		width: `${widthPx}px`,
+																		minWidth: `${widthPx}px`,
+																	}}
+																	title={formatValue(cellValue)}
+																>
+																	{renderBodyCell(cell)}
+																</div>
+															);
+														})}
+														{virtualPaddingRight > 0 ? (
+															<div
+																aria-hidden
+																style={{
+																	width: `${virtualPaddingRight}px`,
+																	minWidth: `${virtualPaddingRight}px`,
+																}}
+															/>
+														) : null}
+													</>
+												);
+											})()}
 										</div>
 									);
 								})}
