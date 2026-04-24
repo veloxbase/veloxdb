@@ -11,7 +11,6 @@ import {
   MiniMap,
   Panel,
   type Edge,
-  type EdgeProps,
   type IsValidConnection,
   MarkerType,
   type Node,
@@ -46,7 +45,7 @@ type TableNodeData = {
 }
 
 const MAX_ROWS = 8
-const VIEWPORT_FRAME_MS = 50
+const VIEWPORT_FRAME_MS = 80
 
 type GroupNodeData = {
   name: string
@@ -63,7 +62,7 @@ const TableFlowNode = memo(({ data }: { data: TableNodeData }) => {
   return (
     <button
       type="button"
-      className={`relative block rounded-md border bg-card text-left shadow-sm ${data.selected ? 'border-primary ring-1 ring-primary/35' : 'border-border'}`}
+      className={`nodrag nopan nowheel relative block cursor-grab appearance-none rounded-md border bg-card text-left shadow-sm outline-none active:cursor-grabbing ${data.selected ? 'border-primary ring-1 ring-primary/35' : 'border-border'}`}
       style={{ width: TABLE_NODE_WIDTH, minHeight: height }}
       aria-label={`Table ${data.schema}.${data.name}`}
       onDoubleClick={() => data.onRequestColumns(data.key)}
@@ -123,30 +122,6 @@ const GroupFlowNode = memo(({ data }: { data: GroupNodeData }) => {
 
 const allNodeTypes = { ...nodeTypes, groupNode: GroupFlowNode }
 
-function RoutedEdge({ id, data, markerEnd }: EdgeProps) {
-  const points = (data?.points as number[] | undefined) ?? []
-  if (points.length < 4) return null
-  const pairs: string[] = []
-  for (let i = 0; i < points.length; i += 2) {
-    pairs.push(`${points[i]},${points[i + 1]}`)
-  }
-  return (
-    <g>
-      <polyline
-        id={id}
-        points={pairs.join(' ')}
-        fill="none"
-        stroke={String(data?.stroke ?? 'var(--muted-foreground)')}
-        strokeWidth={Number(data?.strokeWidth ?? 1.5)}
-        strokeDasharray={String(data?.dash ?? '')}
-        markerEnd={markerEnd}
-      />
-    </g>
-  )
-}
-
-const edgeTypes = { routed: RoutedEdge }
-
 export function ReactFlowCanvas({
   isDark,
   viewport,
@@ -174,7 +149,12 @@ export function ReactFlowCanvas({
   const wrapperRef = useRef<HTMLDivElement>(null)
   const rfRef = useRef<ReactFlowInstance<Node<TableNodeData>, Edge> | null>(null)
   const lastViewportEmitRef = useRef(0)
+  const viewportRef = useRef(viewport)
   const [spaceHeld, setSpaceHeld] = useState(false)
+  useEffect(() => {
+    viewportRef.current = viewport
+  }, [viewport])
+
   const palette = useMemo(() => readDiagramPalette(isDark), [isDark])
   const onCanvasSet = useMemo(() => new Set(tableDisplays.map((t) => t.key)), [tableDisplays])
 
@@ -250,15 +230,21 @@ export function ReactFlowCanvas({
   const edges = useMemo<Edge[]>(() => {
     const mk = (kind: 'committed' | 'pending', edge: (typeof routed.committed)[number]): Edge => ({
       id: edge.id,
-      type: 'routed',
+      type: 'smoothstep',
       source: edge.fromKey,
       target: edge.toKey,
+      sourceHandle: `out:${edge.fromColumn}`,
+      targetHandle: `in:${edge.toColumn}`,
       markerEnd: { type: MarkerType.ArrowClosed, color: kind === 'pending' ? palette.edgePending : palette.edge },
-      data: {
-        points: edge.points,
+      pathOptions: {
+        borderRadius: 8,
+        offset: 20,
+      },
+      animated: kind === 'pending',
+      style: {
         stroke: kind === 'pending' ? palette.edgePending : palette.edge,
         strokeWidth: kind === 'pending' ? 2 : 1.5,
-        dash: kind === 'pending' ? '8 5' : '',
+        strokeDasharray: kind === 'pending' ? '8 5' : undefined,
       },
       selectable: false,
     })
@@ -311,6 +297,14 @@ export function ReactFlowCanvas({
 
   const handleMove = useCallback(
     (_: MouseEvent | TouchEvent | null, vp: { x: number; y: number; zoom: number }) => {
+      const current = viewportRef.current
+      if (
+        Math.abs(current.x - vp.x) < 0.5 &&
+        Math.abs(current.y - vp.y) < 0.5 &&
+        Math.abs(current.scale - vp.zoom) < 0.001
+      ) {
+        return
+      }
       const now = performance.now()
       if (now - lastViewportEmitRef.current < VIEWPORT_FRAME_MS) return
       lastViewportEmitRef.current = now
@@ -318,6 +312,20 @@ export function ReactFlowCanvas({
     },
     [onViewportChange],
   )
+
+  useEffect(() => {
+    const instance = rfRef.current
+    if (!instance) return
+    const current = instance.getViewport()
+    if (
+      Math.abs(current.x - viewport.x) < 0.5 &&
+      Math.abs(current.y - viewport.y) < 0.5 &&
+      Math.abs(current.zoom - viewport.scale) < 0.001
+    ) {
+      return
+    }
+    instance.setViewport({ x: viewport.x, y: viewport.y, zoom: viewport.scale }, { duration: 120 })
+  }, [viewport])
 
   const handleFitAll = useCallback(() => {
     rfRef.current?.fitView({ padding: 0.2, duration: 160 })
@@ -396,7 +404,7 @@ export function ReactFlowCanvas({
         nodes={allNodes}
         edges={edges}
         nodeTypes={allNodeTypes}
-        edgeTypes={edgeTypes}
+        colorMode={isDark ? 'dark' : 'light'}
         fitView={false}
         minZoom={0.15}
         maxZoom={2.5}
@@ -410,6 +418,7 @@ export function ReactFlowCanvas({
           instance.setViewport({ x: viewport.x, y: viewport.y, zoom: viewport.scale }, { duration: 0 })
         }}
         onMove={handleMove}
+        onMoveEnd={handleMove}
         onPaneClick={onClearSelection}
         onSelectionChange={({ nodes: selectedNodes }) => onMarqueeSelect(selectedNodes.map((n) => n.id as TableKey), false)}
         onNodeClick={(evt, node) => onTableSelect(node.id as TableKey, evt.shiftKey)}
@@ -430,7 +439,11 @@ export function ReactFlowCanvas({
         />
         <MiniMap
           nodeColor={(n) => headerColors[n.id as TableKey] ?? palette.mutedForeground}
+          nodeStrokeColor={palette.border}
+          nodeBorderRadius={2}
           maskColor={isDark ? 'rgba(15,15,15,0.45)' : 'rgba(255,255,255,0.55)'}
+          bgColor={palette.card}
+          style={{ border: `1px solid ${palette.border}` }}
           pannable
           zoomable
           position="top-right"

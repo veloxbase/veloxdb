@@ -150,3 +150,13 @@
     opacity: 0.45;
   }
 }
+
+@keyframes diagram-edge-dash-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+.diagram-edge-animated {
+  animation: diagram-edge-dash-flow 900ms linear infinite;
+}
