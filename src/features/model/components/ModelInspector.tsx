@@ -6,13 +6,20 @@ import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { ColumnProperties, TableInfo } from '@/data/types'
 import type {
+  ColumnIdentityOverride,
   ColumnOverride,
   PendingModelColumn,
   PendingModelForeignKey,
+  PendingModelRlsPolicy,
+  PendingModelRule,
+  PendingModelTrigger,
   TableIdentityDraft,
 } from '@/features/model/apply-entire-model'
 import { tableKey, type TableKey } from '@/features/model/model-types'
 import { IndexInspectorSection } from '@/features/model/components/IndexInspectorSection'
+import { RuleInspectorSection } from '@/features/model/components/RuleInspectorSection'
+import { TriggerInspectorSection } from '@/features/model/components/TriggerInspectorSection'
+import { RlsPolicyInspectorSection } from '@/features/model/components/RlsPolicyInspectorSection'
 import { useTablePropertiesQuery } from '@/features/schema/queries'
 import { cn } from '@/lib/utils'
 
@@ -38,12 +45,20 @@ type ModelInspectorProps = {
   onIdentityDraftChange: (next: TableIdentityDraft) => void
   columnOverrides: Record<string, ColumnOverride>
   onColumnOverridesChange: (next: Record<string, ColumnOverride>) => void
+  columnIdentityOverrides: Record<string, ColumnIdentityOverride>
+  onColumnIdentityOverridesChange: (next: Record<string, ColumnIdentityOverride>) => void
   catalogTables: TableInfo[]
   pendingAddColumns: PendingModelColumn[]
   onPendingAddColumnsChange: (next: PendingModelColumn[]) => void
   pendingForeignKeys: PendingModelForeignKey[]
   onAddPendingForeignKey: (row: PendingFkInput) => void
   onRemovePendingForeignKey: (id: string) => void
+  pendingRules: PendingModelRule[]
+  onPendingRulesChange: (next: PendingModelRule[]) => void
+  pendingTriggers: PendingModelTrigger[]
+  onPendingTriggersChange: (next: PendingModelTrigger[]) => void
+  pendingRlsPolicies: PendingModelRlsPolicy[]
+  onPendingRlsPoliciesChange: (next: PendingModelRlsPolicy[]) => void
 }
 
 function ToggleButton({
@@ -100,12 +115,20 @@ export function ModelInspector({
   onIdentityDraftChange,
   columnOverrides,
   onColumnOverridesChange,
+  columnIdentityOverrides,
+  onColumnIdentityOverridesChange,
   catalogTables,
   pendingAddColumns,
   onPendingAddColumnsChange,
   pendingForeignKeys,
   onAddPendingForeignKey,
   onRemovePendingForeignKey,
+  pendingRules,
+  onPendingRulesChange,
+  pendingTriggers,
+  onPendingTriggersChange,
+  pendingRlsPolicies,
+  onPendingRlsPoliciesChange,
 }: ModelInspectorProps) {
   const propertiesQuery = useTablePropertiesQuery({
     connectionId,
@@ -153,7 +176,12 @@ export function ModelInspector({
     [pendingForeignKeys, tableKeyStr],
   )
 
-  const draftStagedCount = pendingAddColumns.length + pendingFksHere.length
+  const draftStagedCount =
+    pendingAddColumns.length +
+    pendingFksHere.length +
+    pendingRules.length +
+    pendingTriggers.length +
+    pendingRlsPolicies.length
 
   const existingColumnNames = useMemo(() => {
     const s = new Set<string>()
@@ -298,6 +326,15 @@ export function ModelInspector({
             <TabsTrigger value="indexes" className="flex-1 text-xs">
               Indexes
             </TabsTrigger>
+            <TabsTrigger value="rules" className="flex-1 text-xs">
+              Rules
+            </TabsTrigger>
+            <TabsTrigger value="triggers" className="flex-1 text-xs">
+              Triggers
+            </TabsTrigger>
+            <TabsTrigger value="rls" className="flex-1 text-xs">
+              RLS
+            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -357,6 +394,46 @@ export function ModelInspector({
                       <div className="truncate text-xs font-medium">{col.columnName}</div>
                       <div className="truncate text-[11px] text-muted-foreground">{col.dataType}</div>
                       {hint ? <div className="mt-1 text-[10px] text-muted-foreground">{hint}</div> : null}
+                      <div className="mt-2 grid grid-cols-1 gap-1.5">
+                        <Input
+                          className="h-7 text-[11px]"
+                          value={columnIdentityOverrides[col.columnName]?.nextColumnName ?? col.columnName}
+                          onChange={(e) => {
+                            const next = e.target.value
+                            const existing = columnIdentityOverrides[col.columnName] ?? {
+                              nextColumnName: col.columnName,
+                              nextDataType: col.dataType,
+                            }
+                            const updated = { ...columnIdentityOverrides }
+                            if (next.trim() === col.columnName && existing.nextDataType.trim() === col.dataType) {
+                              delete updated[col.columnName]
+                            } else {
+                              updated[col.columnName] = { ...existing, nextColumnName: next }
+                            }
+                            onColumnIdentityOverridesChange(updated)
+                          }}
+                          spellCheck={false}
+                        />
+                        <Input
+                          className="h-7 text-[11px]"
+                          value={columnIdentityOverrides[col.columnName]?.nextDataType ?? col.dataType}
+                          onChange={(e) => {
+                            const next = e.target.value
+                            const existing = columnIdentityOverrides[col.columnName] ?? {
+                              nextColumnName: col.columnName,
+                              nextDataType: col.dataType,
+                            }
+                            const updated = { ...columnIdentityOverrides }
+                            if (existing.nextColumnName.trim() === col.columnName && next.trim() === col.dataType) {
+                              delete updated[col.columnName]
+                            } else {
+                              updated[col.columnName] = { ...existing, nextDataType: next }
+                            }
+                            onColumnIdentityOverridesChange(updated)
+                          }}
+                          spellCheck={false}
+                        />
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-end gap-2">
@@ -587,6 +664,36 @@ export function ModelInspector({
             table={table}
             columnNames={columns.map((c) => c.columnName)}
           />
+        </TabsContent>
+
+        <TabsContent value="rules" className="m-0 min-h-0 flex-1 overflow-auto px-3 py-2 data-[state=inactive]:hidden">
+          {tableKeyStr ? (
+            <RuleInspectorSection
+              tableKey={tableKeyStr}
+              pendingRules={pendingRules}
+              onChange={onPendingRulesChange}
+            />
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="triggers" className="m-0 min-h-0 flex-1 overflow-auto px-3 py-2 data-[state=inactive]:hidden">
+          {tableKeyStr ? (
+            <TriggerInspectorSection
+              tableKey={tableKeyStr}
+              pendingTriggers={pendingTriggers}
+              onChange={onPendingTriggersChange}
+            />
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="rls" className="m-0 min-h-0 flex-1 overflow-auto px-3 py-2 data-[state=inactive]:hidden">
+          {tableKeyStr ? (
+            <RlsPolicyInspectorSection
+              tableKey={tableKeyStr}
+              pendingRlsPolicies={pendingRlsPolicies}
+              onChange={onPendingRlsPoliciesChange}
+            />
+          ) : null}
         </TabsContent>
       </Tabs>
 

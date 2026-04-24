@@ -28,9 +28,13 @@ import { veloxDbRepository } from '@/data/repositories'
 import type { ColumnInfo, TableInfo } from '@/data/types'
 import {
   applyEntireModel,
+  type ColumnIdentityOverride,
   type ColumnOverride,
   type PendingModelColumn,
   type PendingModelForeignKey,
+  type PendingModelRlsPolicy,
+  type PendingModelRule,
+  type PendingModelTrigger,
   type TableIdentityDraft,
 } from '@/features/model/apply-entire-model'
 import { DdlReviewDialog } from '@/features/model/components/DdlReviewDialog'
@@ -82,6 +86,11 @@ type ModelWorkspaceProps = {
   tablesErrorMessage?: string
   isTablesLoading: boolean
   selectedTable: TableInfo | null
+}
+
+function tableKeyToParts(key: TableKey): { schema: string; name: string } {
+  const [schema = '', name = ''] = key.split('.')
+  return { schema, name }
 }
 
 export function ModelWorkspace({
@@ -154,10 +163,16 @@ export function ModelWorkspace({
   const [columnOverridesByKey, setColumnOverridesByKey] = useState<
     Record<TableKey, Record<string, ColumnOverride>>
   >({})
+  const [columnIdentityOverridesByKey, setColumnIdentityOverridesByKey] = useState<
+    Record<TableKey, Record<string, ColumnIdentityOverride>>
+  >({})
   const [pendingAddColumnsByKey, setPendingAddColumnsByKey] = useState<
     Record<TableKey, PendingModelColumn[]>
   >({})
   const [pendingForeignKeys, setPendingForeignKeys] = useState<PendingModelForeignKey[]>([])
+  const [pendingRules, setPendingRules] = useState<PendingModelRule[]>([])
+  const [pendingTriggers, setPendingTriggers] = useState<PendingModelTrigger[]>([])
+  const [pendingRlsPolicies, setPendingRlsPolicies] = useState<PendingModelRlsPolicy[]>([])
   const [applyPending, setApplyPending] = useState(false)
   const [applyError, setApplyError] = useState<string | null>(null)
 
@@ -250,6 +265,38 @@ export function ModelWorkspace({
     return out
   }, [columnQueries, sortedRequestKeys])
 
+  const effectiveColumnsByKey = useMemo(() => {
+    const out: Record<TableKey, ColumnInfo[] | null> = {}
+    for (const [key, cols] of Object.entries(columnsByKey) as Array<[TableKey, ColumnInfo[] | null]>) {
+      if (!cols) {
+        out[key] = null
+        continue
+      }
+      const identityOverrides = columnIdentityOverridesByKey[key] ?? {}
+      const rows = cols.map((col) => {
+        const patch = identityOverrides[col.columnName]
+        if (!patch) return col
+        const nextName = patch.nextColumnName.trim()
+        const nextType = patch.nextDataType.trim()
+        return {
+          ...col,
+          columnName: nextName || col.columnName,
+          dataType: nextType || col.dataType,
+        }
+      })
+      const pending = pendingAddColumnsByKey[key] ?? []
+      const pendingRows: ColumnInfo[] = pending.map((col) => ({
+        tableSchema: tableKeyToParts(key).schema,
+        tableName: tableKeyToParts(key).name,
+        columnName: col.columnName.trim(),
+        dataType: col.dataType.trim(),
+        isNullable: col.nullable,
+      }))
+      out[key] = [...rows, ...pendingRows]
+    }
+    return out
+  }, [columnIdentityOverridesByKey, columnsByKey, pendingAddColumnsByKey])
+
   useEffect(() => {
     const t = window.setTimeout(() => {
       saveDiagramLayout(
@@ -292,8 +339,12 @@ export function ModelWorkspace({
     const m = new Map<TableKey, Set<string>>()
     const add = (tab: TableKey, col: string) => {
       if (!onCanvasSet.has(tab)) return
-      if (!m.has(tab)) m.set(tab, new Set())
-      m.get(tab)!.add(col)
+      const existing = m.get(tab)
+      if (existing) {
+        existing.add(col)
+        return
+      }
+      m.set(tab, new Set([col]))
     }
     for (const fk of foreignKeysQuery.data ?? []) {
       add(`${fk.fromSchema}.${fk.fromTable}` as TableKey, fk.fromColumn)
@@ -309,7 +360,7 @@ export function ModelWorkspace({
   const diagramDisplayColumnsByKey = useMemo((): Record<TableKey, ColumnInfo[] | null> => {
     const out: Record<TableKey, ColumnInfo[] | null> = {}
     for (const k of onCanvas) {
-      const cols = columnsByKey[k] ?? null
+      const cols = effectiveColumnsByKey[k] ?? null
       if (columnDetail === 'header') {
         out[k] = []
         continue
@@ -323,7 +374,7 @@ export function ModelWorkspace({
       out[k] = cols
     }
     return out
-  }, [columnDetail, columnsByKey, fkColumnNamesByKey, onCanvas])
+  }, [columnDetail, effectiveColumnsByKey, fkColumnNamesByKey, onCanvas])
 
   useEffect(() => {
     const keys = new Set<TableKey>()
@@ -415,17 +466,24 @@ export function ModelWorkspace({
       if (id && (id.schema !== t.schema || id.name !== t.name)) return true
       const co = columnOverridesByKey[k]
       if (co && Object.keys(co).length > 0) return true
+      const cio = columnIdentityOverridesByKey[k]
+      if (cio && Object.keys(cio).length > 0) return true
       const adds = pendingAddColumnsByKey[k]
       if (adds && adds.length > 0) return true
     }
+    if (pendingRules.length > 0 || pendingTriggers.length > 0 || pendingRlsPolicies.length > 0) return true
     return false
   }, [
     onCanvas,
     tablesByKey,
     identityDraftByKey,
     columnOverridesByKey,
+    columnIdentityOverridesByKey,
     pendingAddColumnsByKey,
     pendingForeignKeys,
+    pendingRlsPolicies.length,
+    pendingRules.length,
+    pendingTriggers.length,
   ])
 
   const catalogTablesSorted = useMemo(() => {
@@ -477,12 +535,20 @@ export function ModelWorkspace({
       delete next[k]
       return next
     })
+    setColumnIdentityOverridesByKey((prev) => {
+      const next = { ...prev }
+      delete next[k]
+      return next
+    })
     setPendingAddColumnsByKey((prev) => {
       const next = { ...prev }
       delete next[k]
       return next
     })
     setPendingForeignKeys((prev) => prev.filter((fk) => fk.fromKey !== k && fk.toKey !== k))
+    setPendingRules((prev) => prev.filter((row) => row.tableKey !== k))
+    setPendingTriggers((prev) => prev.filter((row) => row.tableKey !== k))
+    setPendingRlsPolicies((prev) => prev.filter((row) => row.tableKey !== k))
     setHeaderColorsByKey((prev) => {
       if (prev[k] == null) return prev
       const next = { ...prev }
@@ -818,8 +884,12 @@ export function ModelWorkspace({
         tablesByKey,
         identityDraftByKey,
         columnOverridesByKey,
+        columnIdentityOverridesByKey,
         pendingAddColumnsByKey,
         pendingForeignKeys,
+        pendingRules,
+        pendingTriggers,
+        pendingRlsPolicies,
       })
 
       let nextOnCanvas = [...onCanvas]
@@ -842,8 +912,12 @@ export function ModelWorkspace({
       setHeaderColorsByKey(nextHeaderColors)
       setIdentityDraftByKey({})
       setColumnOverridesByKey({})
+      setColumnIdentityOverridesByKey({})
       setPendingAddColumnsByKey({})
       setPendingForeignKeys([])
+      setPendingRules([])
+      setPendingTriggers([])
+      setPendingRlsPolicies([])
 
       const remapKey = (k: TableKey) => result.renamed.find((r) => r.from === k)?.to ?? k
       const nextSelected = [...new Set(selectedKeys.map(remapKey))].filter((k) =>
@@ -870,12 +944,16 @@ export function ModelWorkspace({
     }
   }, [
     columnOverridesByKey,
+    columnIdentityOverridesByKey,
     connectionId,
     identityDraftByKey,
     onCanvas,
     pendingAddColumnsByKey,
     headerColorsByKey,
     pendingForeignKeys,
+    pendingRlsPolicies,
+    pendingRules,
+    pendingTriggers,
     positions,
     primaryKey,
     queryClient,
@@ -1220,6 +1298,22 @@ export function ModelWorkspace({
                   onMoveTable={handleMoveTable}
                   onRequestColumns={requestColumns}
                   onConnectColumns={handleConnectColumns}
+                  onQuickEditColumn={(tableK, sourceColumnName, patch) => {
+                    setColumnIdentityOverridesByKey((prev) => {
+                      const tableMap = { ...(prev[tableK] ?? {}) }
+                      const nextName = patch.nextColumnName.trim()
+                      const nextType = patch.nextDataType.trim()
+                      if (!nextName || !nextType) {
+                        delete tableMap[sourceColumnName]
+                      } else {
+                        tableMap[sourceColumnName] = { nextColumnName: nextName, nextDataType: nextType }
+                      }
+                      const next = { ...prev }
+                      if (Object.keys(tableMap).length === 0) delete next[tableK]
+                      else next[tableK] = tableMap
+                      return next
+                    })
+                  }}
                   headerColors={resolvedHeaderColors}
                   exportRef={diagramExportRef}
                 />
@@ -1251,6 +1345,16 @@ export function ModelWorkspace({
                   if (!primaryKey) return
                   setColumnOverridesByKey((p) => ({ ...p, [primaryKey]: next }))
                 }}
+                columnIdentityOverrides={primaryKey ? columnIdentityOverridesByKey[primaryKey] ?? {} : {}}
+                onColumnIdentityOverridesChange={(next) => {
+                  if (!primaryKey) return
+                  setColumnIdentityOverridesByKey((p) => {
+                    const copy = { ...p }
+                    if (Object.keys(next).length === 0) delete copy[primaryKey]
+                    else copy[primaryKey] = next
+                    return copy
+                  })
+                }}
                 catalogTables={catalogTablesSorted}
                 pendingAddColumns={primaryKey ? pendingAddColumnsByKey[primaryKey] ?? [] : []}
                 onPendingAddColumnsChange={(next) => {
@@ -1280,6 +1384,21 @@ export function ModelWorkspace({
                 }}
                 onRemovePendingForeignKey={(id) => {
                   setPendingForeignKeys((prev) => prev.filter((fk) => fk.id !== id))
+                }}
+                pendingRules={pendingRules.filter((row) => row.tableKey === primaryKey)}
+                onPendingRulesChange={(next) => {
+                  if (!primaryKey) return
+                  setPendingRules((prev) => [...prev.filter((row) => row.tableKey !== primaryKey), ...next])
+                }}
+                pendingTriggers={pendingTriggers.filter((row) => row.tableKey === primaryKey)}
+                onPendingTriggersChange={(next) => {
+                  if (!primaryKey) return
+                  setPendingTriggers((prev) => [...prev.filter((row) => row.tableKey !== primaryKey), ...next])
+                }}
+                pendingRlsPolicies={pendingRlsPolicies.filter((row) => row.tableKey === primaryKey)}
+                onPendingRlsPoliciesChange={(next) => {
+                  if (!primaryKey) return
+                  setPendingRlsPolicies((prev) => [...prev.filter((row) => row.tableKey !== primaryKey), ...next])
                 }}
               />
             </div>

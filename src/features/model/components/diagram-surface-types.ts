@@ -33,6 +33,11 @@ export type DiagramSurfaceProps = {
   onMoveTable: (key: TableKey, x: number, y: number) => void
   onRequestColumns: (key: TableKey) => void
   onConnectColumns?: (fromKey: TableKey, fromColumn: string, toKey: TableKey, toColumn: string) => void
+  onQuickEditColumn?: (
+    tableKey: TableKey,
+    sourceColumnName: string,
+    patch: { nextColumnName: string; nextDataType: string },
+  ) => void
   headerColors?: Record<TableKey, string>
   pendingForeignKeys?: PendingModelForeignKey[]
   columnDetail?: ColumnDetailLevel

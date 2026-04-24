@@ -42,6 +42,11 @@ type TableNodeData = {
   diagramTool: DiagramSurfaceProps['diagramTool']
   onSelect: (key: TableKey, shiftKey: boolean) => void
   onRequestColumns: (key: TableKey) => void
+  onQuickEditColumn?: (
+    tableKey: TableKey,
+    sourceColumnName: string,
+    patch: { nextColumnName: string; nextDataType: string },
+  ) => void
 }
 
 const MAX_ROWS = 8
@@ -58,6 +63,47 @@ const TableFlowNode = memo(({ data }: { data: TableNodeData }) => {
   const headerFill = data.headerFill ?? 'var(--diagram-table-header)'
   const headerText = contrastTextForBg(headerFill)
   const canConnect = data.diagramTool === 'connect' && data.columnDetail !== 'header' && rows.length > 0
+  const canQuickEdit = Boolean(data.onQuickEditColumn) && data.diagramTool === 'select'
+  const [editingSource, setEditingSource] = useState<string | null>(null)
+  const [draftName, setDraftName] = useState('')
+  const [draftType, setDraftType] = useState('')
+  const [inlineError, setInlineError] = useState<string | null>(null)
+
+  const beginEdit = useCallback(
+    (sourceColumnName: string, currentName: string, currentType: string) => {
+      if (!canQuickEdit) return
+      setEditingSource(sourceColumnName)
+      setDraftName(currentName)
+      setDraftType(currentType)
+      setInlineError(null)
+    },
+    [canQuickEdit],
+  )
+
+  const cancelEdit = useCallback(() => {
+    setEditingSource(null)
+    setInlineError(null)
+  }, [])
+
+  const commitEdit = useCallback(() => {
+    if (!editingSource || !data.onQuickEditColumn) return
+    const nextName = draftName.trim()
+    const nextType = draftType.trim()
+    if (!nextName || !nextType) {
+      setInlineError('Column name and datatype are required.')
+      return
+    }
+    const duplicate = rows.some(
+      (col) => col.columnName.trim().toLowerCase() === nextName.toLowerCase() && col.columnName !== editingSource,
+    )
+    if (duplicate) {
+      setInlineError('Column name already exists on this node.')
+      return
+    }
+    data.onQuickEditColumn(data.key, editingSource, { nextColumnName: nextName, nextDataType: nextType })
+    setEditingSource(null)
+    setInlineError(null)
+  }, [data, draftName, draftType, editingSource, rows])
 
   return (
     <button
@@ -65,7 +111,20 @@ const TableFlowNode = memo(({ data }: { data: TableNodeData }) => {
       className={`nodrag nopan nowheel relative block cursor-grab appearance-none rounded-md border bg-card text-left shadow-sm outline-none active:cursor-grabbing ${data.selected ? 'border-primary ring-1 ring-primary/35' : 'border-border'}`}
       style={{ width: TABLE_NODE_WIDTH, minHeight: height }}
       aria-label={`Table ${data.schema}.${data.name}`}
-      onDoubleClick={() => data.onRequestColumns(data.key)}
+      onDoubleClick={(e) => {
+        const target = e.target as HTMLElement | null
+        const row = target?.closest<HTMLElement>('[data-inline-source-column]')
+        if (row && canQuickEdit) {
+          e.stopPropagation()
+          beginEdit(
+            row.dataset.inlineSourceColumn ?? '',
+            row.dataset.inlineCurrentName ?? '',
+            row.dataset.inlineCurrentType ?? '',
+          )
+          return
+        }
+        data.onRequestColumns(data.key)
+      }}
       onMouseDown={(e) => data.onSelect(data.key, e.shiftKey)}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -82,7 +141,13 @@ const TableFlowNode = memo(({ data }: { data: TableNodeData }) => {
       ) : (
         <div className="px-2 py-1.5">
           {rows.map((c) => (
-            <div key={c.columnName} className="relative flex items-center justify-between gap-2 py-0.5 text-[11px]">
+            <div
+              key={c.columnName}
+              className="relative flex items-center justify-between gap-2 py-0.5 text-[11px]"
+              data-inline-source-column={c.columnName}
+              data-inline-current-name={c.columnName}
+              data-inline-current-type={c.dataType}
+            >
               {canConnect ? (
                 <>
                   <Handle
@@ -99,10 +164,52 @@ const TableFlowNode = memo(({ data }: { data: TableNodeData }) => {
                   />
                 </>
               ) : null}
-              <span className="truncate">{c.columnName}</span>
-              <span className="max-w-24 truncate text-muted-foreground">{c.dataType}</span>
+              {editingSource === c.columnName ? (
+                <div className="flex min-w-0 flex-1 items-center gap-1">
+                  <input
+                    className="h-6 min-w-0 flex-1 rounded border border-input bg-background px-1.5 text-[10px]"
+                    value={draftName}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      e.stopPropagation()
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        commitEdit()
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault()
+                        cancelEdit()
+                      }
+                    }}
+                    onBlur={commitEdit}
+                  />
+                  <input
+                    className="h-6 w-24 rounded border border-input bg-background px-1.5 text-[10px] text-muted-foreground"
+                    value={draftType}
+                    onChange={(e) => setDraftType(e.target.value)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      e.stopPropagation()
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        commitEdit()
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault()
+                        cancelEdit()
+                      }
+                    }}
+                    onBlur={commitEdit}
+                  />
+                </div>
+              ) : (
+                <>
+                  <span className="truncate">{c.columnName}</span>
+                  <span className="max-w-24 truncate text-muted-foreground">{c.dataType}</span>
+                </>
+              )}
             </div>
           ))}
+          {inlineError ? <div className="pt-1 text-[10px] text-destructive">{inlineError}</div> : null}
           {moreCount > 0 ? <div className="pt-1 text-[10px] text-muted-foreground">+{moreCount} more</div> : null}
         </div>
       )}
@@ -140,6 +247,7 @@ export function ReactFlowCanvas({
   onMoveTable,
   onRequestColumns,
   onConnectColumns,
+  onQuickEditColumn,
   headerColors = {},
   pendingForeignKeys = [],
   columnDetail = 'full',
@@ -147,7 +255,7 @@ export function ReactFlowCanvas({
   exportRef,
 }: DiagramSurfaceProps) {
   const wrapperRef = useRef<HTMLDivElement>(null)
-  const rfRef = useRef<ReactFlowInstance<Node<TableNodeData>, Edge> | null>(null)
+  const rfRef = useRef<ReactFlowInstance<Node, Edge> | null>(null)
   const lastViewportEmitRef = useRef(0)
   const viewportRef = useRef(viewport)
   const [spaceHeld, setSpaceHeld] = useState(false)
@@ -193,31 +301,32 @@ export function ReactFlowCanvas({
           diagramTool,
           onSelect: onTableSelect,
           onRequestColumns,
+          onQuickEditColumn,
         },
       }
     })
-  }, [columnDetail, columnsByKey, diagramTool, headerColors, onRequestColumns, onTableSelect, positions, selectedKeys, tableDisplays])
+  }, [columnDetail, columnsByKey, diagramTool, headerColors, onQuickEditColumn, onRequestColumns, onTableSelect, positions, selectedKeys, tableDisplays])
 
   const groupNodes = useMemo<Node<GroupNodeData>[]>(() => {
     if (!diagramGroups.length) return []
-    return diagramGroups
-      .map((group) => {
-        const bounds = diagramGroupWorldBounds(group, positions, columnsByKey, columnDetail)
-        if (!bounds) return null
-        return {
-          id: `group:${group.id}`,
-          type: 'groupNode',
-          position: { x: bounds.x, y: bounds.y },
-          data: { name: group.name },
-          draggable: false,
-          selectable: false,
-          focusable: false,
-          width: bounds.w,
-          height: bounds.h,
-          zIndex: -10,
-        } satisfies Node<GroupNodeData>
+    const out: Node<GroupNodeData>[] = []
+    for (const group of diagramGroups) {
+      const bounds = diagramGroupWorldBounds(group, positions, columnsByKey, columnDetail)
+      if (!bounds) continue
+      out.push({
+        id: `group:${group.id}`,
+        type: 'groupNode',
+        position: { x: bounds.x, y: bounds.y },
+        data: { name: group.name },
+        draggable: false,
+        selectable: false,
+        focusable: false,
+        width: bounds.w,
+        height: bounds.h,
+        zIndex: -10,
       })
-      .filter((node): node is Node<GroupNodeData> => node != null)
+    }
+    return out
   }, [columnDetail, columnsByKey, diagramGroups, positions])
 
   const allNodes = useMemo<Node[]>(() => [...groupNodes, ...nodes], [groupNodes, nodes])
@@ -236,10 +345,6 @@ export function ReactFlowCanvas({
       sourceHandle: `out:${edge.fromColumn}`,
       targetHandle: `in:${edge.toColumn}`,
       markerEnd: { type: MarkerType.ArrowClosed, color: kind === 'pending' ? palette.edgePending : palette.edge },
-      pathOptions: {
-        borderRadius: 8,
-        offset: 20,
-      },
       animated: kind === 'pending',
       style: {
         stroke: kind === 'pending' ? palette.edgePending : palette.edge,

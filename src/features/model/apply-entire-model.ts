@@ -29,6 +29,35 @@ export type PendingModelForeignKey = {
   constraintName?: string
 }
 
+export type ColumnIdentityOverride = {
+  nextColumnName: string
+  nextDataType: string
+}
+
+export type PendingModelRule = {
+  id: string
+  tableKey: TableKey
+  operation: 'create' | 'drop'
+  title?: string
+  sql: string
+}
+
+export type PendingModelTrigger = {
+  id: string
+  tableKey: TableKey
+  operation: 'create' | 'drop'
+  title?: string
+  sql: string
+}
+
+export type PendingModelRlsPolicy = {
+  id: string
+  tableKey: TableKey
+  operation: 'create' | 'drop'
+  title?: string
+  sql: string
+}
+
 export function quotePgIdent(ident: string): string {
   return `"${ident.replace(/"/g, '""')}"`
 }
@@ -107,8 +136,12 @@ export type ApplyEntireModelParams = {
   tablesByKey: Map<TableKey, TableInfo>
   identityDraftByKey: Record<TableKey, TableIdentityDraft>
   columnOverridesByKey: Record<TableKey, Record<string, ColumnOverride>>
+  columnIdentityOverridesByKey: Record<TableKey, Record<string, ColumnIdentityOverride>>
   pendingAddColumnsByKey: Record<TableKey, PendingModelColumn[]>
   pendingForeignKeys: PendingModelForeignKey[]
+  pendingRules: PendingModelRule[]
+  pendingTriggers: PendingModelTrigger[]
+  pendingRlsPolicies: PendingModelRlsPolicy[]
 }
 
 export type ApplyEntireModelResult = {
@@ -124,8 +157,12 @@ export async function applyEntireModel({
   tablesByKey,
   identityDraftByKey,
   columnOverridesByKey,
+  columnIdentityOverridesByKey,
   pendingAddColumnsByKey,
   pendingForeignKeys,
+  pendingRules,
+  pendingTriggers,
+  pendingRlsPolicies,
 }: ApplyEntireModelParams): Promise<ApplyEntireModelResult> {
   const renamed: Array<{ from: TableKey; to: TableKey }> = []
 
@@ -139,6 +176,39 @@ export async function applyEntireModel({
       if (!col.columnName.trim() || !col.dataType.trim()) continue
       ddlPre.push(buildAddColumnStatement(table, col))
     }
+  }
+
+  const columnIdentityStatements: string[] = []
+  for (const key of onCanvas) {
+    const table = tablesByKey.get(key)
+    if (!table) continue
+    const overrides = columnIdentityOverridesByKey[key]
+    if (!overrides || Object.keys(overrides).length === 0) continue
+    const schema = await veloxDbRepository.getSchema(connectionId, table)
+    const byName = new Map(schema.map((col) => [col.columnName, col]))
+    const tbl = `${quotePgIdent(table.schema)}.${quotePgIdent(table.name)}`
+    for (const [baseColumnName, override] of Object.entries(overrides)) {
+      const current = byName.get(baseColumnName)
+      if (!current) continue
+      const nextType = override.nextDataType.trim()
+      const nextName = override.nextColumnName.trim()
+      if (nextType && nextType !== current.dataType) {
+        columnIdentityStatements.push(
+          `ALTER TABLE ${tbl} ALTER COLUMN ${quotePgIdent(baseColumnName)} TYPE ${nextType}`,
+        )
+      }
+      if (nextName && nextName !== baseColumnName) {
+        columnIdentityStatements.push(
+          `ALTER TABLE ${tbl} RENAME COLUMN ${quotePgIdent(baseColumnName)} TO ${quotePgIdent(nextName)}`,
+        )
+      }
+    }
+  }
+  if (columnIdentityStatements.length > 0) {
+    await veloxDbRepository.executeDdlTransaction({
+      connectionId,
+      statements: columnIdentityStatements,
+    })
   }
   for (const fk of pendingForeignKeys) {
     if (fk.fromKey === fk.toKey) continue
@@ -200,6 +270,17 @@ export async function applyEntireModel({
     await veloxDbRepository.executeDdlTransaction({
       connectionId,
       statements: renameStatements,
+    })
+  }
+
+  const governanceStatements = [...pendingRules, ...pendingTriggers, ...pendingRlsPolicies]
+    .map((item) => item.sql.trim())
+    .filter((sql) => sql.length > 0)
+
+  if (governanceStatements.length > 0) {
+    await veloxDbRepository.executeDdlTransaction({
+      connectionId,
+      statements: governanceStatements,
     })
   }
 
