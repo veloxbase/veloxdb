@@ -519,7 +519,7 @@ export function ConnectionsSidebarTree({
       },
       {
         id: 'disconnectConnection',
-        label: 'Disconnect',
+        label: 'Delete',
         group: 'danger',
         disabled: !onDisconnectConnection,
       },
@@ -914,7 +914,7 @@ export function ConnectionsSidebarTree({
                       <button
                         type="button"
                         className="rounded p-1 text-sidebar-foreground/60 hover:bg-destructive/10 hover:text-destructive"
-                        title="Disconnect"
+                        title="Delete connection"
                         onClick={(e) => { e.stopPropagation(); onDisconnectConnection(connection) }}
                       >
                         <TrashIcon className="size-3" />

@@ -33,6 +33,7 @@ import {
 } from "@/features/queries/results-export";
 import { useTablePropertiesQuery } from "@/features/schema/queries";
 import { notifyError } from "@/lib/error-notifier";
+import { useSettings } from "@/lib/settings";
 
 const SELECT_COLUMN_WIDTH_PX = 44;
 const DEFAULT_DATA_COLUMN_WIDTH_PX = 180;
@@ -280,6 +281,9 @@ export function ResultsGrid({
 	const lastInsertRowTriggerRef = useRef(insertRowTrigger);
 	const resizeRafRef = useRef<number | null>(null);
 	const pendingResizeWidthsRef = useRef<Record<string, number>>({});
+	const [copiedCellId, setCopiedCellId] = useState<string | null>(null);
+	const copyTimeoutRef = useRef<number | null>(null);
+	const clickToCopy = useSettings((s) => s.clickToCopy)
 
 	const insertMutation = useInsertRowMutation({
 		onError: (error) => {
@@ -1188,12 +1192,21 @@ export function ResultsGrid({
 															return (
 																<div
 																	key={cell.id}
-																	className="min-w-0 truncate border-r border-border/60 px-3 py-2"
+																	className={`min-w-0 truncate border-r border-border/60 px-3 py-2 ${clickToCopy ? 'cursor-copy hover:bg-accent/30 active:bg-accent/50' : ''} ${copiedCellId === cell.id ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : ''}`}
 																	style={{
 																		width: `${widthPx}px`,
 																		minWidth: `${widthPx}px`,
 																	}}
-																	title={formatValue(cellValue)}
+																	title={`${formatValue(cellValue)}${copiedCellId === cell.id ? ' — Copied!' : clickToCopy ? '\nClick to copy' : ''}`}
+																	onClick={() => {
+																		if (!clickToCopy) return
+																		const text = formatValue(cellValue)
+																		if (!text) return
+																		navigator.clipboard.writeText(text)
+																		setCopiedCellId(cell.id)
+																		if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+																		copyTimeoutRef.current = window.setTimeout(() => setCopiedCellId(null), 1200)
+																	}}
 																>
 																	{renderBodyCell(cell)}
 																</div>

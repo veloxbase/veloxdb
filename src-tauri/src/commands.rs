@@ -180,6 +180,17 @@ pub async fn disconnect_db(
 }
 
 #[tauri::command]
+pub async fn delete_connection(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<(), String> {
+    disconnect_connection(&state, &connection_id).await;
+    crate::db::delete_connection_from_store(&app, &connection_id)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn run_query(
     app: AppHandle,
     state: State<'_, AppState>,

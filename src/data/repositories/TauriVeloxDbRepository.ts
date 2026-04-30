@@ -45,6 +45,12 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
     )
   }
 
+  async deleteConnection(connectionId: string): Promise<void> {
+    return invokeCommand('delete_connection', () =>
+      invoke<void>('delete_connection', { connectionId }),
+    )
+  }
+
   async pingConnection(connectionId: string): Promise<void> {
     return invokeCommand('ping_connection', () =>
       invoke<void>('ping_connection', { connectionId }),

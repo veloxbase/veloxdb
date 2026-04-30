@@ -1,10 +1,11 @@
-import { MoonIcon, SidebarSimpleIcon, SunIcon } from "@phosphor-icons/react";
+import { GearIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
 	type CSSProperties,
 	type PointerEvent as ReactPointerEvent,
 	useCallback,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -17,13 +18,14 @@ import { veloxDbRepository } from "@/data/repositories";
 import type { ConnectionSummary, TableInfo } from "@/data/types";
 import { CommandPalette } from "@/features/commands/components/CommandPalette";
 import { ShortcutSheet } from "@/features/commands/components/ShortcutSheet";
+import { SettingsDialog } from "@/features/commands/components/SettingsDialog";
 import { ConnectionDialog } from "@/features/connections/components/ConnectionDialog";
 import { ConnectionsSidebarTree } from "@/features/connections/components/ConnectionsSidebarTree";
 import {
 	useActivateConnectionMutation,
 	useConnectionsQuery,
 	useConnectMutation,
-	useDisconnectMutation,
+	useDeleteConnectionMutation,
 } from "@/features/connections/queries";
 import { ModelWorkspace } from "@/features/model/components/ModelWorkspace";
 import { readOnboardingCompleted } from "@/features/onboarding/constants";
@@ -34,6 +36,7 @@ import {
 } from "@/features/queries/components/QueryWorkspace";
 import { useSaveResultEditsMutation } from "@/features/queries/queries";
 import { notifyError, notifySuccess } from "@/lib/error-notifier";
+import { useSettings, resolveTheme } from "@/lib/settings";
 import {
 	buildDropTableSql,
 	buildDeleteTemplateSql,
@@ -94,11 +97,12 @@ function VeloxApp() {
 	});
 	const [tableSearch, setTableSearch] = useState("");
 	const [selectedTable, setSelectedTable] = useState<TableInfo | null>(null);
-	const [isDark, setIsDark] = useState(
-		() => window.matchMedia("(prefers-color-scheme: dark)").matches,
-	);
+	const themeSetting = useSettings((s) => s.theme)
+	const isDark = useMemo(() => resolveTheme(themeSetting) === 'dark', [themeSetting])
+	const fontSize = useSettings((s) => s.fontSize)
+	const [settingsOpen, setSettingsOpen] = useState(false)
+	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
 	const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
-	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 	const [isSidebarCollapsed, setIsSidebarCollapsed] =
 		useState(readSidebarCollapsed);
 	const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
@@ -124,15 +128,16 @@ function VeloxApp() {
 		void queryClient.invalidateQueries({
 			queryKey: queryKeys.tableProperties(connection?.id, selectedTable),
 		});
-		void queryClient.invalidateQueries({
-			queryKey: queryKeys.schema(connection?.id, selectedTable),
-		});
-		queryWorkspaceRef.current?.refreshFocusedResults();
 	}, [connection?.id, queryClient, selectedTable]);
 
 	useEffect(() => {
 		document.documentElement.classList.toggle("dark", isDark);
 	}, [isDark]);
+
+	useEffect(() => {
+		const sizes = { sm: 12, md: 14, lg: 16 }
+		document.documentElement.style.fontSize = `${sizes[fontSize]}px`
+	}, [fontSize])
 
 	useEffect(() => {
 		window.localStorage.setItem(
@@ -199,16 +204,26 @@ function VeloxApp() {
 		},
 	});
 
-	const disconnectMutation = useDisconnectMutation({
+	const deleteConnectionMutation = useDeleteConnectionMutation({
 		onError: (error) => {
 			notifyError(error, { category: "connection", force: true });
+		},
+		onSuccess: (connectionId) => {
+			if (connection?.id === connectionId) {
+				setConnection(null);
+				setSelectedTable(null);
+				setTableSearch("");
+			}
+			notifySuccess("Connection deleted");
 		},
 	});
 
 	const connectionRestoreAttemptedRef = useRef(false);
+	const autoReconnect = useSettings((s) => s.autoReconnect)
 
 	useEffect(() => {
 		if (connectionRestoreAttemptedRef.current) return;
+		if (!autoReconnect) { connectionRestoreAttemptedRef.current = true; return }
 		const list = connectionsQuery.data;
 		if (!list?.length) return;
 		if (connection) {
@@ -456,7 +471,12 @@ function VeloxApp() {
 
 	const handleDisconnectConnectionRequest = useCallback(
 		(connectionTarget: ConnectionSummary) => {
-			disconnectMutation.mutate(connectionTarget.id);
+			const confirmed = window.confirm(
+				`Delete connection "${connectionTarget.name}"?\n\nThis will remove it from saved connections and close any active SSH tunnels.`,
+			);
+			if (!confirmed) return;
+
+			deleteConnectionMutation.mutate(connectionTarget.id);
 
 			if (connection?.id === connectionTarget.id) {
 				setConnection(null);
@@ -466,7 +486,7 @@ function VeloxApp() {
 				setTablePropertiesTarget(null);
 			}
 		},
-		[connection?.id, disconnectMutation],
+		[connection?.id, deleteConnectionMutation],
 	);
 
 	const handleActivateConnectionForTab = useCallback(
@@ -686,10 +706,10 @@ function VeloxApp() {
 							<Button
 								variant="outline"
 								size="sm"
-								onClick={() => setIsDark((current) => !current)}
+								onClick={() => setSettingsOpen(true)}
 							>
-								{isDark ? <SunIcon /> : <MoonIcon />}
-								{isDark ? "Light" : "Dark"}
+								<GearIcon />
+								Settings
 							</Button>
 						</div>
 					</div>
@@ -781,6 +801,7 @@ function VeloxApp() {
 				onSelectTable={handleSelectTable}
 			/>
 			<ShortcutSheet />
+			<SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 
 		</div>
 	);

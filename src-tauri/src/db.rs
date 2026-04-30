@@ -288,6 +288,14 @@ pub fn persist_connection_with_password(
     Ok(())
 }
 
+pub fn delete_connection_from_store(app: &AppHandle, connection_id: &str) -> Result<(), String> {
+    let store = app
+        .store(CONNECTION_STORE_PATH)
+        .map_err(|error| error.to_string())?;
+    store.delete(connection_id);
+    Ok(())
+}
+
 pub fn load_connection(
     app: &AppHandle,
     connection_id: &str,

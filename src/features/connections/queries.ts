@@ -148,3 +148,30 @@ export function useDisconnectMutation(options: UseDisconnectMutationOptions = {}
   })
 }
 
+type UseDeleteConnectionMutationOptions = {
+  onSuccess?: (connectionId: string) => void
+  onError?: (error: unknown, connectionId: string) => void
+}
+
+export function useDeleteConnectionMutation(options: UseDeleteConnectionMutationOptions = {}) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (connectionId: string) =>
+      veloxDbRepository.deleteConnection(connectionId),
+    onSuccess: (_result, connectionId) => {
+      queryClient.setQueryData<ConnectionSummary[]>(
+        queryKeys.connections(),
+        (current) => {
+          const existing = current ?? []
+          return existing.filter((c) => c.id !== connectionId)
+        },
+      )
+      options.onSuccess?.(connectionId)
+    },
+    onError: (error, connectionId) => {
+      options.onError?.(error, connectionId)
+    },
+  })
+}
+
