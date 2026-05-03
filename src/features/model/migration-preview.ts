@@ -8,8 +8,10 @@ import {
   type PendingModelRule,
   type PendingModelTrigger,
   type PendingModelRlsPolicy,
+  type PendingCreateTable,
   buildAddColumnStatement,
   buildAddForeignKeyStatement,
+  buildCreateTableStatement,
   buildTableRenameStatements,
   quotePgIdent,
 } from '@/features/model/apply-entire-model'
@@ -22,6 +24,7 @@ export type MigrationChange = {
     | 'rename_table'
     | 'column_identity_change'
     | 'column_override'
+    | 'create_table'
     | 'rule'
     | 'trigger'
     | 'rls_policy'
@@ -46,9 +49,10 @@ export function buildMigrationSummary(params: {
   pendingRules: PendingModelRule[]
   pendingTriggers: PendingModelTrigger[]
   pendingRlsPolicies: PendingModelRlsPolicy[]
+  pendingCreateTables: PendingCreateTable[]
 }): MigrationSummary {
   const changes: MigrationChange[] = []
-  const { onCanvas, tablesByKey, identityDraftByKey, columnOverridesByKey, columnIdentityOverridesByKey, pendingAddColumnsByKey, pendingForeignKeys, pendingRules, pendingTriggers, pendingRlsPolicies } = params
+  const { onCanvas, tablesByKey, identityDraftByKey, columnOverridesByKey, columnIdentityOverridesByKey, pendingAddColumnsByKey, pendingForeignKeys, pendingRules, pendingTriggers, pendingRlsPolicies, pendingCreateTables } = params
 
   for (const key of onCanvas) {
     const table = tablesByKey.get(key)
@@ -150,6 +154,18 @@ export function buildMigrationSummary(params: {
     changes.push({ kind: 'rls_policy', tableKey: policy.tableKey, description: `RLS Policy: ${policy.title ?? policy.operation}`, sql: policy.sql })
   }
 
+  for (const ct of pendingCreateTables) {
+    if (!ct.name.trim()) continue
+    const tk: TableKey = `${ct.schema.trim() || 'public'}.${ct.name.trim()}`
+    const sql = buildCreateTableStatement(ct)
+    changes.push({
+      kind: 'create_table',
+      tableKey: tk,
+      description: `Create table ${ct.schema.trim() || 'public'}.${ct.name.trim()}`,
+      sql,
+    })
+  }
+
   const totalStatements = changes.reduce((sum, c) => {
     const cnt = Array.isArray(c.sql) ? c.sql.length : (c.sql.trim() ? 1 : 0)
     return sum + cnt
@@ -167,6 +183,7 @@ export function buildMigrationSql(summary: MigrationSummary): string {
   ]
 
   const kindLabels: Record<string, string> = {
+    create_table: 'Create Tables',
     add_column: 'Add Columns',
     add_foreign_key: 'Foreign Keys',
     rename_table: 'Table Renames',

@@ -29,8 +29,10 @@ import { veloxDbRepository } from '@/data/repositories'
 import type { ColumnInfo, TableInfo } from '@/data/types'
 import {
   applyEntireModel,
+  type PendingCreateTable,
   type TableIdentityDraft,
 } from '@/features/model/apply-entire-model'
+import { CreateTableDialog } from '@/features/model/components/CreateTableDialog'
 import { DdlReviewDialog } from '@/features/model/components/DdlReviewDialog'
 import { DiagramSurfaceAdapter } from '@/features/model/components/DiagramSurfaceAdapter'
 import type { DiagramExportHandle } from '@/features/model/components/diagram-surface-types'
@@ -168,6 +170,8 @@ export function ModelWorkspace({
     setPendingTriggers,
     pendingRlsPolicies,
     setPendingRlsPolicies,
+    pendingCreateTables,
+    setPendingCreateTables,
     applyQuickColumnEdit,
     canUndo,
     canRedo,
@@ -226,6 +230,8 @@ export function ModelWorkspace({
       setPendingTriggers: s.setPendingTriggers,
       pendingRlsPolicies: s.pendingRlsPolicies,
       setPendingRlsPolicies: s.setPendingRlsPolicies,
+      pendingCreateTables: s.pendingCreateTables,
+      setPendingCreateTables: s.setPendingCreateTables,
       applyQuickColumnEdit: s.applyQuickColumnEdit,
       canUndo: s.canUndo,
       canRedo: s.canRedo,
@@ -239,6 +245,7 @@ export function ModelWorkspace({
   }, [connectionId, defaultDatabaseName, hydrateFromConnection])
   const [columnRequestKeys, setColumnRequestKeys] = useState<TableKey[]>([])
   const [ddlOpen, setDdlOpen] = useState(false)
+  const [createTableOpen, setCreateTableOpen] = useState(false)
   const [migrationPreviewOpen, setMigrationPreviewOpen] = useState(false)
   const [applyPending, setApplyPending] = useState(false)
   const [applyError, setApplyError] = useState<string | null>(null)
@@ -618,6 +625,7 @@ export function ModelWorkspace({
 
   const isModelDirty = useMemo(() => {
     if (pendingForeignKeys.length > 0) return true
+    if (pendingCreateTables.length > 0) return true
     for (const k of onCanvas) {
       const t = tablesByKey.get(k)
       if (!t) continue
@@ -640,6 +648,7 @@ export function ModelWorkspace({
     columnIdentityOverridesByKey,
     pendingAddColumnsByKey,
     pendingForeignKeys,
+    pendingCreateTables,
     pendingRlsPolicies.length,
     pendingRules.length,
     pendingTriggers.length,
@@ -660,6 +669,7 @@ export function ModelWorkspace({
             pendingRules,
             pendingTriggers,
             pendingRlsPolicies,
+            pendingCreateTables,
           }),
     [
       isModelDirty,
@@ -673,6 +683,7 @@ export function ModelWorkspace({
       pendingRules,
       pendingTriggers,
       pendingRlsPolicies,
+      pendingCreateTables,
     ],
   )
 
@@ -1178,6 +1189,7 @@ export function ModelWorkspace({
         pendingRules,
         pendingTriggers,
         pendingRlsPolicies,
+        pendingCreateTables,
       })
 
       let nextOnCanvas = [...onCanvas]
@@ -1206,6 +1218,7 @@ export function ModelWorkspace({
       setPendingRules([])
       setPendingTriggers([])
       setPendingRlsPolicies([])
+      setPendingCreateTables([])
 
       const remapKey = (k: TableKey) => result.renamed.find((r) => r.from === k)?.to ?? k
       const nextSelected = [...new Set(selectedKeys.map(remapKey))].filter((k) =>
@@ -1242,6 +1255,7 @@ export function ModelWorkspace({
     pendingRlsPolicies,
     pendingRules,
     pendingTriggers,
+    pendingCreateTables,
     positions,
     primaryKey,
     queryClient,
@@ -1249,6 +1263,13 @@ export function ModelWorkspace({
     selectedKeys,
     tablesByKey,
   ])
+
+  const handleCreateTable = useCallback(
+    (ct: PendingCreateTable) => {
+      setPendingCreateTables((prev) => [...prev, ct])
+    },
+    [setPendingCreateTables],
+  )
 
   if (isTablesLoading && !tables.length) {
     return (
@@ -1551,6 +1572,16 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
+                title="Create new table"
+                onClick={() => setCreateTableOpen(true)}
+              >
+                <PlusIcon className="size-4" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
                 title="Export diagram as PNG"
                 disabled={onCanvas.length === 0}
                 onClick={() => handleExportDiagramPng()}
@@ -1737,6 +1768,12 @@ export function ModelWorkspace({
       </Tabs>
 
       <DdlReviewDialog open={ddlOpen} onOpenChange={setDdlOpen} connectionId={connectionId} />
+      <CreateTableDialog
+        open={createTableOpen}
+        onOpenChange={setCreateTableOpen}
+        onCommit={handleCreateTable}
+        defaultSchema={defaultDatabaseName}
+      />
       <MigrationPreviewDialog
         open={migrationPreviewOpen}
         onOpenChange={setMigrationPreviewOpen}

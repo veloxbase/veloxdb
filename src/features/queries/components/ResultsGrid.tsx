@@ -465,7 +465,7 @@ export function ResultsGrid({
 		[pendingEdits],
 	);
 
-	const columnHelper = createColumnHelper<ResultRow>();
+	const columnHelper = useMemo(() => createColumnHelper<ResultRow>(), []);
 	const columnDefs = useMemo(
 		() => [
 			columnHelper.display({
@@ -549,6 +549,7 @@ export function ResultsGrid({
 						if (isCellEditing) {
 							return (
 								<ResultEditInput
+									key={`${rowId}-${columnId}`}
 									defaultValue={toEditableValue(value)}
 									onEscape={() => setEditingCell(null)}
 									onBlurCommit={(raw) => {
@@ -576,7 +577,6 @@ export function ResultsGrid({
 		[
 			applyPendingEdit,
 			canEdit,
-			columnHelper,
 			columns,
 			editableColumnsByLower,
 			editingCell,

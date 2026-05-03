@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import type {
   ColumnIdentityOverride,
   ColumnOverride,
+  PendingCreateTable,
   PendingModelColumn,
   PendingModelForeignKey,
   PendingModelRlsPolicy,
@@ -55,6 +56,7 @@ type CanvasState = {
   pendingRules: PendingModelRule[]
   pendingTriggers: PendingModelTrigger[]
   pendingRlsPolicies: PendingModelRlsPolicy[]
+  pendingCreateTables: PendingCreateTable[]
 }
 
 type HistoryState = {
@@ -101,6 +103,7 @@ type CanvasStore = CanvasState &
     setPendingRules: (updater: Updater<PendingModelRule[]>) => void
     setPendingTriggers: (updater: Updater<PendingModelTrigger[]>) => void
     setPendingRlsPolicies: (updater: Updater<PendingModelRlsPolicy[]>) => void
+    setPendingCreateTables: (updater: Updater<PendingCreateTable[]>) => void
     applyQuickColumnEdit: (
       tableKey: TableKey,
       sourceColumnName: string,
@@ -144,6 +147,7 @@ function initialCanvasState(): CanvasState {
     pendingRules: [],
     pendingTriggers: [],
     pendingRlsPolicies: [],
+    pendingCreateTables: [],
   }
 }
 
@@ -244,6 +248,7 @@ function toSnapshot(store: CanvasStore): CanvasState {
     pendingRules: store.pendingRules,
     pendingTriggers: store.pendingTriggers,
     pendingRlsPolicies: store.pendingRlsPolicies,
+    pendingCreateTables: store.pendingCreateTables,
   }
 }
 
@@ -495,6 +500,12 @@ export const useCanvasStore = create<CanvasStore>((set) => {
         const next = resolveUpdater(updater, prev.pendingRlsPolicies)
         if (sameArrayRefOrValues(prev.pendingRlsPolicies, next)) return prev
         return { ...prev, pendingRlsPolicies: next }
+      }),
+    setPendingCreateTables: (updater) =>
+      applyMutation((prev) => {
+        const next = resolveUpdater(updater, prev.pendingCreateTables)
+        if (sameArrayRefOrValues(prev.pendingCreateTables, next)) return prev
+        return { ...prev, pendingCreateTables: next }
       }),
     applyQuickColumnEdit: (tableKey, sourceColumnName, patch) =>
       applyMutation((prev) => {

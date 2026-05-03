@@ -58,6 +58,13 @@ export type PendingModelRlsPolicy = {
   sql: string
 }
 
+export type PendingCreateTable = {
+  id: string
+  schema: string
+  name: string
+  columns: PendingModelColumn[]
+}
+
 export function quotePgIdent(ident: string): string {
   return `"${ident.replace(/"/g, '""')}"`
 }
@@ -130,6 +137,22 @@ export function buildTableRenameStatements(
   ]
 }
 
+export function buildCreateTableStatement(ct: PendingCreateTable): string {
+  const schema = ct.schema.trim() || 'public'
+  const name = ct.name.trim()
+  const tblRef = `${quotePgIdent(schema)}.${quotePgIdent(name)}`
+  const parts: string[] = []
+  for (const col of ct.columns) {
+    if (!col.columnName.trim() || !col.dataType.trim()) continue
+    let def = `  ${quotePgIdent(col.columnName.trim())} ${col.dataType.trim()}`
+    if (!col.nullable) def += ' NOT NULL'
+    const d = col.defaultSql?.trim()
+    if (d) def += ` DEFAULT ${d}`
+    parts.push(def)
+  }
+  return `CREATE TABLE ${tblRef} (\n${parts.join(',\n')}\n)`
+}
+
 export type ApplyEntireModelParams = {
   connectionId: string
   onCanvas: TableKey[]
@@ -142,6 +165,7 @@ export type ApplyEntireModelParams = {
   pendingRules: PendingModelRule[]
   pendingTriggers: PendingModelTrigger[]
   pendingRlsPolicies: PendingModelRlsPolicy[]
+  pendingCreateTables: PendingCreateTable[]
 }
 
 export type ApplyEntireModelResult = {
@@ -163,6 +187,7 @@ export async function applyEntireModel({
   pendingRules,
   pendingTriggers,
   pendingRlsPolicies,
+  pendingCreateTables,
 }: ApplyEntireModelParams): Promise<ApplyEntireModelResult> {
   const renamed: Array<{ from: TableKey; to: TableKey }> = []
 
@@ -281,6 +306,18 @@ export async function applyEntireModel({
     await veloxDbRepository.executeDdlTransaction({
       connectionId,
       statements: governanceStatements,
+    })
+  }
+
+  const createTableStatements: string[] = []
+  for (const ct of pendingCreateTables) {
+    if (!ct.name.trim()) continue
+    createTableStatements.push(buildCreateTableStatement(ct))
+  }
+  if (createTableStatements.length > 0) {
+    await veloxDbRepository.executeDdlTransaction({
+      connectionId,
+      statements: createTableStatements,
     })
   }
 
