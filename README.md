@@ -82,7 +82,7 @@ Watch the demo: **[veloxdb.com](https://veloxdb.com)**
 
 Download the latest release from the **[Releases page](https://github.com/abeni16/veloxdb/releases)**.
 
-**macOS (Apple Silicon):** [Download DMG](https://github.com/abeni16/veloxdb/releases/download/v0.1.0-beta.1/veloxdb_0.1.0-beta.1_aarch64.dmg)
+**macOS (Apple Silicon):** [Download DMG](https://github.com/abeni16/veloxdb/releases/download/v0.1.0-beta.2/veloxdb_0.1.0-beta.2_aarch64.dmg)
 
 | Platform | Package |
 |----------|---------|

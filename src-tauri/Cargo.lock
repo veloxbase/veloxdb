@@ -4746,7 +4746,7 @@ checksum = "7ba6f5989077681266825251a52748b8c1d8a4ad098cc37e440103d0ea717fc0"
 
 [[package]]
 name = "veloxdb"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "deadpool-postgres",
  "keyring",

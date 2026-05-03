@@ -275,9 +275,6 @@ export function ResultsGrid({
 	const [gridError, setGridError] = useState<string | null>(null);
 	const [showInsertRow, setShowInsertRow] = useState(false);
 	const [insertDraft, setInsertDraft] = useState<Record<string, string>>({});
-	const pendingEditsRef = useRef(pendingEdits);
-	const editingCellRef = useRef(editingCell);
-	const insertDraftRef = useRef(insertDraft);
 	const lastInsertRowTriggerRef = useRef(insertRowTrigger);
 	const resizeRafRef = useRef<number | null>(null);
 	const pendingResizeWidthsRef = useRef<Record<string, number>>({});
@@ -428,18 +425,6 @@ export function ResultsGrid({
 		return base;
 	}, [appendInsertRow, indexedRows, insertPlaceholderRow]);
 
-	useEffect(() => {
-		pendingEditsRef.current = pendingEdits;
-	}, [pendingEdits]);
-
-	useEffect(() => {
-		editingCellRef.current = editingCell;
-	}, [editingCell]);
-
-	useEffect(() => {
-		insertDraftRef.current = insertDraft;
-	}, [insertDraft]);
-
 	useEffect(
 		() => () => {
 			if (resizeRafRef.current !== null) {
@@ -476,8 +461,8 @@ export function ResultsGrid({
 
 	const resolveCellValue = useCallback(
 		(rowId: string, columnId: string, fallback: string | null | undefined) =>
-			pendingEditsRef.current[rowId]?.[columnId] ?? fallback ?? null,
-		[],
+			pendingEdits[rowId]?.[columnId] ?? fallback ?? null,
+		[pendingEdits],
 	);
 
 	const columnHelper = createColumnHelper<ResultRow>();
@@ -520,8 +505,8 @@ export function ResultsGrid({
 							context.getValue() as string | null | undefined,
 						);
 						const isCellEditing =
-							editingCellRef.current?.rowId === rowId &&
-							editingCellRef.current.columnId === columnId;
+							editingCell?.rowId === rowId &&
+							editingCell.columnId === columnId;
 						const normalizedColumnId = normalizeColumnId(columnId);
 						const isColumnEditable =
 							canEdit &&
@@ -539,7 +524,7 @@ export function ResultsGrid({
 							}
 							return (
 								<InsertRowInput
-									value={insertDraftRef.current[mappedInsertColumn] ?? ""}
+									value={insertDraft[mappedInsertColumn] ?? ""}
 									onChange={(next) =>
 										setInsertDraft((previous) => ({
 											...previous,
@@ -594,7 +579,9 @@ export function ResultsGrid({
 			columnHelper,
 			columns,
 			editableColumnsByLower,
+			editingCell,
 			insertBindingByResultColumn,
+			insertDraft,
 			metaByLowerName,
 			primaryKeyColumnsByLower,
 			resolveCellValue,
