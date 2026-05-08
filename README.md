@@ -166,8 +166,11 @@ docker compose -f docker-compose.pg.yml up -d
 
 ---
 <p align="center">
-  <a href="https://buymeacoffee.com/abeni3ase7i">
-    <img src="https://img.buymeacoffee.com/button-api/?text=Support VeloxDB&emoji=&slug=abeni3ase7i&button_colour=FFDD00&font_colour=000000&font_family=Lato&outline_colour=000000&coffee_colour=ffffff" alt="Buy Me A Coffee">
+  <a href="https://buymeacoffee.com/abeni3ase7i" target="_blank">
+    <img
+      src="https://img.shields.io/badge/Support%20VeloxDB-☕%20Buy%20Me%20a%20Coffee-1f1f1f?style=for-the-badge"
+      alt="Support VeloxDB"
+    />
   </a>
 </p>
 ---
