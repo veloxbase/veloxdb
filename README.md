@@ -166,7 +166,7 @@ docker compose -f docker-compose.pg.yml up -d
 
 ---
 <p align="center">
-<a href="https://www.buymeacoffee.com/abeni3ase7i"><img src="https://img.buymeacoffee.com/button-api/?text=Support VeloxDB&emoji=&slug=abeni3ase7i&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
+<a href="https://www.buymeacoffee.com/abeni3ase7i"><img src="https://img.buymeacoffee.com/button-api/?text=Support VeloxDB&emoji=&slug=abeni3ase7i&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>](https://www.star-history.com/?repos=abeni16%2Fveloxdb&type=date&legend=top-left)
 </p>
 ---
 
