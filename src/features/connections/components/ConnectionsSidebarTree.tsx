@@ -46,13 +46,20 @@ type TableContextMenuTarget = {
   isExpanded?: boolean
 }
 
-type SidebarContextMenuTarget = ConnectionContextMenuTarget | TableContextMenuTarget
+type DatabaseContextMenuTarget = {
+  kind: 'database'
+  connectionId: string
+  database: string
+}
+
+type SidebarContextMenuTarget = ConnectionContextMenuTarget | TableContextMenuTarget | DatabaseContextMenuTarget
 
 type ConnectionContextMenuActionId =
   | 'toggleConnection'
   | 'refreshConnection'
   | 'renameConnection'
   | 'disconnectConnection'
+  | 'copyConnectionString'
 
 type TableContextMenuActionId =
   | 'selectTable'
@@ -67,9 +74,15 @@ type TableContextMenuActionId =
   | 'deleteTemplate'
   | 'addRow'
   | 'tableProperties'
+  | 'copyTableName'
+  | 'truncateTable'
+
+type DatabaseContextMenuActionId =
+  | 'refreshDatabases'
+  | 'copyDatabaseName'
 
 type ContextMenuAction = {
-  id: ConnectionContextMenuActionId | TableContextMenuActionId
+  id: ConnectionContextMenuActionId | TableContextMenuActionId | DatabaseContextMenuActionId
   label: string
   group: 'primary' | 'secondary' | 'danger'
   disabled?: boolean
@@ -135,6 +148,12 @@ function isConnectionContextMenuTarget(
   return target.kind === 'connection'
 }
 
+function isDatabaseContextMenuTarget(
+  target: SidebarContextMenuTarget,
+): target is DatabaseContextMenuTarget {
+  return target.kind === 'database'
+}
+
 type ConnectionsSidebarTreeProps = {
   activeConnection: ConnectionSummary | null
   connections: ConnectionSummary[]
@@ -160,6 +179,11 @@ type ConnectionsSidebarTreeProps = {
   onDisconnectConnection?: (connection: ConnectionSummary) => void | Promise<void>
   onRenameTable?: (connectionId: string, table: TableInfo) => void | Promise<void>
   onDeleteTable?: (connectionId: string, table: TableInfo) => void | Promise<void>
+  onTruncateTable?: (connectionId: string, table: TableInfo) => void | Promise<void>
+  onCopyTableName?: (connectionId: string, table: TableInfo) => void
+  onRefreshDatabases?: (connectionId: string) => void | Promise<void>
+  onCopyDatabaseName?: (connectionId: string, database: string) => void
+  onCopyConnectionString?: (connection: ConnectionSummary) => void
   onToggleCollapsed: () => void
 }
 
@@ -300,10 +324,14 @@ export function ConnectionsSidebarTree({
   onTableQuickAction,
   onRefreshConnection,
   onRefreshTable,
-  onRenameConnection,
   onDisconnectConnection,
   onRenameTable,
   onDeleteTable,
+  onTruncateTable,
+  onCopyTableName,
+  onRefreshDatabases,
+  onCopyDatabaseName,
+  onCopyConnectionString,
   onToggleCollapsed,
 }: ConnectionsSidebarTreeProps) {
   const [isTablesPanelExpanded, setIsTablesPanelExpanded] = useState(true)
@@ -423,7 +451,7 @@ export function ConnectionsSidebarTree({
 
   const connectionContextMenuActions = useMemo<ContextMenuAction[]>(
     () => [
-      { id: 'toggleConnection', label: 'Disconnect', group: 'secondary' },
+      { id: 'copyConnectionString', label: 'Copy connection string', group: 'primary' },
       { id: 'refreshConnection', label: 'Refresh', group: 'secondary' },
       { id: 'disconnectConnection', label: 'Delete', group: 'danger' },
     ],
@@ -434,6 +462,7 @@ export function ConnectionsSidebarTree({
     () => [
       { id: 'selectTable', label: 'Select table', group: 'primary' },
       { id: 'toggleFields', label: 'Toggle fields', group: 'primary' },
+      { id: 'copyTableName', label: 'Copy name', group: 'primary' },
       { id: 'refreshTable', label: 'Refresh', group: 'secondary' },
       { id: 'renameTable', label: 'Rename', group: 'secondary' },
       { id: 'selectAll', label: 'SELECT * (LIMIT)', group: 'secondary' },
@@ -443,7 +472,16 @@ export function ConnectionsSidebarTree({
       { id: 'deleteTemplate', label: 'DELETE template', group: 'secondary' },
       { id: 'addRow', label: 'Add row', group: 'secondary' },
       { id: 'tableProperties', label: 'Properties', group: 'secondary' },
+      { id: 'truncateTable', label: 'Truncate', group: 'danger' },
       { id: 'deleteTable', label: 'Delete table', group: 'danger' },
+    ],
+    [],
+  )
+
+  const databaseContextMenuActions = useMemo<ContextMenuAction[]>(
+    () => [
+      { id: 'refreshDatabases', label: 'Refresh databases', group: 'primary' },
+      { id: 'copyDatabaseName', label: 'Copy name', group: 'primary' },
     ],
     [],
   )
@@ -456,12 +494,34 @@ export function ConnectionsSidebarTree({
         const { connection } = contextMenu.target
 
         switch (action) {
+          case 'copyConnectionString':
+            void navigator.clipboard.writeText(
+              `postgresql://${connection.user}@${connection.host}:${connection.port}/${connection.database}`,
+            )
+            break
           case 'refreshConnection':
             void onRefreshConnection(connection)
             break
           case 'disconnectConnection':
             if (onDisconnectConnection) {
               void onDisconnectConnection(connection)
+            }
+            break
+          default:
+            break
+        }
+      } else if (isDatabaseContextMenuTarget(contextMenu.target)) {
+        const { connectionId, database } = contextMenu.target
+
+        switch (action) {
+          case 'refreshDatabases':
+            if (onRefreshDatabases) {
+              void onRefreshDatabases(connectionId)
+            }
+            break
+          case 'copyDatabaseName':
+            if (onCopyDatabaseName) {
+              onCopyDatabaseName(connectionId, database)
             }
             break
           default:
@@ -477,12 +537,22 @@ export function ConnectionsSidebarTree({
           case 'toggleFields':
             onToggleExpanded?.()
             break
+          case 'copyTableName':
+            if (onCopyTableName) {
+              onCopyTableName(connectionId, table)
+            }
+            break
           case 'refreshTable':
             void onRefreshTable(connectionId, table)
             break
           case 'renameTable':
             if (onRenameTable) {
               void onRenameTable(connectionId, table)
+            }
+            break
+          case 'truncateTable':
+            if (onTruncateTable) {
+              void onTruncateTable(connectionId, table)
             }
             break
           case 'deleteTable':
@@ -510,12 +580,16 @@ export function ConnectionsSidebarTree({
       activeConnectionId,
       contextMenu,
       isSearching,
-      onRenameConnection,
       onRefreshConnection,
       onDisconnectConnection,
+      onCopyConnectionString,
+      onRefreshDatabases,
+      onCopyDatabaseName,
       onSelectTable,
       onRefreshTable,
       onRenameTable,
+      onTruncateTable,
+      onCopyTableName,
       onDeleteTable,
       onTableQuickAction,
     ],
@@ -562,6 +636,13 @@ export function ConnectionsSidebarTree({
                         database: db.name,
                       })
                     }
+                  }}
+                  onContextMenu={(event) => {
+                    openSidebarContextMenu(event, {
+                      kind: 'database',
+                      connectionId: connection.id,
+                      database: db.name,
+                    })
                   }}
                   disabled={switchDatabaseMutation.isPending}
                 >
@@ -833,13 +914,17 @@ export function ConnectionsSidebarTree({
             <p className="truncate text-[11px] font-medium text-foreground">
               {isConnectionContextMenuTarget(contextMenu.target)
                 ? contextMenu.target.connection.name
-                : `${contextMenu.target.table.schema}.${contextMenu.target.table.name}`}
+                : isDatabaseContextMenuTarget(contextMenu.target)
+                  ? contextMenu.target.database
+                  : `${contextMenu.target.table.schema}.${contextMenu.target.table.name}`}
             </p>
           </div>
 
           {(isConnectionContextMenuTarget(contextMenu.target)
             ? connectionContextMenuActions
-            : tableContextMenuActions
+            : isDatabaseContextMenuTarget(contextMenu.target)
+              ? databaseContextMenuActions
+              : tableContextMenuActions
           ).map((action) => (
             <button
               key={action.id}

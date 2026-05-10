@@ -496,6 +496,48 @@ function VeloxApp() {
 		[connection?.id, deleteConnectionMutation],
 	);
 
+	const handleCopyConnectionString = useCallback(
+		(target: ConnectionSummary) => {
+			void navigator.clipboard.writeText(
+				`postgresql://${target.user}@${target.host}:${target.port}/${target.database}`,
+			);
+		},
+		[],
+	);
+
+	const handleTruncateTable = useCallback(
+		(_connectionId: string, table: TableInfo) => {
+			setSelectedTable(table);
+			queryWorkspaceRef.current?.appendQuerySql(
+				`TRUNCATE TABLE "${table.schema}"."${table.name}" RESTART IDENTITY CASCADE;`,
+			);
+		},
+		[],
+	);
+
+	const handleCopyTableName = useCallback(
+		(_connectionId: string, table: TableInfo) => {
+			void navigator.clipboard.writeText(`"${table.schema}"."${table.name}"`);
+		},
+		[],
+	);
+
+	const handleRefreshDatabases = useCallback(
+		(connectionId: string) => {
+			void queryClient.invalidateQueries({
+				queryKey: queryKeys.databases(connectionId),
+			});
+		},
+		[queryClient],
+	);
+
+	const handleCopyDatabaseName = useCallback(
+		(_connectionId: string, database: string) => {
+			void navigator.clipboard.writeText(database);
+		},
+		[],
+	);
+
 	const handleActivateConnectionForTab = useCallback(
 		(connectionId: string) => {
 			if (connection?.id === connectionId) {
@@ -660,6 +702,11 @@ function VeloxApp() {
 									onDisconnectConnection={handleDisconnectConnectionRequest}
 									onRenameTable={handleRenameTableRequest}
 									onDeleteTable={handleDeleteTableRequest}
+									onTruncateTable={handleTruncateTable}
+									onCopyTableName={handleCopyTableName}
+									onRefreshDatabases={handleRefreshDatabases}
+									onCopyDatabaseName={handleCopyDatabaseName}
+									onCopyConnectionString={handleCopyConnectionString}
 									onToggleCollapsed={() => setIsSidebarCollapsed(true)}
 								/>
 							)}
