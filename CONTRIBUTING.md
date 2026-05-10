@@ -176,4 +176,4 @@ Feature request issues should describe the use case and why it benefits the proj
 
 ---
 
-Questions? Open a [discussion](https://github.com/abeni16/veloxdb/discussions) or reach out via the [website](https://veloxdb.com).
+Questions? Open a [discussion](https://github.com/abeni16/veloxdb/discussions) or reach out via the [website](https://veloxdb.dev).

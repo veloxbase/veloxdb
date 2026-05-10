@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://veloxdb.com"><strong>Official Website</strong></a> ·
+  <a href="https://veloxdb.dev"><strong>Official Website</strong></a> ·
   <a href="#features">Features</a> ·
   <a href="#installation">Installation</a> ·
   <a href="#development">Development</a> ·
@@ -27,7 +27,7 @@
 
 **VeloxDB** is a **fast, memory-efficient, developer-focused** desktop client for PostgreSQL. Connect directly to your databases — no cloud, no middleware, no telemetry. Built with performance and productivity at its core.
 
-Watch the demo: **[veloxdb.com](https://veloxdb.com)**
+Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 
 ---
 
