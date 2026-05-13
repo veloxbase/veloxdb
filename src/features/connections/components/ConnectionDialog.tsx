@@ -3,6 +3,9 @@ import { useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 
+import { open as openFilePicker } from '@tauri-apps/plugin-dialog'
+import { FolderOpenIcon } from '@phosphor-icons/react'
+
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,6 +16,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@/components/ui/input-group'
 import type { ConnectionInput, DatabaseEngine, SshAuthMethod } from '@/data/types'
 import { cn } from '@/lib/utils'
 import { parseConnectionString, buildConnectionString } from '@/lib/connection-string'
@@ -323,6 +332,14 @@ export function ConnectionDialog({
       if (p.key.trim()) extra[p.key.trim()] = p.value
     }
     return extra
+  }
+
+  const pickFile = async (
+    setter: (path: string) => void,
+    filters: { name: string; extensions: string[] }[],
+  ) => {
+    const selected = await openFilePicker({ multiple: false, filters })
+    if (typeof selected === 'string') setter(selected)
   }
 
   const handleSubmit = form.handleSubmit((values) => {
@@ -817,29 +834,62 @@ export function ConnectionDialog({
                   <div className="grid gap-4 sm:grid-cols-3">
                     <div className="space-y-1.5 text-xs text-muted-foreground">
                       <span className="block">Root certificate</span>
-                      <Input
-                        value={advancedSslRootCert}
-                        onChange={(e) => setAdvancedSslRootCert(e.target.value)}
-                        placeholder="/path/to/ca.crt"
-                      />
+                      <InputGroup>
+                        <InputGroupInput
+                          value={advancedSslRootCert}
+                          onChange={(e) => setAdvancedSslRootCert(e.target.value)}
+                          placeholder="/path/to/ca.crt"
+                        />
+                        <InputGroupAddon align="inline-end">
+                          <InputGroupButton
+                            size="icon-xs"
+                            title="Browse"
+                            onClick={() => pickFile(setAdvancedSslRootCert, [{ name: 'Certificate', extensions: ['pem', 'crt', 'cer'] }])}
+                          >
+                            <FolderOpenIcon />
+                          </InputGroupButton>
+                        </InputGroupAddon>
+                      </InputGroup>
                     </div>
 
                     <div className="space-y-1.5 text-xs text-muted-foreground">
                       <span className="block">Client certificate</span>
-                      <Input
-                        value={advancedSslCert}
-                        onChange={(e) => setAdvancedSslCert(e.target.value)}
-                        placeholder="/path/to/client.crt"
-                      />
+                      <InputGroup>
+                        <InputGroupInput
+                          value={advancedSslCert}
+                          onChange={(e) => setAdvancedSslCert(e.target.value)}
+                          placeholder="/path/to/client.crt"
+                        />
+                        <InputGroupAddon align="inline-end">
+                          <InputGroupButton
+                            size="icon-xs"
+                            title="Browse"
+                            onClick={() => pickFile(setAdvancedSslCert, [{ name: 'Certificate', extensions: ['pem', 'crt', 'cer'] }])}
+                          >
+                            <FolderOpenIcon />
+                          </InputGroupButton>
+                        </InputGroupAddon>
+                      </InputGroup>
                     </div>
 
                     <div className="space-y-1.5 text-xs text-muted-foreground">
                       <span className="block">Client key</span>
-                      <Input
-                        value={advancedSslKey}
-                        onChange={(e) => setAdvancedSslKey(e.target.value)}
-                        placeholder="/path/to/client.key"
-                      />
+                      <InputGroup>
+                        <InputGroupInput
+                          value={advancedSslKey}
+                          onChange={(e) => setAdvancedSslKey(e.target.value)}
+                          placeholder="/path/to/client.key"
+                        />
+                        <InputGroupAddon align="inline-end">
+                          <InputGroupButton
+                            size="icon-xs"
+                            title="Browse"
+                            onClick={() => pickFile(setAdvancedSslKey, [{ name: 'Key', extensions: ['pem', 'key'] }])}
+                          >
+                            <FolderOpenIcon />
+                          </InputGroupButton>
+                        </InputGroupAddon>
+                      </InputGroup>
                     </div>
                   </div>
                 </div>
