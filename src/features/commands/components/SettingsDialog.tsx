@@ -9,6 +9,7 @@ import {
   DatabaseIcon,
   InfoIcon,
   ArrowSquareOutIcon,
+  BellIcon,
 } from '@phosphor-icons/react'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -27,6 +28,7 @@ const tabs = [
   { id: 'editor', label: 'Editor', Icon: CodeIcon },
   { id: 'results', label: 'Results', Icon: TableIcon },
   { id: 'connections', label: 'Connections', Icon: PlugIcon },
+  { id: 'notifications', label: 'Notifications', Icon: BellIcon },
   { id: 'data', label: 'Data', Icon: DatabaseIcon },
   { id: 'about', label: 'About', Icon: InfoIcon },
 ]
@@ -164,6 +166,21 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               <Field label="Health ping" desc="How often to check connection health.">
                 <Select value={String(settings.pingIntervalSec)} onChange={(v) => useSettings.setState({ pingIntervalSec: Number(v) })}
                   opts={[{ v: '0', l: 'Off' }, { v: '15', l: '15s' }, { v: '30', l: '30s' }, { v: '60', l: '1 min' }, { v: '120', l: '2 min' }]} />
+              </Field>
+            </Section>}
+
+            {tab === 'notifications' && <Section title="Notifications">
+              <Field label="Success toasts" desc="Show success confirmation toasts.">
+                <Toggle
+                  value={settings.toastLevels.success}
+                  onChange={(v) => useSettings.setState({ toastLevels: { ...settings.toastLevels, success: v } })}
+                />
+              </Field>
+              <Field label="Error toasts" desc="Show error toasts when operations fail.">
+                <Toggle
+                  value={settings.toastLevels.error}
+                  onChange={(v) => useSettings.setState({ toastLevels: { ...settings.toastLevels, error: v } })}
+                />
               </Field>
             </Section>}
 

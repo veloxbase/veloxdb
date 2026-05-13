@@ -5,6 +5,9 @@ export type AppTheme = 'system' | 'light' | 'dark'
 export type FontSize = 'sm' | 'md' | 'lg'
 export type NullDisplay = 'null' | 'NULL' | 'dash' | 'empty'
 
+export type ToastLevel = 'success' | 'error'
+export type ToastLevels = Record<ToastLevel, boolean>
+
 export type AppSettings = {
   theme: AppTheme
   fontSize: FontSize
@@ -17,6 +20,7 @@ export type AppSettings = {
   clickToCopy: boolean
   autoReconnect: boolean
   pingIntervalSec: number
+  toastLevels: ToastLevels
 }
 
 const defaults: AppSettings = {
@@ -31,6 +35,7 @@ const defaults: AppSettings = {
   clickToCopy: true,
   autoReconnect: true,
   pingIntervalSec: 30,
+  toastLevels: { success: true, error: true },
 }
 
 export const useSettings = create<AppSettings>()(
