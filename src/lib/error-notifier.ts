@@ -5,6 +5,7 @@ import {
 	toUserMessage,
 	type NormalizeErrorOptions,
 } from "@/lib/app-error";
+import { useSettings } from "@/lib/settings";
 
 const recent = new Map<string, number>();
 const DEDUP_MS = 1200;
@@ -39,6 +40,10 @@ export function notifyError(
 	error: unknown,
 	options: NotifyErrorOptions = {},
 ): void {
+	if (!useSettings.getState().toastLevels.error) {
+		return;
+	}
+
 	const normalized = normalizeError(error, options);
 	const title =
 		options.title ?? toastTitleForCategory(normalized.category);
@@ -76,6 +81,10 @@ export function notifySuccess(
 	title: string,
 	description?: string,
 ): void {
+	if (!useSettings.getState().toastLevels.success) {
+		return;
+	}
+
 	try {
 		toast({
 			variant: "success",
