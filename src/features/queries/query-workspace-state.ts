@@ -179,7 +179,12 @@ export type QueryWorkspaceAction =
 	| { type: "addTab"; connectionId: string | null }
 	| { type: "closeTab"; tabId: string }
 	| { type: "selectTab"; tabId: string }
-	| { type: "addTabWithSql"; sql: string; connectionId: string | null }
+	| {
+			type: "addTabWithSql";
+			sql: string;
+			connectionId: string | null;
+			tabId?: string;
+	  }
 	| { type: "setTabConnection"; tabId: string; connectionId: string | null }
 	| { type: "setActiveTabConnection"; connectionId: string | null }
 	| { type: "setResultsSubTab"; tabId: string; value: "results" | "plan" }
@@ -286,7 +291,7 @@ export function queryWorkspaceReducer(
 		}
 		case "addTabWithSql": {
 			if (state.tabOrder.length >= MAX_QUERY_TABS) return state;
-			const id = newTabId();
+			const id = action.tabId ?? newTabId();
 			const tab = createTabModel(id, action.sql, action.connectionId);
 			return {
 				...state,

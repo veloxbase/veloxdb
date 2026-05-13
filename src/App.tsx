@@ -15,7 +15,12 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { queryKeys } from "@/data/query-keys";
 import { veloxDbRepository } from "@/data/repositories";
-import type { ConnectionSummary, TableInfo } from "@/data/types";
+import type {
+	AskVeloxyChatResponse,
+	AskVeloxyConversationResponse,
+	ConnectionSummary,
+	TableInfo,
+} from "@/data/types";
 import { CommandPalette } from "@/features/commands/components/CommandPalette";
 import { ShortcutSheet } from "@/features/commands/components/ShortcutSheet";
 import { SettingsDialog } from "@/features/commands/components/SettingsDialog";
@@ -36,6 +41,10 @@ import {
 	QueryWorkspace,
 	type QueryWorkspaceHandle,
 } from "@/features/queries/components/QueryWorkspace";
+import {
+	AskVeloxySidebar,
+	type AskVeloxySubmitResult,
+} from "@/features/queries/components/AskVeloxyDialog";
 import { useSaveResultEditsMutation, useDeleteRowsMutation } from "@/features/queries/queries";
 import { notifyError, notifySuccess } from "@/lib/error-notifier";
 import { useSettings, resolveTheme } from "@/lib/settings";
@@ -143,6 +152,11 @@ function VeloxApp() {
 	const [mainWorkspace, setMainWorkspace] = useState<"query" | "model">(
 		"query",
 	);
+	const [askVeloxyPending, setAskVeloxyPending] = useState(false);
+	const [askVeloxyError, setAskVeloxyError] = useState<string | null>(null);
+	const veloxyOpenRouterApiKey = useSettings((s) => s.veloxyOpenRouterApiKey);
+	const veloxyModel = useSettings((s) => s.veloxyModel);
+	const veloxyBaseUrl = useSettings((s) => s.veloxyBaseUrl);
 
 	const queryClient = useQueryClient();
 
@@ -753,6 +767,155 @@ function VeloxApp() {
 		queryWorkspaceRef.current?.refreshFocusedResults();
 	};
 
+	const handleAskVeloxyChatSubmit = async (
+		naturalPrompt: string,
+	): Promise<AskVeloxyChatResponse> => {
+			if (!connection?.id) {
+				const message = "Select a connection before using Ask Veloxy.";
+				setAskVeloxyError(message);
+				throw new Error(message);
+			}
+			if (!veloxyOpenRouterApiKey.trim()) {
+				const message = "Add your OpenRouter API key in Settings → Veloxy.";
+				setAskVeloxyError(message);
+				throw new Error(message);
+			}
+			if (!veloxyModel.trim()) {
+				const message = "Choose a Veloxy model in Settings → Veloxy.";
+				setAskVeloxyError(message);
+				throw new Error(message);
+			}
+			setAskVeloxyPending(true);
+			setAskVeloxyError(null);
+			try {
+				return await veloxDbRepository.chatWithDb({
+					connectionId: connection.id,
+					naturalPrompt,
+					targetTable: selectedTable
+						? { schema: selectedTable.schema, name: selectedTable.name }
+						: undefined,
+					providerConfig: {
+						apiKey: veloxyOpenRouterApiKey,
+						model: veloxyModel,
+						baseUrl: veloxyBaseUrl,
+					},
+					maxRows: useSettings.getState().maxQueryRows,
+				});
+			} catch (error) {
+				const message =
+					error instanceof Error
+						? error.message
+						: "Ask Veloxy chat failed.";
+				setAskVeloxyError(message);
+				notifyError(error, { category: "query", title: "Ask Veloxy chat failed" });
+				throw error instanceof Error ? error : new Error(message);
+			} finally {
+				setAskVeloxyPending(false);
+			}
+	};
+
+	const handleAskVeloxyActionSubmit = async (
+		naturalPrompt: string,
+	): Promise<AskVeloxySubmitResult> => {
+			if (!connection?.id) {
+				const message = "Select a connection before using Ask Veloxy.";
+				setAskVeloxyError(message);
+				throw new Error(message);
+			}
+			if (!veloxyOpenRouterApiKey.trim()) {
+				const message = "Add your OpenRouter API key in Settings → Veloxy.";
+				setAskVeloxyError(message);
+				throw new Error(message);
+			}
+			if (!veloxyModel.trim()) {
+				const message = "Choose a Veloxy model in Settings → Veloxy.";
+				setAskVeloxyError(message);
+				throw new Error(message);
+			}
+			setAskVeloxyPending(true);
+			setAskVeloxyError(null);
+			try {
+				const response = await veloxDbRepository.generateSqlFromNl({
+					connectionId: connection.id,
+					naturalPrompt,
+					targetTable: selectedTable
+						? { schema: selectedTable.schema, name: selectedTable.name }
+						: undefined,
+					providerConfig: {
+						apiKey: veloxyOpenRouterApiKey,
+						model: veloxyModel,
+						baseUrl: veloxyBaseUrl,
+					},
+					maxRows: useSettings.getState().maxQueryRows,
+				});
+				const sql = response.sql.trim();
+				const lower = sql.toLowerCase();
+				const isReadIntent = response.intent === "select";
+				const isLikelyLarge =
+					sql.length > 1800 ||
+					(lower.includes("select") && !lower.includes(" limit ")) ||
+					/\bcross\s+join\b|\bpg_sleep\s*\(/i.test(lower);
+				const canAutoRun = isReadIntent && !isLikelyLarge;
+
+				if (canAutoRun) {
+					queryWorkspaceRef.current?.openTabWithSqlAndRun(sql);
+					notifySuccess("Veloxy generated SQL", "Auto-ran safe read query");
+					return {
+						response,
+						decision: "auto-ran",
+					};
+				}
+
+				queryWorkspaceRef.current?.openTabWithSql(sql);
+				return {
+					response,
+					decision: "needs-confirmation",
+					decisionReason: isReadIntent
+						? "Read query looks large/risky. Confirm before running."
+						: "Non-read query requires confirmation before running.",
+					pendingSql: sql,
+				};
+			} catch (error) {
+				const message =
+					error instanceof Error
+						? error.message
+						: "Ask Veloxy failed to generate SQL.";
+				setAskVeloxyError(message);
+				notifyError(error, { category: "query", title: "Ask Veloxy failed" });
+				throw error instanceof Error ? error : new Error(message);
+			} finally {
+				setAskVeloxyPending(false);
+			}
+	};
+
+	const handleLoadVeloxyConversation = async (): Promise<AskVeloxyConversationResponse> => {
+		if (!connection?.id) return { messages: [] };
+		try {
+			return await veloxDbRepository.loadVeloxyConversation(connection.id);
+		} catch (error) {
+			const message =
+				error instanceof Error
+					? error.message
+					: "Failed to load Ask Veloxy conversation.";
+			setAskVeloxyError(message);
+			return { messages: [] };
+		}
+	};
+
+	const handleClearVeloxyConversation = async () => {
+		if (!connection?.id) return;
+		try {
+			await veloxDbRepository.clearVeloxyConversation(connection.id);
+		} catch (error) {
+			const message =
+				error instanceof Error
+					? error.message
+					: "Failed to clear Ask Veloxy conversation.";
+			setAskVeloxyError(message);
+			throw error;
+		}
+	};
+
 
 	return (
 		<div
@@ -922,6 +1085,26 @@ function VeloxApp() {
 								? requestInsertRow
 								: undefined
 						}
+						askVeloxySidebar={(onClose) => (
+							<AskVeloxySidebar
+								isPending={askVeloxyPending}
+								modelLabel={veloxyModel}
+								isConfigured={Boolean(veloxyOpenRouterApiKey.trim() && veloxyModel.trim())}
+								onClose={onClose}
+								onOpenSettings={() => {
+									setSettingsOpen(true);
+								}}
+								onChatSubmit={handleAskVeloxyChatSubmit}
+								onActionSubmit={handleAskVeloxyActionSubmit}
+								onLoadConversation={handleLoadVeloxyConversation}
+								onClearConversation={handleClearVeloxyConversation}
+								onConfirmRun={async (sql) => {
+									queryWorkspaceRef.current?.openTabWithSqlAndRun(sql);
+									notifySuccess("Veloxy query executed");
+								}}
+								errorMessage={askVeloxyError}
+							/>
+						)}
 					/>
 				) : connection?.id ? (
 					<ErrorBoundary>
@@ -993,7 +1176,6 @@ function VeloxApp() {
 			/>
 			<ShortcutSheet />
 			<SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-
 		</div>
 	);
 }

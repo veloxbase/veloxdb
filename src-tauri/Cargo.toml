@@ -1,6 +1,6 @@
 [package]
 name = "veloxdb"
-version = "0.1.0-beta.8"
+version = "0.1.0-8"
 description = "SQL databases, unleashed on your desktop. Fast, memory-efficient, developer-focused desktop SQL client."
 authors = ["Abenezer"]
 license = "MIT"
@@ -44,3 +44,4 @@ resvg = "0.43"
 usvg = "0.43"
 csv = "1.3"
 printpdf = "0.7"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

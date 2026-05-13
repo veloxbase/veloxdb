@@ -97,6 +97,75 @@ export type QueryEditorMetadata = {
   truncatedFunctions: boolean
 }
 
+export type AskVeloxyProviderConfig = {
+  apiKey: string
+  model: string
+  baseUrl?: string
+}
+
+export type AskVeloxyTableRef = {
+  schema: string
+  name: string
+}
+
+export type AskVeloxyRequest = {
+  connectionId?: string
+  naturalPrompt: string
+  targetTable?: AskVeloxyTableRef
+  providerConfig: AskVeloxyProviderConfig
+  maxRows?: number
+}
+
+export type AskVeloxyMode = 'chat' | 'action'
+export type AskVeloxyConversationRole = 'user' | 'assistant'
+
+export type AskVeloxyConversationMessage = {
+  id: string
+  role: AskVeloxyConversationRole
+  mode: AskVeloxyMode
+  text: string
+  createdAt: number
+  sqlDraft?: string
+}
+
+export type AskVeloxyChatRequest = {
+  connectionId?: string
+  naturalPrompt: string
+  targetTable?: AskVeloxyTableRef
+  providerConfig: AskVeloxyProviderConfig
+  maxRows?: number
+}
+
+export type AskVeloxyChatResponse = {
+  message: string
+  suggestions: string[]
+  warnings: string[]
+  sqlDraft?: string
+  needsSqlGeneration: boolean
+  needsClarification: boolean
+}
+
+export type AskVeloxyConversationResponse = {
+  messages: AskVeloxyConversationMessage[]
+}
+
+export type AskVeloxyTokenStats = {
+  schemaChars: number
+  schemaTokensEstimate: number
+  promptChars: number
+  promptTokensEstimate: number
+}
+
+export type AskVeloxyResponse = {
+  sql: string
+  intent: string
+  confidence: number
+  explanation?: string
+  suggestions?: string[]
+  warnings: string[]
+  tokenStats: AskVeloxyTokenStats
+}
+
 export type TableInfo = {
   schema: string
   name: string

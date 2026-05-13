@@ -1,0 +1,97 @@
+name: Build Desktop App
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            bundle_glob: |
+              src-tauri/target/release/bundle/appimage/*
+              src-tauri/target/release/bundle/deb/*
+            bundles: appimage,deb
+            artifact_name: veloxdb-linux
+          - os: windows-latest
+            bundle_glob: |
+              src-tauri/target/release/bundle/msi/*
+              src-tauri/target/release/bundle/nsis/*
+            bundles: msi,nsis
+            artifact_name: veloxdb-windows
+          - os: macos-latest
+            bundle_glob: |
+              src-tauri/target/release/bundle/dmg/*
+              src-tauri/target/release/bundle/macos/*
+            bundles: dmg,app
+            artifact_name: veloxdb-macos
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # pnpm must be on PATH before setup-node when using cache: pnpm
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-bin: false
+          prefix-key: v2-desktop
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Use `pnpm exec tauri` (not `pnpm run tauri:build -- …`): pnpm inserts `--`, which makes
+      # Tauri forward flags to Cargo. Bash + ~/.cargo/env + ~/.cargo/bin first avoids a bad
+      # `cargo` on PATH after rust-cache (macOS: rustup-init / metadata errors).
+      - name: Build Tauri app
+        shell: bash
+        run: |
+          if [ -f "${HOME}/.cargo/env" ]; then
+            . "${HOME}/.cargo/env"
+          fi
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          pnpm exec tauri build -b "${{ matrix.bundles }}"
+
+      - name: Upload desktop bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.bundle_glob }}
+          if-no-files-found: error

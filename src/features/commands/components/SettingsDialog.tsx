@@ -7,8 +7,10 @@ import {
   TableIcon,
   PlugIcon,
   DatabaseIcon,
+  SparkleIcon,
   InfoIcon,
   ArrowSquareOutIcon,
+  ArrowsClockwiseIcon,
   BellIcon,
 } from '@phosphor-icons/react'
 import { useCallback, useEffect, useState } from 'react'
@@ -16,6 +18,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { fetchOpenRouterModels, OPENROUTER_POPULAR_MODELS, type OpenRouterModelOption } from '@/lib/openrouter-models'
 import { cn } from '@/lib/utils'
 import { useSettings, type AppTheme, type FontSize, type NullDisplay } from '@/lib/settings'
 import pkg from '../../../../package.json'
@@ -28,6 +31,7 @@ const tabs = [
   { id: 'editor', label: 'Editor', Icon: CodeIcon },
   { id: 'results', label: 'Results', Icon: TableIcon },
   { id: 'connections', label: 'Connections', Icon: PlugIcon },
+  { id: 'veloxy', label: 'Veloxy', Icon: SparkleIcon },
   { id: 'notifications', label: 'Notifications', Icon: BellIcon },
   { id: 'data', label: 'Data', Icon: DatabaseIcon },
   { id: 'about', label: 'About', Icon: InfoIcon },
@@ -68,6 +72,9 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'up-to-date' | 'available' | 'error'>('idle')
   const [latestVersion, setLatestVersion] = useState<string | null>(null)
+  const [modelOptions, setModelOptions] = useState<OpenRouterModelOption[]>(OPENROUTER_POPULAR_MODELS)
+  const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [modelsError, setModelsError] = useState<string | null>(null)
 
   const checkForUpdates = useCallback(async () => {
     setUpdateStatus('checking')
@@ -82,6 +89,34 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       setUpdateStatus('error')
     }
   }, [])
+
+  const refreshOpenRouterModels = useCallback(async () => {
+    setModelsStatus('loading')
+    setModelsError(null)
+    const { veloxyOpenRouterApiKey, veloxyBaseUrl } = useSettings.getState()
+    try {
+      const options = await fetchOpenRouterModels(
+        veloxyOpenRouterApiKey,
+        veloxyBaseUrl,
+      )
+      setModelOptions(options)
+      setModelsStatus('idle')
+    } catch (error) {
+      setModelsStatus('error')
+      setModelsError(error instanceof Error ? error.message : 'Failed to fetch models')
+      setModelOptions(OPENROUTER_POPULAR_MODELS)
+    }
+  }, [])
+
+  const selectSettingsTab = useCallback(
+    (id: string) => {
+      setTab(id)
+      if (id === 'veloxy' && useSettings.getState().veloxyOpenRouterApiKey.trim()) {
+        void refreshOpenRouterModels()
+      }
+    },
+    [refreshOpenRouterModels],
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -101,7 +136,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               <button
                 key={id}
                 type="button"
-                onClick={() => setTab(id)}
+                onClick={() => selectSettingsTab(id)}
                 className={cn(
                   'flex items-center gap-2.5 px-4 py-2.5 text-left text-xs transition-colors',
                   tab === id
@@ -167,6 +202,67 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 <Select value={String(settings.pingIntervalSec)} onChange={(v) => useSettings.setState({ pingIntervalSec: Number(v) })}
                   opts={[{ v: '0', l: 'Off' }, { v: '15', l: '15s' }, { v: '30', l: '30s' }, { v: '60', l: '1 min' }, { v: '120', l: '2 min' }]} />
               </Field>
+            </Section>}
+
+            {tab === 'veloxy' && <Section title="Veloxy">
+              <Field label="Provider" desc="Ask Veloxy uses OpenRouter with your own API key.">
+                <span className="inline-flex items-center h-8 px-3 rounded-md border border-border bg-muted/50 text-xs text-foreground">
+                  OpenRouter
+                </span>
+              </Field>
+              <Field label="OpenRouter API key" desc="Used for Ask Veloxy model calls.">
+                <Input
+                  type="password"
+                  value={settings.veloxyOpenRouterApiKey}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    useSettings.setState({ veloxyOpenRouterApiKey: value })
+                    if (value.trim()) void refreshOpenRouterModels()
+                  }}
+                  className="h-8 w-[260px] text-[11px]"
+                  placeholder="sk-or-v1-..."
+                  spellCheck={false}
+                />
+              </Field>
+              <Field label="Base URL" desc="Advanced: custom OpenRouter-compatible endpoint.">
+                <Input
+                  value={settings.veloxyBaseUrl}
+                  onChange={(e) => {
+                    useSettings.setState({ veloxyBaseUrl: e.target.value })
+                    if (useSettings.getState().veloxyOpenRouterApiKey.trim()) {
+                      void refreshOpenRouterModels()
+                    }
+                  }}
+                  className="h-8 w-[260px] text-[11px]"
+                  placeholder="https://openrouter.ai/api/v1"
+                  spellCheck={false}
+                />
+              </Field>
+              <Field label="Model" desc="Popular presets plus live model list from OpenRouter.">
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={settings.veloxyModel}
+                    onChange={(v) => useSettings.setState({ veloxyModel: v })}
+                    opts={modelOptions.slice(0, 120).map((m) => ({
+                      v: m.id,
+                      l: m.source === 'popular' ? `${m.label} (popular)` : m.label,
+                    }))}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => void refreshOpenRouterModels()}
+                    disabled={modelsStatus === 'loading'}
+                  >
+                    <ArrowsClockwiseIcon className={cn('mr-1 size-3.5', modelsStatus === 'loading' && 'animate-spin')} />
+                    Refresh
+                  </Button>
+                </div>
+              </Field>
+              {modelsError ? (
+                <p className="text-[11px] text-destructive">{modelsError}</p>
+              ) : null}
             </Section>}
 
             {tab === 'notifications' && <Section title="Notifications">

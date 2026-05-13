@@ -2,6 +2,11 @@ import { invoke } from '@tauri-apps/api/core'
 
 import { normalizeError, AppErrorLike } from '@/lib/app-error'
 import type {
+  AskVeloxyChatRequest,
+  AskVeloxyChatResponse,
+  AskVeloxyConversationResponse,
+  AskVeloxyRequest,
+  AskVeloxyResponse,
   ConnectionInput,
   ConnectionSummary,
   ColumnInfo,
@@ -85,6 +90,30 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
   async runQuery(request: QueryRequest): Promise<QueryResult> {
     return invokeCommand('run_query', () =>
       invoke<QueryResult>('run_query', { input: request }),
+    )
+  }
+
+  async chatWithDb(request: AskVeloxyChatRequest): Promise<AskVeloxyChatResponse> {
+    return invokeCommand('chat_with_db', () =>
+      invoke<AskVeloxyChatResponse>('chat_with_db', { input: request }),
+    )
+  }
+
+  async loadVeloxyConversation(connectionId?: string): Promise<AskVeloxyConversationResponse> {
+    return invokeCommand('load_veloxy_conversation', () =>
+      invoke<AskVeloxyConversationResponse>('load_veloxy_conversation', { connectionId }),
+    )
+  }
+
+  async clearVeloxyConversation(connectionId?: string): Promise<void> {
+    return invokeCommand('clear_veloxy_conversation', () =>
+      invoke<void>('clear_veloxy_conversation', { connectionId }),
+    )
+  }
+
+  async generateSqlFromNl(request: AskVeloxyRequest): Promise<AskVeloxyResponse> {
+    return invokeCommand('generate_sql_from_nl', () =>
+      invoke<AskVeloxyResponse>('generate_sql_from_nl', { input: request }),
     )
   }
 

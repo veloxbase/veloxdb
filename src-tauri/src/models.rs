@@ -315,6 +315,107 @@ pub struct QueryEditorMetadata {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AskVeloxyProviderConfig {
+    pub api_key: String,
+    pub model: String,
+    #[serde(default)]
+    pub base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskVeloxyTableRef {
+    pub schema: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskVeloxyRequest {
+    pub connection_id: Option<String>,
+    pub natural_prompt: String,
+    #[serde(default)]
+    pub target_table: Option<AskVeloxyTableRef>,
+    pub provider_config: AskVeloxyProviderConfig,
+    #[serde(default)]
+    pub max_rows: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskVeloxyConversationMessage {
+    pub id: String,
+    pub role: String,
+    pub mode: String,
+    pub text: String,
+    pub created_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sql_draft: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskVeloxyChatRequest {
+    pub connection_id: Option<String>,
+    pub natural_prompt: String,
+    #[serde(default)]
+    pub target_table: Option<AskVeloxyTableRef>,
+    pub provider_config: AskVeloxyProviderConfig,
+    #[serde(default)]
+    pub max_rows: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskVeloxyChatResponse {
+    pub message: String,
+    pub suggestions: Vec<String>,
+    pub warnings: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sql_draft: Option<String>,
+    pub needs_sql_generation: bool,
+    pub needs_clarification: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskVeloxyConversationResponse {
+    pub messages: Vec<AskVeloxyConversationMessage>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskVeloxyTokenStats {
+    pub schema_chars: usize,
+    pub schema_tokens_estimate: usize,
+    pub prompt_chars: usize,
+    pub prompt_tokens_estimate: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskVeloxyResponse {
+    pub sql: String,
+    pub intent: String,
+    pub confidence: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub suggestions: Vec<String>,
+    pub warnings: Vec<String>,
+    pub token_stats: AskVeloxyTokenStats,
+}
+
+#[derive(Debug, Clone)]
+pub struct AskVeloxyDbContextCache {
+    pub database_name: String,
+    pub engine: DatabaseEngine,
+    pub metadata: QueryEditorMetadata,
+    pub foreign_keys: Vec<ForeignKeyEdge>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LintSqlRequest {
     pub connection_id: Option<String>,
     pub sql: String,
