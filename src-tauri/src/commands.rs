@@ -480,6 +480,16 @@ pub async fn disconnect_db(
     Ok(())
 }
 
+/// Renames a saved connection without affecting the active pool or SSH tunnel.
+#[tauri::command]
+pub async fn rename_connection(
+    app: AppHandle,
+    connection_id: String,
+    new_name: String,
+) -> Result<crate::models::ConnectionSummary, String> {
+    crate::db::rename_connection_in_store(&app, &connection_id, &new_name)
+}
+
 #[tauri::command]
 pub async fn delete_connection(
     app: AppHandle,

@@ -330,6 +330,7 @@ export function ConnectionsSidebarTree({
   onTableQuickAction,
   onRefreshConnection,
   onRefreshTable,
+  onRenameConnection,
   onDisconnectConnection,
   onRenameTable,
   onDeleteTable,
@@ -459,6 +460,7 @@ export function ConnectionsSidebarTree({
     () => [
       { id: 'copyConnectionString', label: 'Copy connection string', group: 'primary' },
       { id: 'refreshConnection', label: 'Refresh', group: 'secondary' },
+      { id: 'renameConnection', label: 'Rename', group: 'secondary' },
       { id: 'disconnectConnection', label: 'Delete', group: 'danger' },
     ],
     [],
@@ -513,6 +515,11 @@ export function ConnectionsSidebarTree({
             break
           case 'refreshConnection':
             void onRefreshConnection(connection)
+            break
+          case 'renameConnection':
+            if (onRenameConnection) {
+              void onRenameConnection(connection)
+            }
             break
           case 'disconnectConnection':
             if (onDisconnectConnection) {

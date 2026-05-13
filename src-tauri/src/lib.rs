@@ -11,7 +11,8 @@ use commands::{
   export_results_csv_command, export_results_json_command, generate_sql_from_nl, get_foreign_keys,
   get_query_editor_metadata, get_schema, get_table_indexes, get_table_properties, get_tables,
   lint_sql, list_connections_command, list_databases, load_veloxy_conversation, ping_connection,
-  run_query, save_base64_png, save_text_file, set_active_connection, switch_database,
+  rename_connection, run_query, save_base64_png, save_text_file, set_active_connection,
+  switch_database,
 };
 use db::AppState;
 use tauri::Manager;
@@ -48,6 +49,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       connect_db,
       disconnect_db,
+      rename_connection,
       delete_connection,
       ping_connection,
       list_connections_command,

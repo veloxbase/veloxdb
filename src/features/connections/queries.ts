@@ -152,6 +152,30 @@ export function useDisconnectMutation(options: UseDisconnectMutationOptions = {}
   })
 }
 
+type UseRenameConnectionMutationOptions = {
+  onSuccess?: (connection: ConnectionSummary) => void
+  onError?: (error: unknown) => void
+}
+
+export function useRenameConnectionMutation(options: UseRenameConnectionMutationOptions = {}) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ connectionId, newName }: { connectionId: string; newName: string }) =>
+      veloxDbRepository.renameConnection(connectionId, newName),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<ConnectionSummary[]>(queryKeys.connections(), (current) => {
+        const existing = current ?? []
+        return existing.map((c) => (c.id === updated.id ? updated : c))
+      })
+      options.onSuccess?.(updated)
+    },
+    onError: (error) => {
+      options.onError?.(error)
+    },
+  })
+}
+
 type UseDeleteConnectionMutationOptions = {
   onSuccess?: (connectionId: string) => void
   onError?: (error: unknown, connectionId: string) => void

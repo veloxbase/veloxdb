@@ -63,6 +63,12 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
     )
   }
 
+  async renameConnection(connectionId: string, newName: string): Promise<ConnectionSummary> {
+    return invokeCommand('rename_connection', () =>
+      invoke<ConnectionSummary>('rename_connection', { connectionId, newName }),
+    )
+  }
+
   async pingConnection(connectionId: string): Promise<void> {
     return invokeCommand('ping_connection', () =>
       invoke<void>('ping_connection', { connectionId }),

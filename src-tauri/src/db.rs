@@ -564,6 +564,19 @@ pub fn persist_connection_with_password(
     Ok(())
 }
 
+/// Renames a persisted connection and returns the updated summary.
+pub fn rename_connection_in_store(
+    app: &AppHandle,
+    connection_id: &str,
+    new_name: &str,
+) -> Result<ConnectionSummary, String> {
+    let mut stored = load_connection(app, connection_id)?
+        .ok_or_else(|| format!("Connection {} not found.", connection_id))?;
+    stored.name = new_name.to_string();
+    persist_connection(app, &stored)?;
+    Ok(stored.summary())
+}
+
 pub fn delete_connection_from_store(app: &AppHandle, connection_id: &str) -> Result<(), String> {
     let store = app
         .store(CONNECTION_STORE_PATH)
