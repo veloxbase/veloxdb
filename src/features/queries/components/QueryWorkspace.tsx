@@ -2,18 +2,17 @@ import {
 	ClockCounterClockwiseIcon,
 	DatabaseIcon,
 	PlayIcon,
-	PlusIcon,
 	PlugIcon,
+	PlusIcon,
 	RobotIcon,
 	TextHIcon,
 	XIcon,
 } from "@phosphor-icons/react";
 import type { UseMutationResult } from "@tanstack/react-query";
-import { format } from "sql-formatter";
 import {
 	forwardRef,
-	type PointerEvent as ReactPointerEvent,
 	type ReactNode,
+	type PointerEvent as ReactPointerEvent,
 	useCallback,
 	useEffect,
 	useImperativeHandle,
@@ -22,18 +21,19 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { format } from "sql-formatter";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DatabaseEngine, TableInfo } from "@/data/types";
-import { ResultsGrid } from "@/features/queries/components/ResultsGrid";
 import { QueryHistoryPanel } from "@/features/queries/components/QueryHistoryPanel";
+import { ResultsGrid } from "@/features/queries/components/ResultsGrid";
 import { SqlEditor } from "@/features/queries/components/SqlEditor";
 import {
+	useExplainPlanMutation,
 	useLintSqlMutation,
 	useQueryEditorMetadata,
-	useExplainPlanMutation,
 	useRunQueryMutation,
 } from "@/features/queries/queries";
 import {
@@ -54,6 +54,22 @@ import type {
 } from "@/features/queries/result-edits";
 import { notifyError, notifySuccess } from "@/lib/error-notifier";
 import { cn } from "@/lib/utils";
+
+const ASK_VELOXY_WIDTH_KEY = "veloxdb.askVeloxyWidth";
+const DEFAULT_ASK_VELOXY_WIDTH = 320;
+const MIN_ASK_VELOXY_WIDTH = 240;
+const MAX_ASK_VELOXY_WIDTH = 560;
+
+function clampAskVeloxyWidth(value: number) {
+	return Math.min(MAX_ASK_VELOXY_WIDTH, Math.max(MIN_ASK_VELOXY_WIDTH, value));
+}
+
+function readAskVeloxyWidth() {
+	const raw = Number(window.localStorage.getItem(ASK_VELOXY_WIDTH_KEY));
+	return Number.isFinite(raw)
+		? clampAskVeloxyWidth(raw)
+		: DEFAULT_ASK_VELOXY_WIDTH;
+}
 
 const MIN_QUERY_HEIGHT = 180;
 const MIN_RESULTS_HEIGHT = 160;
@@ -99,7 +115,9 @@ type QueryWorkspaceProps = {
 	isResultSingleTableEditable: boolean;
 	saveResultEditsMutation: SaveMutation;
 	onSaveResultEdits: (patches: ResultEditPatch[]) => Promise<void>;
-	onDeleteRows?: (primaryKeys: Record<string, string | null>[]) => Promise<void>;
+	onDeleteRows?: (
+		primaryKeys: Record<string, string | null>[],
+	) => Promise<void>;
 	onFocusedTabCapabilitiesChange?: (caps: {
 		hasLastQuery: boolean;
 		hasResult: boolean;
@@ -174,7 +192,9 @@ type QueryPaneProps = {
 	primaryKeyColumns: string[];
 	saveResultEditsMutation: SaveMutation;
 	onSaveResultEdits: (patches: ResultEditPatch[]) => Promise<void>;
-	onDeleteRows?: (primaryKeys: Record<string, string | null>[]) => Promise<void>;
+	onDeleteRows?: (
+		primaryKeys: Record<string, string | null>[],
+	) => Promise<void>;
 	onRefreshResults: () => void;
 	onRefreshPlan: () => void;
 	connectionError: unknown;
@@ -187,6 +207,8 @@ type QueryPaneProps = {
 	onInsertRowSuccess: () => void;
 	askVeloxySidebar?: ReactNode;
 	isAskVeloxyOpen: boolean;
+	askVeloxyWidth: number;
+	onAskVeloxyResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
 };
 
 function QueryPane({
@@ -210,9 +232,9 @@ function QueryPane({
 	editableColumns,
 	primaryKeyColumns,
 	saveResultEditsMutation,
-  onSaveResultEdits,
-  onDeleteRows,
-  onRefreshResults,
+	onSaveResultEdits,
+	onDeleteRows,
+	onRefreshResults,
 	onRefreshPlan,
 	connectionError,
 	connectionErrorMessage,
@@ -224,6 +246,8 @@ function QueryPane({
 	onInsertRowSuccess,
 	askVeloxySidebar,
 	isAskVeloxyOpen,
+	askVeloxyWidth,
+	onAskVeloxyResizeStart,
 }: QueryPaneProps) {
 	const resultsTab = tab.resultsSubTab;
 	const runPending = tab.runInFlight;
@@ -248,9 +272,19 @@ function QueryPane({
 						/>
 					</div>
 					{isAskVeloxyOpen && askVeloxySidebar ? (
-						<aside className="h-full w-[380px] shrink-0 border-l border-border">
-							{askVeloxySidebar}
-						</aside>
+						<>
+							<div
+								className="w-1 shrink-0 cursor-col-resize border-x border-transparent bg-muted/20 transition-colors hover:bg-muted/60"
+								onPointerDown={onAskVeloxyResizeStart}
+								title="Resize Ask Veloxy"
+							/>
+							<aside
+								className="h-full min-h-0 min-w-0 shrink-0 overflow-hidden border-l border-border"
+								style={{ width: askVeloxyWidth }}
+							>
+								{askVeloxySidebar}
+							</aside>
+						</>
 					) : null}
 				</div>
 			</section>
@@ -345,9 +379,9 @@ function QueryPane({
 								primaryKeyColumns={primaryKeyColumns}
 								saveDisabledReason={saveDisabledReason}
 								onRefresh={onRefreshResults}
-              onSaveEdits={onSaveResultEdits}
-              onDeleteRows={onDeleteRows}
-              onAddRow={onAddRow}
+								onSaveEdits={onSaveResultEdits}
+								onDeleteRows={onDeleteRows}
+								onAddRow={onAddRow}
 								insertRowTrigger={insertRowTrigger}
 								insertConnectionId={insertConnectionId}
 								insertTable={insertTable}
@@ -495,12 +529,12 @@ export const QueryWorkspace = forwardRef<
 			if (result.commandTag != null) {
 				notifySuccess(
 					`Query executed`,
-					`${result.rowCount} row${result.rowCount !== 1 ? 's' : ''} affected in ${result.executionMs} ms`,
+					`${result.rowCount} row${result.rowCount !== 1 ? "s" : ""} affected in ${result.executionMs} ms`,
 				);
 			} else {
 				notifySuccess(
-					`Query returned ${result.rowCount} row${result.rowCount !== 1 ? 's' : ''}`,
-					`${result.executionMs} ms${result.truncated ? ' (truncated to 1000 rows)' : ''}`,
+					`Query returned ${result.rowCount} row${result.rowCount !== 1 ? "s" : ""}`,
+					`${result.executionMs} ms${result.truncated ? " (truncated to 1000 rows)" : ""}`,
 				);
 			}
 		},
@@ -600,11 +634,37 @@ export const QueryWorkspace = forwardRef<
 	const focusedTab = state.tabs[focusedTabId];
 	const [historyOpen, setHistoryOpen] = useState(false);
 	const [isAskVeloxyOpen, setIsAskVeloxyOpen] = useState(false);
+	const [askVeloxyWidth, setAskVeloxyWidth] = useState(readAskVeloxyWidth);
 	const askVeloxyOpen = Boolean(connectionId) && isAskVeloxyOpen;
+
+	useEffect(() => {
+		window.localStorage.setItem(ASK_VELOXY_WIDTH_KEY, String(askVeloxyWidth));
+	}, [askVeloxyWidth]);
+
+	const handleAskVeloxyResizeStart = useCallback(
+		(event: ReactPointerEvent<HTMLDivElement>) => {
+			event.preventDefault();
+			const startX = event.clientX;
+			const startWidth = askVeloxyWidth;
+			const handlePointerMove = (moveEvent: PointerEvent) => {
+				const delta = moveEvent.clientX - startX;
+				setAskVeloxyWidth(clampAskVeloxyWidth(startWidth - delta));
+			};
+			const handlePointerUp = () => {
+				window.removeEventListener("pointermove", handlePointerMove);
+				window.removeEventListener("pointerup", handlePointerUp);
+			};
+			window.addEventListener("pointermove", handlePointerMove);
+			window.addEventListener("pointerup", handlePointerUp);
+		},
+		[askVeloxyWidth],
+	);
 	const [favorites, setFavorites] = useState<Set<string>>(() => {
 		try {
-			const stored = localStorage.getItem('veloxdb.queryFavorites');
-			return stored ? new Set<string>(JSON.parse(stored) as string[]) : new Set<string>();
+			const stored = localStorage.getItem("veloxdb.queryFavorites");
+			return stored
+				? new Set<string>(JSON.parse(stored) as string[])
+				: new Set<string>();
 		} catch {
 			return new Set<string>();
 		}
@@ -615,7 +675,8 @@ export const QueryWorkspace = forwardRef<
 
 	useEffect(() => {
 		const sql = focusedTab?.sql ?? "";
-		const targetConnectionId = focusedTab?.connectionId ?? connectionId ?? undefined;
+		const targetConnectionId =
+			focusedTab?.connectionId ?? connectionId ?? undefined;
 		if (lintTimerRef.current != null) {
 			window.clearTimeout(lintTimerRef.current);
 		}
@@ -838,7 +899,12 @@ export const QueryWorkspace = forwardRef<
 					: connectionEngine === "sqlite"
 						? "sqlite"
 						: "postgresql";
-			const formatted = format(sql, { language, tabWidth: 2, keywordCase: "upper", linesBetweenQueries: 2 });
+			const formatted = format(sql, {
+				language,
+				tabWidth: 2,
+				keywordCase: "upper",
+				linesBetweenQueries: 2,
+			});
 			dispatch({ type: "replaceTabSql", tabId, sql: formatted });
 		} catch {
 			// graceful fallback
@@ -861,11 +927,12 @@ export const QueryWorkspace = forwardRef<
 	const toolbarBusy = Boolean(
 		activeTab?.runInFlight || activeTab?.explainInFlight,
 	);
-	const activeConnectionForHistory = activeTab?.connectionId ?? connectionId ?? null;
+	const activeConnectionForHistory =
+		activeTab?.connectionId ?? connectionId ?? null;
 	const historyEntries: QueryHistoryEntry[] = useMemo(
 		() =>
 			activeConnectionForHistory
-				? state.queryHistoryByConnection[activeConnectionForHistory] ?? []
+				? (state.queryHistoryByConnection[activeConnectionForHistory] ?? [])
 				: [],
 		[activeConnectionForHistory, state.queryHistoryByConnection],
 	);
@@ -875,13 +942,16 @@ export const QueryWorkspace = forwardRef<
 			const next = new Set(prev);
 			if (next.has(entryId)) next.delete(entryId);
 			else next.add(entryId);
-			localStorage.setItem('veloxdb.queryFavorites', JSON.stringify([...next]));
+			localStorage.setItem("veloxdb.queryFavorites", JSON.stringify([...next]));
 			return next;
 		});
 	}, []);
 
 	const handleClearHistory = useCallback(() => {
-		dispatch({ type: "clearHistory", connectionId: activeConnectionForHistory ?? undefined });
+		dispatch({
+			type: "clearHistory",
+			connectionId: activeConnectionForHistory ?? undefined,
+		});
 	}, [activeConnectionForHistory]);
 	const lintDiagnostics = lintSqlMutation.data?.diagnostics ?? [];
 
@@ -999,8 +1069,16 @@ export const QueryWorkspace = forwardRef<
 							size="icon-sm"
 							onClick={handleToolbarExplain}
 							disabled={toolbarBusy}
-							aria-label={connectionEngine === "postgres" ? "Run explain analyze" : "Run explain"}
-							title={connectionEngine === "postgres" ? "Explain (analyze)" : "Explain"}
+							aria-label={
+								connectionEngine === "postgres"
+									? "Run explain analyze"
+									: "Run explain"
+							}
+							title={
+								connectionEngine === "postgres"
+									? "Explain (analyze)"
+									: "Explain"
+							}
 						>
 							<DatabaseIcon />
 						</Button>
@@ -1075,9 +1153,9 @@ export const QueryWorkspace = forwardRef<
 					editableColumns={editableColumns}
 					primaryKeyColumns={primaryKeyColumns}
 					saveResultEditsMutation={saveResultEditsMutation}
-          onSaveResultEdits={onSaveResultEdits}
-          onDeleteRows={onDeleteRows}
-          onRefreshResults={() => {
+					onSaveResultEdits={onSaveResultEdits}
+					onDeleteRows={onDeleteRows}
+					onRefreshResults={() => {
 						const t = stateRef.current.tabs[activeTab.id];
 						runForTab(activeTab.id, t?.lastExecutedSql || t?.sql || "");
 					}}
@@ -1101,6 +1179,8 @@ export const QueryWorkspace = forwardRef<
 							: undefined
 					}
 					isAskVeloxyOpen={askVeloxyOpen}
+					askVeloxyWidth={askVeloxyWidth}
+					onAskVeloxyResizeStart={handleAskVeloxyResizeStart}
 				/>
 			) : null}
 			<QueryHistoryPanel

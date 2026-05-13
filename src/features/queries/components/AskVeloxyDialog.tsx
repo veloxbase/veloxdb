@@ -16,6 +16,7 @@ import type {
 	AskVeloxyConversationResponse,
 	AskVeloxyResponse,
 } from "@/data/types";
+import { VeloxyMarkdown } from "@/features/queries/components/VeloxyMarkdown";
 import { cn } from "@/lib/utils";
 
 export type AskVeloxySubmitResult = {
@@ -26,6 +27,8 @@ export type AskVeloxySubmitResult = {
 };
 
 type ChatMessage = AskVeloxyConversationMessage & {
+	/** Set when the row is appended locally so we can run entrance motion without animating hydrated history. */
+	clientNonce?: number;
 	result?: AskVeloxyResponse;
 	decision?: AskVeloxySubmitResult["decision"];
 	decisionReason?: string;
@@ -49,6 +52,51 @@ type AskVeloxySidebarProps = {
 	onConfirmRun: (sql: string) => Promise<void>;
 	errorMessage: string | null;
 };
+
+function extractTextFromUnknown(value: unknown): string | null {
+	if (typeof value === "string") {
+		const normalized = value.trim();
+		return normalized.length > 0 ? normalized : null;
+	}
+	if (!value || typeof value !== "object") return null;
+
+	const record = value as Record<string, unknown>;
+	for (const key of ["message", "reply", "content", "text"]) {
+		const text = extractTextFromUnknown(record[key]);
+		if (text) return text;
+	}
+	for (const key of ["output", "response", "data", "result"]) {
+		const text = extractTextFromUnknown(record[key]);
+		if (text) return text;
+	}
+	return null;
+}
+
+function normalizeAssistantMessage(raw: string): string {
+	const trimmed = raw.trim();
+	if (!trimmed) return "";
+
+	const unwrapped = trimmed.replace(/^```json\s*/i, "").replace(/\s*```$/, "");
+	try {
+		const parsed = JSON.parse(unwrapped);
+		return extractTextFromUnknown(parsed) ?? trimmed;
+	} catch {
+		// Tolerate pseudo-JSON wrappers like: { "message": "..." }
+		const match = unwrapped.match(
+			/"(message|reply|content|text)"\s*:\s*"([\s\S]*?)"/,
+		);
+		if (!match) return trimmed;
+		const encoded = `"${match[2]}"`;
+		try {
+			const decoded = JSON.parse(encoded);
+			return typeof decoded === "string" && decoded.trim().length > 0
+				? decoded.trim()
+				: trimmed;
+		} catch {
+			return match[2].trim() || trimmed;
+		}
+	}
+}
 
 function messageBodyIsSqlDraft(message: ChatMessage): boolean {
 	if (message.role !== "assistant" || message.mode !== "action") return false;
@@ -76,9 +124,27 @@ export function AskVeloxySidebar({
 	onConfirmRun,
 	errorMessage,
 }: AskVeloxySidebarProps) {
+	const entranceMotionClass =
+		"motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-safe:ease-out motion-reduce:animate-none motion-reduce:opacity-100";
+
+	const messageEnterSeq = useRef(0);
+	const nextClientNonce = () => {
+		messageEnterSeq.current += 1;
+		return messageEnterSeq.current;
+	};
+
 	const [prompt, setPrompt] = useState("");
 	const [messages, setMessages] = useState<ChatMessage[]>([]);
+	const [typingState, setTypingState] = useState<{
+		messageId: string;
+		visibleChars: number;
+		totalChars: number;
+	} | null>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const typingFrameRef = useRef<number | null>(null);
+	const activeTypingMessageIdRef = useRef<string | null>(null);
+	const typingStartTimeRef = useRef(0);
+	const prefersReducedMotionRef = useRef(false);
 	const scrollDigest = `${messages.length}:${messages.at(-1)?.id ?? ""}:${isPending}:${errorMessage ?? ""}`;
 
 	useEffect(() => {
@@ -89,6 +155,10 @@ export function AskVeloxySidebar({
 				setMessages(
 					response.messages.map((message) => ({
 						...message,
+						text:
+							message.role === "assistant"
+								? normalizeAssistantMessage(message.text)
+								: message.text,
 						suggestions: [],
 						warnings: [],
 					})),
@@ -102,6 +172,75 @@ export function AskVeloxySidebar({
 		};
 	}, [onLoadConversation]);
 
+	useEffect(() => {
+		const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+		const update = () => {
+			prefersReducedMotionRef.current = media.matches;
+		};
+		update();
+		media.addEventListener("change", update);
+		return () => {
+			media.removeEventListener("change", update);
+		};
+	}, []);
+
+	useEffect(() => {
+		const latest = messages.at(-1);
+		if (!latest || latest.role !== "assistant" || latest.mode !== "chat")
+			return;
+		if (latest.clientNonce == null) return;
+		if (activeTypingMessageIdRef.current === latest.id) return;
+		if (prefersReducedMotionRef.current || latest.text.length < 24) {
+			activeTypingMessageIdRef.current = latest.id;
+			setTypingState(null);
+			return;
+		}
+
+		if (typingFrameRef.current != null) {
+			window.cancelAnimationFrame(typingFrameRef.current);
+			typingFrameRef.current = null;
+		}
+		activeTypingMessageIdRef.current = latest.id;
+		const totalChars = latest.text.length;
+		const stepChars = Math.max(1, Math.ceil(totalChars / 36));
+		const durationMs = Math.min(2200, Math.max(600, totalChars * 14));
+		typingStartTimeRef.current = performance.now();
+		setTypingState({
+			messageId: latest.id,
+			visibleChars: Math.min(stepChars, totalChars),
+			totalChars,
+		});
+
+		const tick = (now: number) => {
+			const elapsed = now - typingStartTimeRef.current;
+			const progress = Math.min(1, elapsed / durationMs);
+			const rawChars = Math.ceil(progress * totalChars);
+			const steppedChars = Math.min(
+				totalChars,
+				Math.ceil(rawChars / stepChars) * stepChars,
+			);
+			setTypingState((prev) => {
+				if (!prev || prev.messageId !== latest.id) return prev;
+				if (steppedChars >= totalChars) return null;
+				if (prev.visibleChars === steppedChars) return prev;
+				return { ...prev, visibleChars: steppedChars };
+			});
+			if (steppedChars < totalChars) {
+				typingFrameRef.current = window.requestAnimationFrame(tick);
+			} else {
+				typingFrameRef.current = null;
+			}
+		};
+		typingFrameRef.current = window.requestAnimationFrame(tick);
+
+		return () => {
+			if (typingFrameRef.current != null) {
+				window.cancelAnimationFrame(typingFrameRef.current);
+				typingFrameRef.current = null;
+			}
+		};
+	}, [messages]);
+
 	// biome-ignore lint/correctness/useExhaustiveDependencies: scroll when transcript tail, pending row, or error changes
 	useLayoutEffect(() => {
 		const node = scrollRef.current;
@@ -110,6 +249,7 @@ export function AskVeloxySidebar({
 	}, [scrollDigest]);
 
 	const appendUserMessage = (text: string, mode: "chat" | "action") => {
+		const clientNonce = nextClientNonce();
 		setMessages((prev) => [
 			...prev,
 			{
@@ -118,6 +258,7 @@ export function AskVeloxySidebar({
 				mode,
 				text,
 				createdAt: Math.floor(Date.now() / 1000),
+				clientNonce,
 			},
 		]);
 	};
@@ -127,6 +268,7 @@ export function AskVeloxySidebar({
 		if (!actionPrompt) return;
 		appendUserMessage(actionPrompt, "action");
 		const result = await onActionSubmit(actionPrompt);
+		const clientNonce = nextClientNonce();
 		setMessages((prev) => [
 			...prev,
 			{
@@ -135,6 +277,7 @@ export function AskVeloxySidebar({
 				mode: "action",
 				text: result.response.sql,
 				createdAt: Math.floor(Date.now() / 1000),
+				clientNonce,
 				result: result.response,
 				decision: result.decision,
 				decisionReason: result.decisionReason,
@@ -155,14 +298,17 @@ export function AskVeloxySidebar({
 		setPrompt("");
 		try {
 			const result = await onChatSubmit(naturalPrompt);
+			const clientNonce = nextClientNonce();
+			const message = normalizeAssistantMessage(result.message);
 			setMessages((prev) => [
 				...prev,
 				{
 					id: crypto.randomUUID(),
 					role: "assistant",
 					mode: "chat",
-					text: result.message,
+					text: message,
 					createdAt: Math.floor(Date.now() / 1000),
+					clientNonce,
 					sqlDraft: result.sqlDraft,
 					suggestions: result.suggestions,
 					warnings: result.warnings,
@@ -177,61 +323,60 @@ export function AskVeloxySidebar({
 
 	return (
 		<div className="flex h-full min-h-0 w-full flex-col bg-background">
-			<header className="shrink-0 border-b border-border px-3 py-2.5">
-				<div className="flex items-start justify-between gap-2">
-					<div className="min-w-0">
-						<p className="flex items-center gap-1.5 text-xs font-semibold tracking-tight text-foreground">
-							<span className="flex size-6 items-center justify-center rounded-md border border-border bg-muted/40 text-muted-foreground">
-								<RobotIcon className="size-3.5" weight="duotone" aria-hidden />
-							</span>
-							Ask Veloxy
-						</p>
-						<p className="mt-0.5 truncate pl-[calc(1.5rem+0.375rem)] text-[11px] tabular-nums text-muted-foreground">
+			<header className="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1">
+				<span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">
+					<RobotIcon className="size-3.5" weight="duotone" aria-hidden />
+				</span>
+				<div className="min-w-0 flex-1 leading-tight">
+					<p className="truncate text-[11px] font-medium text-foreground">
+						Ask Veloxy
+						<span className="font-normal text-muted-foreground"> · </span>
+						<span className="font-normal tabular-nums text-muted-foreground">
 							{modelLabel}
-						</p>
-					</div>
-					<div className="flex shrink-0 items-center gap-0.5">
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							className="h-7 px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-							disabled={isPending}
-							onClick={() => setMessages([])}
-						>
-							New
-						</Button>
-						<span className="text-[10px] text-border" aria-hidden>
-							·
 						</span>
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							className="h-7 px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-							disabled={isPending}
-							onClick={async () => {
-								try {
-									await onClearConversation();
-									setMessages([]);
-								} catch {
-									// Parent handles surfaced errors.
-								}
-							}}
-						>
-							Clear
-						</Button>
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-sm"
-							className="h-7 w-7 text-muted-foreground hover:text-foreground"
-							aria-label="Close Ask Veloxy"
-							onClick={onClose}
-						>
-							<XIcon className="size-3.5" />
-						</Button>
-					</div>
+					</p>
+				</div>
+				<div className="flex shrink-0 items-center gap-0.5">
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						className="h-6 px-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+						disabled={isPending}
+						onClick={() => setMessages([])}
+					>
+						New
+					</Button>
+					<span className="text-[9px] text-border" aria-hidden>
+						·
+					</span>
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						className="h-6 px-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+						disabled={isPending}
+						onClick={async () => {
+							try {
+								await onClearConversation();
+								setMessages([]);
+							} catch {
+								// Parent handles surfaced errors.
+							}
+						}}
+					>
+						Clear
+					</Button>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						className="size-6 text-muted-foreground hover:text-foreground"
+						aria-label="Close Ask Veloxy"
+						onClick={onClose}
+					>
+						<XIcon className="size-3.5" />
+					</Button>
 				</div>
 			</header>
 
@@ -292,20 +437,31 @@ export function AskVeloxySidebar({
 
 					<div className="flex flex-col gap-3">
 						{messages.map((message) => (
+							// Render only the latest in-flight assistant message with a lightweight typewriter.
 							<div
 								key={message.id}
-								className="animate-in fade-in-0 slide-in-from-bottom-1 duration-200"
+								className={cn(
+									message.clientNonce != null && entranceMotionClass,
+									message.role === "user" ? "flex justify-end" : "",
+								)}
 							>
 								<div
 									className={cn(
-										"rounded-md text-[12px] leading-relaxed ring-1 transition-colors",
+										"w-full rounded-md text-[12px] leading-relaxed ring-1 transition-colors",
 										message.role === "user"
-											? "ml-6 ring-primary/25 bg-primary/[0.06] px-3 py-2.5 text-foreground dark:bg-primary/10"
-											: "mr-5 ring-border/80 bg-muted/25 px-3 py-2.5 text-foreground dark:bg-muted/20",
+											? "max-w-[min(100%,22rem)] ring-border/50 bg-muted/15 px-2.5 py-2 text-muted-foreground dark:bg-muted/10"
+											: "max-w-full ring-border/80 bg-muted/30 px-3 py-2.5 text-foreground dark:bg-muted/25",
 									)}
 								>
 									<div className="mb-1.5 flex items-center justify-between gap-2">
-										<p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+										<p
+											className={cn(
+												"text-[10px] font-semibold uppercase tracking-[0.14em]",
+												message.role === "user"
+													? "text-muted-foreground/75"
+													: "text-muted-foreground",
+											)}
+										>
 											{message.role === "user" ? "You" : "Veloxy"}
 										</p>
 										{message.mode === "action" ? (
@@ -316,14 +472,35 @@ export function AskVeloxySidebar({
 									</div>
 
 									{messageBodyIsSqlDraft(message) ? (
-										<pre className="max-h-52 overflow-auto rounded-sm border border-border/80 bg-background/80 p-2 font-mono text-[11px] leading-snug text-foreground ring-0 [scrollbar-width:thin]">
+										<pre className="max-h-52 overflow-auto rounded-sm border border-border/60 bg-background/50 p-2 font-mono text-[11px] leading-snug text-foreground/95 [scrollbar-width:thin] dark:bg-background/30">
 											{message.text}
 										</pre>
 									) : (
-										<p className="whitespace-pre-wrap text-[12px] leading-relaxed">
-											{message.text}
-										</p>
+										<VeloxyMarkdown
+											content={
+												typingState?.messageId === message.id
+													? message.text.slice(
+															0,
+															Math.max(typingState.visibleChars, 1),
+														)
+													: message.text
+											}
+											className={cn(
+												"wrap-break-word text-[12px] leading-relaxed",
+												message.role === "user"
+													? "text-muted-foreground"
+													: "text-foreground",
+											)}
+										/>
 									)}
+									{typingState?.messageId === message.id ? (
+										<span
+											className="mt-1 inline-flex h-4 items-center text-muted-foreground"
+											aria-hidden
+										>
+											<span className="inline-block h-3 w-px animate-pulse bg-current" />
+										</span>
+									) : null}
 
 									{message.mode === "chat" &&
 									message.sqlDraft &&
@@ -515,7 +692,7 @@ export function AskVeloxySidebar({
 
 					{isPending ? (
 						<div
-							className="mr-5 mt-3 animate-in fade-in-0 slide-in-from-bottom-0.5 duration-200"
+							className={cn("mr-5 mt-3", entranceMotionClass)}
 							aria-live="polite"
 							aria-atomic="true"
 						>
@@ -544,7 +721,10 @@ export function AskVeloxySidebar({
 
 					{errorMessage ? (
 						<div
-							className="mt-3 rounded-md border border-destructive/35 bg-destructive/10 px-2.5 py-2 text-[12px] leading-relaxed text-destructive"
+							className={cn(
+								"mt-3 rounded-md border border-destructive/35 bg-destructive/10 px-2.5 py-2 text-[12px] leading-relaxed text-destructive",
+								entranceMotionClass,
+							)}
 							role="alert"
 						>
 							{errorMessage}

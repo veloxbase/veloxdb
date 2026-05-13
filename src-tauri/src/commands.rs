@@ -1675,7 +1675,76 @@ fn parse_ask_veloxy_chat_json(content: &str) -> Result<Value, String> {
     }
 }
 
+fn decode_json_quoted_string(value: &str) -> Option<String> {
+    serde_json::from_str::<String>(&format!("\"{}\"", value)).ok()
+}
+
+fn extract_json_string_field(content: &str, key: &str) -> Option<String> {
+    let marker = format!("\"{}\"", key);
+    let marker_idx = content.find(&marker)?;
+    let mut idx = marker_idx + marker.len();
+    let bytes = content.as_bytes();
+
+    while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+        idx += 1;
+    }
+    if idx >= bytes.len() || bytes[idx] != b':' {
+        return None;
+    }
+    idx += 1;
+    while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+        idx += 1;
+    }
+    if idx >= bytes.len() || bytes[idx] != b'"' {
+        return None;
+    }
+    idx += 1;
+    let start = idx;
+    let mut escaped = false;
+    while idx < bytes.len() {
+        let byte = bytes[idx];
+        if escaped {
+            escaped = false;
+            idx += 1;
+            continue;
+        }
+        if byte == b'\\' {
+            escaped = true;
+            idx += 1;
+            continue;
+        }
+        if byte == b'"' {
+            let raw = &content[start..idx];
+            return decode_json_quoted_string(raw)
+                .or_else(|| Some(raw.replace("\\n", "\n").replace("\\t", "\t")))
+                .map(|text| text.trim().to_string())
+                .filter(|text| !text.is_empty());
+        }
+        idx += 1;
+    }
+
+    None
+}
+
+fn extract_message_from_loose_json(content: &str) -> Option<String> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    ["message", "reply", "content"]
+        .iter()
+        .find_map(|key| extract_json_string_field(trimmed, key))
+}
+
 fn parse_chat_message(value: &Value) -> Option<String> {
+    if let Some(text) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+    {
+        return Some(text);
+    }
     value
         .get("message")
         .and_then(Value::as_str)
@@ -1824,10 +1893,12 @@ pub async fn chat_with_db(
                 )
             }
             Err(_) => {
-                let draft = extract_sql_draft_from_text(&message_content);
+                let normalized_message = extract_message_from_loose_json(&message_content)
+                    .unwrap_or_else(|| message_content.trim().to_string());
+                let draft = extract_sql_draft_from_text(&normalized_message);
                 let needs_sql_generation = draft.is_some();
                 (
-                    message_content.trim().to_string(),
+                    normalized_message,
                     Vec::new(),
                     vec!["Model returned non-JSON chat output. Parsed in tolerant mode.".to_string()],
                     draft,

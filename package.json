@@ -35,6 +35,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-hook-form": "^7.71.2",
+    "react-markdown": "^10.1.0",
     "shadcn": "^4.0.8",
     "sql-formatter": "^15.7.3",
     "tailwind-merge": "^3.5.0",
