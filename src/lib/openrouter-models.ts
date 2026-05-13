@@ -4,6 +4,12 @@ export type OpenRouterModelOption = {
   source: 'popular' | 'api'
 }
 
+type OpenRouterApiListedModel = {
+  id: string
+  label: string
+  source: 'api'
+}
+
 export const OPENROUTER_POPULAR_MODELS: OpenRouterModelOption[] = [
   { id: 'deepseek/deepseek-chat', label: 'DeepSeek Chat (cheap)', source: 'popular' },
   { id: 'openai/gpt-4o-mini', label: 'ChatGPT 4o Mini', source: 'popular' },
@@ -42,16 +48,16 @@ export async function fetchOpenRouterModels(
     data?: Array<{ id?: string; name?: string }>
   }
   const apiModels = (payload.data ?? [])
-    .map((item) => {
+    .map((item): OpenRouterApiListedModel | null => {
       const id = item.id?.trim() ?? ''
       if (!id) return null
       return {
         id,
         label: item.name?.trim() || id,
-        source: 'api' as const,
+        source: 'api',
       }
     })
-    .filter((item): item is OpenRouterModelOption => Boolean(item))
+    .filter((item): item is OpenRouterApiListedModel => item !== null)
     .slice(0, 120)
 
   const byId = new Map<string, OpenRouterModelOption>()
