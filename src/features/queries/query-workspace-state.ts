@@ -227,7 +227,9 @@ export type QueryWorkspaceAction =
 			bindConnectionId?: string | null;
 	  }
 	/** Clear in-flight flags when switching DB connection. */
-	| { type: "connectionReset" };
+	| { type: "connectionReset" }
+	/** After a saved connection is removed, drop it from every tab and history bucket. */
+	| { type: "detachDeletedConnection"; connectionId: string };
 
 export function queryWorkspaceReducer(
 	state: QueryWorkspaceState,
@@ -544,6 +546,22 @@ export function queryWorkspaceReducer(
 				};
 			}
 			return { ...state, tabs };
+		}
+		case "detachDeletedConnection": {
+			const { connectionId } = action;
+			const nextTabs = { ...state.tabs };
+			for (const id of state.tabOrder) {
+				const tab = nextTabs[id];
+				if (!tab || tab.connectionId !== connectionId) continue;
+				nextTabs[id] = { ...tab, connectionId: null };
+			}
+			const nextHistory = { ...state.queryHistoryByConnection };
+			delete nextHistory[connectionId];
+			return {
+				...state,
+				tabs: nextTabs,
+				queryHistoryByConnection: nextHistory,
+			};
 		}
 		case "clearHistory": {
 			if (action.connectionId) {

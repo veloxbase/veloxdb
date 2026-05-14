@@ -249,6 +249,7 @@ function VeloxApp() {
 			notifyError(error, { category: "connection", force: true });
 		},
 		onSuccess: (connectionId) => {
+			queryWorkspaceRef.current?.detachDeletedConnection(connectionId);
 			if (connection?.id === connectionId) {
 				setConnection(null);
 				setSelectedTable(null);

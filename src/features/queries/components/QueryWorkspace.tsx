@@ -94,6 +94,8 @@ export type QueryWorkspaceHandle = {
 	getHasLastQuery: () => boolean;
 	/** Keep the active query tab aligned with the connection chosen in the sidebar. */
 	setActiveTabConnection: (connectionId: string | null) => void;
+	/** Clear a removed saved connection from all tabs so IPC targets stay valid. */
+	detachDeletedConnection: (connectionId: string) => void;
 };
 
 type QueryWorkspaceProps = {
@@ -671,6 +673,8 @@ export const QueryWorkspace = forwardRef<
 	});
 	const editorMetadataQuery = useQueryEditorMetadata(connectionId);
 	const lintSqlMutation = useLintSqlMutation();
+	const lintMutate = lintSqlMutation.mutate;
+	const lintReset = lintSqlMutation.reset;
 	const lintTimerRef = useRef<number | null>(null);
 
 	useEffect(() => {
@@ -681,12 +685,12 @@ export const QueryWorkspace = forwardRef<
 			window.clearTimeout(lintTimerRef.current);
 		}
 		if (!targetConnectionId || sql.trim().length === 0) {
-			lintSqlMutation.reset();
+			lintReset();
 			return;
 		}
 		lintTimerRef.current = window.setTimeout(() => {
 			lintTimerRef.current = null;
-			lintSqlMutation.mutate({ connectionId: targetConnectionId, sql });
+			lintMutate({ connectionId: targetConnectionId, sql });
 		}, 280);
 		return () => {
 			if (lintTimerRef.current != null) {
@@ -698,7 +702,8 @@ export const QueryWorkspace = forwardRef<
 		connectionId,
 		focusedTab?.connectionId,
 		focusedTab?.sql,
-		lintSqlMutation,
+		lintMutate,
+		lintReset,
 	]);
 
 	useEffect(() => {
@@ -849,6 +854,9 @@ export const QueryWorkspace = forwardRef<
 			},
 			setActiveTabConnection: (cid: string | null) => {
 				dispatch({ type: "setActiveTabConnection", connectionId: cid });
+			},
+			detachDeletedConnection: (cid: string) => {
+				dispatch({ type: "detachDeletedConnection", connectionId: cid });
 			},
 			runLastQuery: () => {
 				const tabId = getFocusedTabId(stateRef.current);
