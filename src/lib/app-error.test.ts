@@ -1,4 +1,8 @@
-import { classifyMessage, normalizeError } from '@/lib/app-error'
+import {
+  classifyMessage,
+  normalizeError,
+  toUserMessage,
+} from '@/lib/app-error'
 import { describe, expect, it } from 'vitest'
 
 describe('adapter decode error normalization', () => {
@@ -26,5 +30,21 @@ describe('adapter decode error normalization', () => {
     const message = 'no such table: users'
     expect(classifyMessage(message)).toBe('query')
     expect(normalizeError(message).category).toBe('query')
+  })
+
+  it('parses SQLSTATE from VeloxDB postgres formatter', () => {
+    const message = 'ERROR: relation "users" does not exist\nSQLSTATE: 42P01'
+    expect(normalizeError(message).code).toBe('42P01')
+  })
+
+  it('skips generic query hint for server-formatted postgres errors', () => {
+    const message =
+      'ERROR: syntax error at or near "SELCT"\nSQLSTATE: 42601\nLINE 1: SELECT SELCT'
+    const userMessage = toUserMessage({
+      category: 'query',
+      message,
+    })
+    expect(userMessage).toBe(message)
+    expect(userMessage).not.toContain('Review the SQL')
   })
 })

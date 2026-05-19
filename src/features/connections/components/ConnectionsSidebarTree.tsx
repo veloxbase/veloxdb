@@ -22,7 +22,7 @@ import {
   TrashIcon,
 } from '@phosphor-icons/react'
 
-import type { ConnectionSummary, TableInfo } from '@/data/types'
+import type { ConnectionSummary, DatabaseInfo, TableInfo } from '@/data/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,6 +37,27 @@ function engineBadge(engine: ConnectionSummary['engine']): string {
   if (engine === 'postgres') return 'PG'
   if (engine === 'mysql') return 'MY'
   return 'SQ'
+}
+
+/** Which database row should show tables (exact match; MySQL allows case / first-db fallback). */
+export function resolveExpandedDatabaseName(
+  connection: ConnectionSummary,
+  dbList: DatabaseInfo[],
+): string {
+  const saved = connection.database
+  if (dbList.some((db) => db.name === saved)) {
+    return saved
+  }
+  if (connection.engine === 'mysql') {
+    const caseMatch = dbList.find((db) => db.name.toLowerCase() === saved.toLowerCase())
+    if (caseMatch) {
+      return caseMatch.name
+    }
+    if (dbList.length > 0) {
+      return dbList[0].name
+    }
+  }
+  return saved
 }
 
 type ConnectionContextMenuTarget = {
@@ -190,6 +211,7 @@ type ConnectionsSidebarTreeProps = {
   onRefreshDatabases?: (connectionId: string) => void | Promise<void>
   onCopyDatabaseName?: (connectionId: string, database: string) => void
   onCopyConnectionString?: (connection: ConnectionSummary) => void
+  onDatabaseSwitched?: (connection: ConnectionSummary) => void
   onToggleCollapsed: () => void
 }
 
@@ -339,6 +361,7 @@ export function ConnectionsSidebarTree({
   onRefreshDatabases,
   onCopyDatabaseName,
   onCopyConnectionString,
+  onDatabaseSwitched,
   onToggleCollapsed,
 }: ConnectionsSidebarTreeProps) {
   const [isTablesPanelExpanded, setIsTablesPanelExpanded] = useState(true)
@@ -351,7 +374,11 @@ export function ConnectionsSidebarTree({
   const pendingSelectTimeoutRef = useRef<number | null>(null)
   const activeConnectionId = activeConnection?.id ?? null
   const databasesQuery = useDatabasesQuery(activeConnectionId)
-  const switchDatabaseMutation = useSwitchDatabaseMutation()
+  const switchDatabaseMutation = useSwitchDatabaseMutation({
+    onSuccess: (nextConnection) => {
+      onDatabaseSwitched?.(nextConnection)
+    },
+  })
   const activeTableKey =
     activeConnectionId && selectedTable
       ? `${activeConnectionId}:${selectedTable.schema}.${selectedTable.name}`
@@ -617,6 +644,13 @@ export function ConnectionsSidebarTree({
 
     const isActiveConnection = activeConnectionId === connection.id
     const dbList = isActiveConnection ? (databasesQuery.data ?? []) : []
+    const expandedDatabaseName = isActiveConnection
+      ? resolveExpandedDatabaseName(connection, dbList)
+      : connection.database
+    const isDatabaseActive = (databaseName: string) =>
+      databaseName === expandedDatabaseName ||
+      (connection.engine === 'mysql' &&
+        databaseName.toLowerCase() === expandedDatabaseName.toLowerCase())
 
     const buildTableTreeNode = (tables: TableInfo[]): TreeDataItem[] =>
       tables.map((t) => ({
@@ -644,10 +678,10 @@ export function ConnectionsSidebarTree({
                   type="button"
                   className={cn(
                     'flex w-full items-center gap-2 pl-6 pr-3 py-1.5 text-left text-xs transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-                    db.name === connection.database && 'bg-emerald-500/10 text-emerald-600',
+                    isDatabaseActive(db.name) && 'bg-emerald-500/10 text-emerald-600',
                   )}
                   onClick={() => {
-                    if (db.name !== connection.database) {
+                    if (!isDatabaseActive(db.name)) {
                       switchDatabaseMutation.mutate({
                         connectionId: connection.id,
                         database: db.name,
@@ -664,7 +698,7 @@ export function ConnectionsSidebarTree({
                   disabled={switchDatabaseMutation.isPending}
                 >
                   <span className="text-sidebar-foreground/50">
-                    {db.name === connection.database ? (
+                    {isDatabaseActive(db.name) ? (
                       <CaretDownIcon className="size-3" />
                     ) : (
                       <CaretRightIcon className="size-3" />
@@ -672,23 +706,23 @@ export function ConnectionsSidebarTree({
                   </span>
                   <DatabaseIcon className={cn(
                     'size-3.5 shrink-0',
-                    db.name === connection.database ? 'text-emerald-500' : 'text-sidebar-foreground/50',
+                    isDatabaseActive(db.name) ? 'text-emerald-500' : 'text-sidebar-foreground/50',
                   )} />
                   <span className="min-w-0 flex-1 truncate font-medium">{db.name}</span>
                   <span className="shrink-0 rounded border border-sidebar-border/60 px-1 text-[9px] text-sidebar-foreground/40">
                     {engineBadge(connection.engine)}
                   </span>
-                  {db.name === connection.database ? (
+                  {isDatabaseActive(db.name) ? (
                     <span className="shrink-0 rounded bg-emerald-500/15 px-1 text-[9px] font-medium text-emerald-600">
                       active
                     </span>
                   ) : null}
-                  {switchDatabaseMutation.isPending && db.name !== connection.database ? (
+                  {switchDatabaseMutation.isPending && !isDatabaseActive(db.name) ? (
                     <SpinnerGapIcon className="size-3 animate-spin" />
                   ) : null}
                 </button>
 
-                {db.name === connection.database ? (
+                {isDatabaseActive(db.name) ? (
                   <div className="ml-5 border-l border-sidebar-border/60 py-1">
                     <div className="relative mb-1 px-2">
                       <MagnifyingGlassIcon className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-sidebar-foreground/50" />

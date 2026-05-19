@@ -107,9 +107,23 @@ function inferCategoryFromMessage(m: string): AppErrorCategory | undefined {
 }
 
 function inferSqlState(message: string): string | undefined {
-	// Typical: ... (SQLSTATE 42P01)
-	const match = message.match(/\(SQLSTATE\s+([0-9A-Z]{5})\)/i);
-	return match?.[1];
+	const explicit = message.match(/SQLSTATE:\s*([0-9A-Z]{5})/i);
+	if (explicit?.[1]) {
+		return explicit[1];
+	}
+	const legacy = message.match(/\(SQLSTATE\s+([0-9A-Z]{5})\)/i);
+	return legacy?.[1];
+}
+
+/** True when the backend already returned a database server error block. */
+function isServerFormattedError(message: string): boolean {
+	return (
+		message.includes("ERROR:") ||
+		message.includes("SQLSTATE:") ||
+		message.includes("\nDETAIL:") ||
+		message.includes("\nHINT:") ||
+		message.includes("\nLINE ")
+	);
 }
 
 export type NormalizeErrorOptions = {
@@ -179,8 +193,12 @@ export function toUserMessage(error: AppError): string {
 		return hint;
 	}
 
-	// Avoid duplicating if backend already included guidance.
-	if (base.length > 180) {
+	// Server errors from Postgres/MySQL already include detail; avoid generic hints.
+	if (
+		isServerFormattedError(base) ||
+		base.length > 180 ||
+		base.includes("\n")
+	) {
 		return base;
 	}
 

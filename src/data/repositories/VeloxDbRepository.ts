@@ -35,10 +35,12 @@ export interface VeloxDbRepository {
   deleteConnection(connectionId: string): Promise<void>
   renameConnection(connectionId: string, newName: string): Promise<ConnectionSummary>
   pingConnection(connectionId: string): Promise<void>
+  refreshConnection(connectionId: string): Promise<void>
   listConnections(): Promise<ConnectionSummary[]>
   setActiveConnection(connectionId: string): Promise<ConnectionSummary>
   runQuery(request: QueryRequest): Promise<QueryResult>
   chatWithDb(request: AskVeloxyChatRequest): Promise<AskVeloxyChatResponse>
+  cancelVeloxyRequest(): Promise<void>
   loadVeloxyConversation(connectionId?: string): Promise<AskVeloxyConversationResponse>
   clearVeloxyConversation(connectionId?: string): Promise<void>
   generateSqlFromNl(request: AskVeloxyRequest): Promise<AskVeloxyResponse>

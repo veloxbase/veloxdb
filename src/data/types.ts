@@ -134,6 +134,20 @@ export type AskVeloxyChatRequest = {
   targetTable?: AskVeloxyTableRef
   providerConfig: AskVeloxyProviderConfig
   maxRows?: number
+  /** Correlates OpenRouter SSE chunks with the in-flight sidebar message. */
+  requestId?: string
+}
+
+export type VeloxyStreamChunk = {
+  requestId: string
+  delta: string
+  done: boolean
+  message?: string
+  suggestions?: string[]
+  warnings?: string[]
+  sqlDraft?: string
+  needsSqlGeneration?: boolean
+  needsClarification?: boolean
 }
 
 export type AskVeloxyChatResponse = {

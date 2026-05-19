@@ -1,12 +1,22 @@
 import {
+	ArrowsLeftRightIcon,
 	ChatCircleDotsIcon,
+	CopyIcon,
 	DatabaseIcon,
 	LightningIcon,
+	PlusIcon,
 	RobotIcon,
+	SquareIcon,
 	WarningCircleIcon,
 	XIcon,
 } from "@phosphor-icons/react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,8 +25,11 @@ import type {
 	AskVeloxyConversationMessage,
 	AskVeloxyConversationResponse,
 	AskVeloxyResponse,
+	VeloxyStreamChunk,
 } from "@/data/types";
 import { VeloxyMarkdown } from "@/features/queries/components/VeloxyMarkdown";
+import { useVeloxyStream } from "@/features/queries/hooks/useVeloxyStream";
+import { notifySuccess } from "@/lib/error-notifier";
 import { cn } from "@/lib/utils";
 
 export type AskVeloxySubmitResult = {
@@ -27,8 +40,9 @@ export type AskVeloxySubmitResult = {
 };
 
 type ChatMessage = AskVeloxyConversationMessage & {
-	/** Set when the row is appended locally so we can run entrance motion without animating hydrated history. */
 	clientNonce?: number;
+	streaming?: boolean;
+	stoppedEarly?: boolean;
 	result?: AskVeloxyResponse;
 	decision?: AskVeloxySubmitResult["decision"];
 	decisionReason?: string;
@@ -42,14 +56,22 @@ type ChatMessage = AskVeloxyConversationMessage & {
 type AskVeloxySidebarProps = {
 	isPending: boolean;
 	modelLabel: string;
+	contextTableLabel?: string | null;
 	isConfigured: boolean;
 	onClose: () => void;
 	onOpenSettings: () => void;
-	onChatSubmit: (naturalPrompt: string) => Promise<AskVeloxyChatResponse>;
+	onChatSubmit: (
+		naturalPrompt: string,
+		requestId: string,
+	) => Promise<AskVeloxyChatResponse>;
 	onActionSubmit: (naturalPrompt: string) => Promise<AskVeloxySubmitResult>;
 	onLoadConversation: () => Promise<AskVeloxyConversationResponse>;
 	onClearConversation: () => Promise<void>;
 	onConfirmRun: (sql: string) => Promise<void>;
+	onInsertSql: (sql: string) => void;
+	onReplaceSql: (sql: string) => void;
+	onOpenTabWithSql: (sql: string) => void;
+	onCancelRequest?: () => Promise<void>;
 	errorMessage: string | null;
 };
 
@@ -72,6 +94,100 @@ function extractTextFromUnknown(value: unknown): string | null {
 	return null;
 }
 
+function unescapeJsonFragment(raw: string): string {
+	let out = "";
+	for (let i = 0; i < raw.length; i += 1) {
+		const ch = raw[i];
+		if (ch !== "\\") {
+			out += ch;
+			continue;
+		}
+		const next = raw[i + 1];
+		if (next === "n") {
+			out += "\n";
+			i += 1;
+		} else if (next === "t") {
+			out += "\t";
+			i += 1;
+		} else if (next === "r") {
+			out += "\r";
+			i += 1;
+		} else if (next === '"') {
+			out += '"';
+			i += 1;
+		} else if (next === "\\") {
+			out += "\\";
+			i += 1;
+		} else if (next != null) {
+			out += `\\${next}`;
+			i += 1;
+		} else {
+			out += "\\";
+		}
+	}
+	return out;
+}
+
+function extractJsonMessageField(
+	raw: string,
+	allowPartial: boolean,
+): string | null {
+	const unwrapped = raw
+		.trim()
+		.replace(/^```json\s*/i, "")
+		.replace(/\s*```$/, "");
+	for (const key of ["message", "reply", "content", "text"]) {
+		const marker = `"${key}"`;
+		const markerIdx = unwrapped.indexOf(marker);
+		if (markerIdx < 0) continue;
+		let idx = markerIdx + marker.length;
+		while (idx < unwrapped.length && /\s/.test(unwrapped[idx] ?? "")) idx += 1;
+		if (unwrapped[idx] !== ":") continue;
+		idx += 1;
+		while (idx < unwrapped.length && /\s/.test(unwrapped[idx] ?? "")) idx += 1;
+		if (unwrapped[idx] !== '"') continue;
+		idx += 1;
+		const start = idx;
+		let escaped = false;
+		while (idx < unwrapped.length) {
+			const ch = unwrapped[idx];
+			if (escaped) {
+				escaped = false;
+				idx += 1;
+				continue;
+			}
+			if (ch === "\\") {
+				escaped = true;
+				idx += 1;
+				continue;
+			}
+			if (ch === '"') {
+				const fragment = unwrapped.slice(start, idx);
+				try {
+					const decoded = JSON.parse(`"${fragment}"`);
+					if (typeof decoded === "string" && decoded.trim())
+						return decoded.trim();
+				} catch {
+					const text = unescapeJsonFragment(fragment).trim();
+					if (text) return text;
+				}
+				break;
+			}
+			idx += 1;
+		}
+		if (allowPartial && start < unwrapped.length) {
+			const text = unescapeJsonFragment(unwrapped.slice(start)).trim();
+			if (text) return text;
+		}
+	}
+	return null;
+}
+
+function looksLikeJsonResponse(raw: string): boolean {
+	const trimmed = raw.trimStart();
+	return trimmed.startsWith("{") || trimmed.startsWith("```");
+}
+
 function normalizeAssistantMessage(raw: string): string {
 	const trimmed = raw.trim();
 	if (!trimmed) return "";
@@ -81,20 +197,12 @@ function normalizeAssistantMessage(raw: string): string {
 		const parsed = JSON.parse(unwrapped);
 		return extractTextFromUnknown(parsed) ?? trimmed;
 	} catch {
-		// Tolerate pseudo-JSON wrappers like: { "message": "..." }
-		const match = unwrapped.match(
-			/"(message|reply|content|text)"\s*:\s*"([\s\S]*?)"/,
-		);
-		if (!match) return trimmed;
-		const encoded = `"${match[2]}"`;
-		try {
-			const decoded = JSON.parse(encoded);
-			return typeof decoded === "string" && decoded.trim().length > 0
-				? decoded.trim()
-				: trimmed;
-		} catch {
-			return match[2].trim() || trimmed;
-		}
+		const extracted =
+			extractJsonMessageField(trimmed, false) ??
+			extractJsonMessageField(trimmed, true);
+		if (extracted) return extracted;
+		if (looksLikeJsonResponse(trimmed)) return "";
+		return trimmed;
 	}
 }
 
@@ -111,9 +219,97 @@ function messageBodyIsSqlDraft(message: ChatMessage): boolean {
 	);
 }
 
+function truncateSuggestion(text: string, max = 72): string {
+	if (text.length <= max) return text;
+	return `${text.slice(0, max - 1).trimEnd()}…`;
+}
+
+function ChatWarningsBanner({ warnings }: { warnings: string[] }) {
+	if (!warnings.length) return null;
+	return (
+		<div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-2 py-1.5 text-amber-950 dark:text-amber-50">
+			<p className="text-[10px] font-semibold uppercase tracking-wide text-amber-900/90 dark:text-amber-100/90">
+				Review
+			</p>
+			<ul className="mt-1 space-y-0.5 text-[11px] leading-snug">
+				{warnings.map((warning) => (
+					<li key={warning}>{warning}</li>
+				))}
+			</ul>
+		</div>
+	);
+}
+
+type SqlDraftToolbarProps = {
+	sql: string;
+	disabled?: boolean;
+	onCopy: (sql: string) => void;
+	onInsert: (sql: string) => void;
+	onReplace: (sql: string) => void;
+	onNewTab: (sql: string) => void;
+};
+
+function SqlDraftToolbar({
+	sql,
+	disabled,
+	onCopy,
+	onInsert,
+	onReplace,
+	onNewTab,
+}: SqlDraftToolbarProps) {
+	return (
+		<div className="mt-1.5 flex flex-wrap items-center gap-1">
+			<Button
+				type="button"
+				variant="ghost"
+				size="sm"
+				className="h-6 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+				disabled={disabled}
+				onClick={() => onCopy(sql)}
+			>
+				<CopyIcon className="size-3" aria-hidden />
+				Copy
+			</Button>
+			<Button
+				type="button"
+				variant="ghost"
+				size="sm"
+				className="h-6 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+				disabled={disabled}
+				onClick={() => onInsert(sql)}
+			>
+				<PlusIcon className="size-3" aria-hidden />
+				Insert
+			</Button>
+			<Button
+				type="button"
+				variant="ghost"
+				size="sm"
+				className="h-6 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+				disabled={disabled}
+				onClick={() => onReplace(sql)}
+			>
+				<ArrowsLeftRightIcon className="size-3" aria-hidden />
+				Replace
+			</Button>
+			<Button
+				type="button"
+				variant="ghost"
+				size="sm"
+				className="h-6 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+				disabled={disabled}
+				onClick={() => onNewTab(sql)}
+			>
+				New tab
+			</Button>
+		</div>
+	);
+}
+
 export function AskVeloxySidebar({
 	isPending,
 	modelLabel,
+	contextTableLabel,
 	isConfigured,
 	onClose,
 	onOpenSettings,
@@ -122,6 +318,10 @@ export function AskVeloxySidebar({
 	onLoadConversation,
 	onClearConversation,
 	onConfirmRun,
+	onInsertSql,
+	onReplaceSql,
+	onOpenTabWithSql,
+	onCancelRequest,
 	errorMessage,
 }: AskVeloxySidebarProps) {
 	const entranceMotionClass =
@@ -141,11 +341,59 @@ export function AskVeloxySidebar({
 		totalChars: number;
 	} | null>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const promptRef = useRef<HTMLTextAreaElement>(null);
 	const typingFrameRef = useRef<number | null>(null);
 	const activeTypingMessageIdRef = useRef<string | null>(null);
+	const activeRequestIdRef = useRef<string | null>(null);
 	const typingStartTimeRef = useRef(0);
 	const prefersReducedMotionRef = useRef(false);
-	const scrollDigest = `${messages.length}:${messages.at(-1)?.id ?? ""}:${isPending}:${errorMessage ?? ""}`;
+	const scrollDigest = `${messages.length}:${messages.at(-1)?.id ?? ""}:${messages.at(-1)?.text.length ?? 0}:${isPending}:${errorMessage ?? ""}`;
+
+	const handleStreamChunk = useCallback((chunk: VeloxyStreamChunk) => {
+		if (chunk.requestId !== activeRequestIdRef.current) return;
+
+		setMessages((prev) =>
+			prev.map((message) => {
+				if (message.id !== chunk.requestId) return message;
+				if (chunk.done) {
+					const finalText = chunk.message
+						? normalizeAssistantMessage(chunk.message)
+						: message.text;
+					return {
+						...message,
+						text: finalText,
+						streaming: false,
+						stoppedEarly: chunk.warnings?.some((w) =>
+							w.toLowerCase().includes("stopped"),
+						),
+						sqlDraft: chunk.sqlDraft ?? message.sqlDraft,
+						suggestions: chunk.suggestions ?? message.suggestions,
+						warnings: chunk.warnings ?? message.warnings,
+						needsSqlGeneration:
+							chunk.needsSqlGeneration ?? message.needsSqlGeneration,
+						needsClarification:
+							chunk.needsClarification ?? message.needsClarification,
+					};
+				}
+				if (!chunk.delta) return message;
+				return {
+					...message,
+					text: message.text + chunk.delta,
+				};
+			}),
+		);
+	}, []);
+
+	useVeloxyStream({ onChunk: handleStreamChunk });
+
+	const handleCopySql = useCallback(async (sql: string) => {
+		try {
+			await navigator.clipboard.writeText(sql);
+			notifySuccess("SQL copied");
+		} catch {
+			// Clipboard may be unavailable in some environments.
+		}
+	}, []);
 
 	useEffect(() => {
 		let mounted = true;
@@ -188,6 +436,7 @@ export function AskVeloxySidebar({
 		const latest = messages.at(-1);
 		if (!latest || latest.role !== "assistant" || latest.mode !== "chat")
 			return;
+		if (latest.streaming) return;
 		if (latest.clientNonce == null) return;
 		if (activeTypingMessageIdRef.current === latest.id) return;
 		if (prefersReducedMotionRef.current || latest.text.length < 24) {
@@ -239,6 +488,12 @@ export function AskVeloxySidebar({
 				typingFrameRef.current = null;
 			}
 		};
+	}, [messages]);
+
+	useEffect(() => {
+		const latest = messages.at(-1);
+		if (!latest?.needsClarification || latest.role !== "assistant") return;
+		promptRef.current?.focus();
 	}, [messages]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: scroll when transcript tail, pending row, or error changes
@@ -296,30 +551,68 @@ export function AskVeloxySidebar({
 		if (!naturalPrompt) return;
 		appendUserMessage(naturalPrompt, "chat");
 		setPrompt("");
+
+		const requestId = crypto.randomUUID();
+		activeRequestIdRef.current = requestId;
+		const clientNonce = nextClientNonce();
+		setMessages((prev) => [
+			...prev,
+			{
+				id: requestId,
+				role: "assistant",
+				mode: "chat",
+				text: "",
+				createdAt: Math.floor(Date.now() / 1000),
+				clientNonce,
+				streaming: true,
+				suggestions: [],
+				warnings: [],
+			},
+		]);
+
 		try {
-			const result = await onChatSubmit(naturalPrompt);
-			const clientNonce = nextClientNonce();
+			const result = await onChatSubmit(naturalPrompt, requestId);
 			const message = normalizeAssistantMessage(result.message);
-			setMessages((prev) => [
-				...prev,
-				{
-					id: crypto.randomUUID(),
-					role: "assistant",
-					mode: "chat",
-					text: message,
-					createdAt: Math.floor(Date.now() / 1000),
-					clientNonce,
-					sqlDraft: result.sqlDraft,
-					suggestions: result.suggestions,
-					warnings: result.warnings,
-					needsSqlGeneration: result.needsSqlGeneration,
-					needsClarification: result.needsClarification,
-				},
-			]);
+			setMessages((prev) =>
+				prev.map((entry) => {
+					if (entry.id !== requestId) return entry;
+					return {
+						...entry,
+						text: message || entry.text,
+						streaming: false,
+						sqlDraft: result.sqlDraft,
+						suggestions: result.suggestions,
+						warnings: result.warnings,
+						needsSqlGeneration: result.needsSqlGeneration,
+						needsClarification: result.needsClarification,
+					};
+				}),
+			);
 		} catch {
-			// parent already sets surfaced error message.
+			setMessages((prev) => prev.filter((entry) => entry.id !== requestId));
+		} finally {
+			activeRequestIdRef.current = null;
 		}
 	};
+
+	const handleSuggestionClick = (
+		suggestion: string,
+		event: React.MouseEvent<HTMLButtonElement>,
+	) => {
+		if (event.shiftKey) {
+			appendUserMessage(suggestion, "chat");
+			void onChatSubmit(suggestion, crypto.randomUUID()).catch(() => {
+				// Parent handles surfaced errors.
+			});
+			return;
+		}
+		setPrompt(suggestion);
+		promptRef.current?.focus();
+	};
+
+	const headerSubtitle = contextTableLabel
+		? `${contextTableLabel} · ${modelLabel}`
+		: modelLabel;
 
 	return (
 		<div className="flex h-full min-h-0 w-full flex-col bg-background">
@@ -332,7 +625,7 @@ export function AskVeloxySidebar({
 						Ask Veloxy
 						<span className="font-normal text-muted-foreground"> · </span>
 						<span className="font-normal tabular-nums text-muted-foreground">
-							{modelLabel}
+							{headerSubtitle}
 						</span>
 					</p>
 				</div>
@@ -343,7 +636,14 @@ export function AskVeloxySidebar({
 						size="sm"
 						className="h-6 px-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
 						disabled={isPending}
-						onClick={() => setMessages([])}
+						onClick={async () => {
+							try {
+								await onClearConversation();
+								setMessages([]);
+							} catch {
+								// Parent handles surfaced errors.
+							}
+						}}
 					>
 						New
 					</Button>
@@ -437,7 +737,6 @@ export function AskVeloxySidebar({
 
 					<div className="flex flex-col gap-3">
 						{messages.map((message) => (
-							// Render only the latest in-flight assistant message with a lightweight typewriter.
 							<div
 								key={message.id}
 								className={cn(
@@ -451,6 +750,8 @@ export function AskVeloxySidebar({
 										message.role === "user"
 											? "max-w-[min(100%,22rem)] ring-border/50 bg-muted/15 px-2.5 py-2 text-muted-foreground dark:bg-muted/10"
 											: "max-w-full ring-border/80 bg-muted/30 px-3 py-2.5 text-foreground dark:bg-muted/25",
+										message.stoppedEarly &&
+											"ring-amber-500/30 bg-amber-500/[0.04]",
 									)}
 								>
 									<div className="mb-1.5 flex items-center justify-between gap-2">
@@ -469,21 +770,38 @@ export function AskVeloxySidebar({
 												SQL
 											</span>
 										) : null}
+										{message.streaming ? (
+											<span className="rounded border border-border bg-background/80 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+												Streaming
+											</span>
+										) : null}
 									</div>
 
 									{messageBodyIsSqlDraft(message) ? (
-										<pre className="max-h-52 overflow-auto rounded-sm border border-border/60 bg-background/50 p-2 font-mono text-[11px] leading-snug text-foreground/95 [scrollbar-width:thin] dark:bg-background/30">
-											{message.text}
-										</pre>
-									) : (
+										<>
+											<pre className="max-h-52 overflow-auto rounded-sm border border-border/60 bg-background/50 p-2 font-mono text-[11px] leading-snug text-foreground/95 [scrollbar-width:thin] dark:bg-background/30">
+												{message.text}
+											</pre>
+											<SqlDraftToolbar
+												sql={message.text}
+												disabled={isPending}
+												onCopy={(sql) => void handleCopySql(sql)}
+												onInsert={onInsertSql}
+												onReplace={onReplaceSql}
+												onNewTab={onOpenTabWithSql}
+											/>
+										</>
+									) : message.text ? (
 										<VeloxyMarkdown
 											content={
-												typingState?.messageId === message.id
-													? message.text.slice(
-															0,
-															Math.max(typingState.visibleChars, 1),
-														)
-													: message.text
+												message.streaming
+													? message.text
+													: typingState?.messageId === message.id
+														? message.text.slice(
+																0,
+																Math.max(typingState.visibleChars, 1),
+															)
+														: message.text
 											}
 											className={cn(
 												"wrap-break-word text-[12px] leading-relaxed",
@@ -492,14 +810,54 @@ export function AskVeloxySidebar({
 													: "text-foreground",
 											)}
 										/>
-									)}
-									{typingState?.messageId === message.id ? (
+									) : message.streaming ? (
+										<p className="text-[11px] text-muted-foreground">…</p>
+									) : null}
+									{typingState?.messageId === message.id &&
+									!message.streaming ? (
 										<span
 											className="mt-1 inline-flex h-4 items-center text-muted-foreground"
 											aria-hidden
 										>
 											<span className="inline-block h-3 w-px animate-pulse bg-current" />
 										</span>
+									) : null}
+
+									{message.mode === "chat" &&
+									message.needsClarification &&
+									message.role === "assistant" ? (
+										<div className="mt-2 rounded-md border border-sky-500/30 bg-sky-500/[0.06] px-2 py-1.5 text-[11px] leading-snug text-sky-950 dark:text-sky-50">
+											Veloxy needs a bit more detail before generating SQL.
+										</div>
+									) : null}
+
+									{message.mode === "chat" &&
+									message.role === "assistant" &&
+									message.suggestions?.length ? (
+										<div className="mt-2 flex flex-wrap gap-1.5">
+											{message.suggestions.slice(0, 5).map((suggestion) => (
+												<Button
+													key={suggestion}
+													type="button"
+													variant="outline"
+													size="sm"
+													className="h-auto max-w-full whitespace-normal px-2 py-1 text-left text-[10px] leading-snug"
+													disabled={isPending}
+													title="Shift+click to send immediately"
+													onClick={(event) =>
+														handleSuggestionClick(suggestion, event)
+													}
+												>
+													{truncateSuggestion(suggestion)}
+												</Button>
+											))}
+										</div>
+									) : null}
+
+									{message.mode === "chat" &&
+									message.role === "assistant" &&
+									!message.result ? (
+										<ChatWarningsBanner warnings={message.warnings ?? []} />
 									) : null}
 
 									{message.mode === "chat" &&
@@ -512,6 +870,14 @@ export function AskVeloxySidebar({
 											<pre className="mt-1 max-h-32 overflow-auto font-mono text-[11px] leading-snug text-foreground [scrollbar-width:thin]">
 												{message.sqlDraft}
 											</pre>
+											<SqlDraftToolbar
+												sql={message.sqlDraft}
+												disabled={isPending}
+												onCopy={(sql) => void handleCopySql(sql)}
+												onInsert={onInsertSql}
+												onReplace={onReplaceSql}
+												onNewTab={onOpenTabWithSql}
+											/>
 										</div>
 									) : null}
 
@@ -570,21 +936,11 @@ export function AskVeloxySidebar({
 													</ul>
 												</div>
 											) : null}
-											{(message.warnings?.length ??
-											message.result.warnings.length) ? (
-												<div className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-2 py-1.5 text-amber-950 dark:text-amber-50">
-													<p className="text-[10px] font-semibold uppercase tracking-wide text-amber-900/90 dark:text-amber-100/90">
-														Review
-													</p>
-													<ul className="mt-1 space-y-0.5 text-[11px] leading-snug">
-														{(message.warnings ?? message.result.warnings).map(
-															(warning) => (
-																<li key={warning}>{warning}</li>
-															),
-														)}
-													</ul>
-												</div>
-											) : null}
+											<ChatWarningsBanner
+												warnings={
+													message.warnings ?? message.result.warnings ?? []
+												}
+											/>
 										</div>
 									) : null}
 
@@ -592,12 +948,20 @@ export function AskVeloxySidebar({
 										<div className="mt-3 border-t border-border/60 pt-3">
 											<div className="flex flex-wrap items-center gap-1.5">
 												<Button
-													variant="default"
+													variant={
+														message.needsClarification ? "outline" : "default"
+													}
 													size="sm"
 													className="h-7 gap-1 px-2.5 text-[11px] font-medium shadow-none"
 													disabled={
 														isPending ||
+														message.needsClarification ||
 														(!message.sqlDraft && !message.text.trim())
+													}
+													title={
+														message.needsClarification
+															? "Answer Veloxy's question first"
+															: undefined
 													}
 													onClick={() => {
 														void handleActionSubmit(
@@ -685,12 +1049,17 @@ export function AskVeloxySidebar({
 											</Button>
 										</div>
 									) : null}
+									{message.stoppedEarly ? (
+										<p className="mt-2 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+											Stopped early — partial reply kept.
+										</p>
+									) : null}
 								</div>
 							</div>
 						))}
 					</div>
 
-					{isPending ? (
+					{isPending && !messages.some((message) => message.streaming) ? (
 						<div
 							className={cn("mr-5 mt-3", entranceMotionClass)}
 							aria-live="polite"
@@ -736,6 +1105,7 @@ export function AskVeloxySidebar({
 			<div className="shrink-0 border-t border-border bg-background px-3 py-2.5">
 				<div className="rounded-md border border-input bg-background shadow-none focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40">
 					<Textarea
+						ref={promptRef}
 						value={prompt}
 						onChange={(event) => setPrompt(event.target.value)}
 						placeholder="Message Veloxy…"
@@ -761,16 +1131,32 @@ export function AskVeloxySidebar({
 						<span className="font-medium text-foreground/70">Enter</span>
 						<span className="ml-1">to send</span>
 					</p>
-					<Button
-						variant="default"
-						size="sm"
-						className="ml-auto h-7 gap-1.5 px-3 text-[11px] font-medium"
-						disabled={!isConfigured || isPending || prompt.trim().length === 0}
-						onClick={() => void sendChat()}
-					>
-						<ChatCircleDotsIcon className="size-3.5" aria-hidden />
-						Send
-					</Button>
+					<div className="ml-auto flex items-center gap-1.5">
+						{isPending && onCancelRequest ? (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="h-7 gap-1 px-2.5 text-[11px] font-medium"
+								onClick={() => void onCancelRequest()}
+							>
+								<SquareIcon className="size-3.5" aria-hidden />
+								Stop
+							</Button>
+						) : null}
+						<Button
+							variant="default"
+							size="sm"
+							className="h-7 gap-1.5 px-3 text-[11px] font-medium"
+							disabled={
+								!isConfigured || isPending || prompt.trim().length === 0
+							}
+							onClick={() => void sendChat()}
+						>
+							<ChatCircleDotsIcon className="size-3.5" aria-hidden />
+							Send
+						</Button>
+					</div>
 				</div>
 			</div>
 		</div>

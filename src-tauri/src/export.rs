@@ -13,6 +13,7 @@ use crate::db::{
     with_pool_client_retry, AppState,
 };
 use crate::models::DatabaseEngine;
+use crate::pg_error::map_pg_err;
 
 const TABLE_W: f64 = 240.0;
 const HEADER_H: f64 = 30.0;
@@ -278,7 +279,10 @@ pub async fn export_results_csv(
             with_pool_client_retry(
                 app, state, &connection_id, sql,
                 |client, sql| async move {
-                    let messages = client.simple_query(&sql).await.map_err(|e| e.to_string())?;
+                    let messages = client
+                        .simple_query(&sql)
+                        .await
+                        .map_err(|e| map_pg_err(e, Some(sql.as_str())))?;
                     let mut result: Vec<String> = Vec::new();
                     let mut columns: Vec<String> = Vec::new();
                     let mut header_written = false;
@@ -393,7 +397,10 @@ pub async fn export_results_json(
             with_pool_client_retry(
                 app, state, &connection_id, sql,
                 |client, sql| async move {
-                    let messages = client.simple_query(&sql).await.map_err(|e| e.to_string())?;
+                    let messages = client
+                        .simple_query(&sql)
+                        .await
+                        .map_err(|e| map_pg_err(e, Some(sql.as_str())))?;
                     let mut result: Vec<String> = Vec::new();
                     let mut columns: Vec<String> = Vec::new();
 

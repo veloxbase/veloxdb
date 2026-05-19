@@ -20,6 +20,48 @@ import {
 import { shouldRetryTransientDbInvoke } from "@/lib/transient-invoke-retry";
 import { useSettings } from "@/lib/settings";
 
+export function buildTransactionalSql(
+	engine: DatabaseEngine | undefined,
+	statements: string[],
+): string {
+	const body = statements.join("\n");
+	if (engine === "mysql") {
+		// MySQL rejects BEGIN/COMMIT/ROLLBACK via the prepared-statement protocol.
+		return body;
+	}
+	return `BEGIN;\n${body}\nCOMMIT;`;
+}
+
+async function runTransactionalStatements(
+	connectionId: string | undefined,
+	engine: DatabaseEngine | undefined,
+	statements: string[],
+) {
+	const sql = buildTransactionalSql(engine, statements);
+	if (!sql || !connectionId) {
+		return;
+	}
+
+	try {
+		await veloxDbRepository.runQuery({
+			connectionId,
+			sql,
+		});
+	} catch (error) {
+		if (engine !== "mysql") {
+			try {
+				await veloxDbRepository.runQuery({
+					connectionId,
+					sql: "ROLLBACK;",
+				});
+			} catch {
+				// Ignore rollback failure; surface original save failure to the UI.
+			}
+		}
+		throw error;
+	}
+}
+
 /** UI-only fields for correlating mutation results with a query tab. Stripped before IPC. */
 export type RunQueryTabVariables = QueryRequest & {
 	tabId: string;
@@ -144,23 +186,11 @@ export function useSaveResultEditsMutation(
 				return;
 			}
 
-			try {
-				await veloxDbRepository.runQuery({
-					connectionId: request.connectionId,
-					sql: `BEGIN;\n${statements.join("\n")}\nCOMMIT;`,
-				});
-			} catch (error) {
-				// Best-effort rollback in case the previous transaction failed mid-flight.
-				try {
-					await veloxDbRepository.runQuery({
-						connectionId: request.connectionId,
-						sql: "ROLLBACK;",
-					});
-				} catch {
-					// Ignore rollback failure; surface original save failure to the UI.
-				}
-				throw error;
-			}
+			await runTransactionalStatements(
+				request.connectionId,
+				request.engine,
+				statements,
+			);
 		},
 		onError: (error, variables) => {
 			options.onError?.(error, variables);
@@ -201,25 +231,14 @@ export function useDeleteRowsMutation(
     retry: shouldRetryTransientDbInvoke,
     mutationFn: async (request: DeleteRowsRequest) => {
       const statements = buildDeleteStatements(request);
-      if (statements.length === 0) {
+      if (!statements) {
         return;
       }
-      try {
-        await veloxDbRepository.runQuery({
-          connectionId: request.connectionId,
-          sql: `BEGIN;\n${statements}\nCOMMIT;`,
-        });
-      } catch (error) {
-        try {
-          await veloxDbRepository.runQuery({
-            connectionId: request.connectionId,
-            sql: "ROLLBACK;",
-          });
-        } catch {
-          // Ignore rollback failure.
-        }
-        throw error;
-      }
+      await runTransactionalStatements(
+        request.connectionId,
+        request.engine,
+        statements.split("\n").filter(Boolean),
+      );
     },
     onError: (error, variables) => {
       options.onError?.(error, variables);

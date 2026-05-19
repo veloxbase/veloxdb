@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use deadpool_postgres::{
@@ -49,6 +50,7 @@ pub struct AppState {
     pub ssh_tunnels: RwLock<HashMap<String, SshTunnel>>,
     pub ask_veloxy_db_context_cache: RwLock<HashMap<String, AskVeloxyDbContextCache>>,
     pub ask_veloxy_conversations: RwLock<HashMap<String, Vec<AskVeloxyConversationMessage>>>,
+    pub veloxy_cancel: RwLock<Option<Arc<AtomicBool>>>,
     pub openrouter_client: OnceLock<reqwest::Client>,
 }
 
@@ -272,11 +274,20 @@ pub async fn build_mysql_pool(input: &ConnectionInput) -> Result<MySqlPool, Stri
 }
 
 pub async fn build_sqlite_pool(input: &ConnectionInput) -> Result<SqlitePool, String> {
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
+
     let url = sqlite_url(input)?;
+    let options: SqliteConnectOptions = url
+        .parse()
+        .map_err(|error: sqlx::Error| error.to_string())?;
+    let options = options
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal);
+
     sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
+        .max_connections(POOL_MAX_SIZE as u32)
         .acquire_timeout(Duration::from_secs(POOL_WAIT_SECS))
-        .connect(&url)
+        .connect_with(options)
         .await
         .map_err(|error| error.to_string())
 }
@@ -447,10 +458,15 @@ pub async fn get_or_create_mysql_pool(
         .ok_or_else(|| "Stored connection details were not found.".to_string())?;
 
     let input = stored_connection.to_input();
+    let resolved_port = if input.port == 0 {
+        DEFAULT_MYSQL_PORT
+    } else {
+        input.port
+    };
 
     let (host, port) = if let Some(ref ssh_config) = input.ssh_config {
         if ssh_config.is_active() {
-            let tunnel = SshTunnel::connect(ssh_config, &input.host, input.port).await?;
+            let tunnel = SshTunnel::connect(ssh_config, &input.host, resolved_port).await?;
             let local_port = tunnel.local_port;
             state
                 .ssh_tunnels
@@ -459,10 +475,10 @@ pub async fn get_or_create_mysql_pool(
                 .insert(connection_id.to_string(), tunnel);
             ("127.0.0.1".to_string(), local_port)
         } else {
-            (input.host.clone(), input.port)
+            (input.host.clone(), resolved_port)
         }
     } else {
-        (input.host.clone(), input.port)
+        (input.host.clone(), resolved_port)
     };
 
     let pool = build_mysql_pool_custom(&host, port, &input).await?;
@@ -496,6 +512,48 @@ pub async fn get_or_create_sqlite_pool(
         .insert(connection_id.to_string(), pool.clone());
 
     Ok(pool)
+}
+
+/// Drops cached pools and re-validates the connection (used by sidebar refresh).
+pub async fn refresh_connection_pools(
+    app: &AppHandle,
+    state: &AppState,
+    connection_id: &str,
+) -> Result<(), String> {
+    let stored = load_connection(app, connection_id)?
+        .ok_or_else(|| "Stored connection details were not found.".to_string())?;
+    let engine = stored.engine;
+
+    drop_pool(state, connection_id).await;
+
+    match engine {
+        DatabaseEngine::Postgres => {
+            with_pool_client_retry(app, state, connection_id, (), |client, ()| async move {
+                client
+                    .simple_query("select 1")
+                    .await
+                    .map_err(|error| error.to_string())?;
+                Ok(())
+            })
+            .await?;
+        }
+        DatabaseEngine::Mysql => {
+            let pool = get_or_create_mysql_pool(app, state, connection_id).await?;
+            sqlx::query("select 1")
+                .execute(&pool)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+        DatabaseEngine::Sqlite => {
+            let pool = get_or_create_sqlite_pool(app, state, connection_id).await?;
+            sqlx::query("select 1")
+                .execute(&pool)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+    }
+
+    Ok(())
 }
 
 pub async fn resolve_connection_engine(

@@ -3,15 +3,17 @@ mod credentials;
 mod db;
 mod export;
 mod models;
+mod pg_error;
+mod sql_split;
 mod ssh_tunnel;
 
 use commands::{
-  apply_table_properties, chat_with_db, clear_veloxy_conversation, connect_db, delete_connection,
+  apply_table_properties, cancel_veloxy_request, chat_with_db, clear_veloxy_conversation, connect_db, delete_connection,
   disconnect_db, execute_ddl_statement, execute_ddl_transaction, export_diagram_png,
   export_results_csv_command, export_results_json_command, generate_sql_from_nl, get_foreign_keys,
   get_query_editor_metadata, get_schema, get_table_indexes, get_table_properties, get_tables,
   lint_sql, list_connections_command, list_databases, load_veloxy_conversation, ping_connection,
-  rename_connection, run_query, save_base64_png, save_text_file, set_active_connection,
+  refresh_connection, rename_connection, run_query, save_base64_png, save_text_file, set_active_connection,
   switch_database,
 };
 use db::AppState;
@@ -52,6 +54,7 @@ pub fn run() {
       rename_connection,
       delete_connection,
       ping_connection,
+      refresh_connection,
       list_connections_command,
       set_active_connection,
       list_databases,
@@ -74,6 +77,7 @@ pub fn run() {
       lint_sql,
       generate_sql_from_nl,
       chat_with_db,
+      cancel_veloxy_request,
       load_veloxy_conversation,
       clear_veloxy_conversation
     ])

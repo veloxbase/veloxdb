@@ -448,35 +448,62 @@ function VeloxApp() {
 
 	const handleRefreshConnection = useCallback(
 		(connectionTarget: ConnectionSummary) => {
-			void queryClient.invalidateQueries({ queryKey: queryKeys.connections() });
-			void queryClient.invalidateQueries({
-				queryKey: queryKeys.tables(connectionTarget.id),
-			});
-			void queryClient.refetchQueries({
-				queryKey: queryKeys.tables(connectionTarget.id),
-				type: "active",
-			});
-			void queryClient.invalidateQueries({
-				queryKey: queryKeys.foreignKeys(connectionTarget.id),
-			});
+			void (async () => {
+				try {
+					await veloxDbRepository.refreshConnection(connectionTarget.id);
+				} catch (error) {
+					notifyError(error, { category: "connection" });
+					return;
+				}
 
-			if (connection?.id === connectionTarget.id) {
+				void queryClient.invalidateQueries({ queryKey: queryKeys.connections() });
 				void queryClient.invalidateQueries({
-					queryKey: queryKeys.schema(connectionTarget.id, selectedTable),
+					queryKey: queryKeys.databases(connectionTarget.id),
 				});
 				void queryClient.refetchQueries({
-					queryKey: queryKeys.schema(connectionTarget.id, selectedTable),
+					queryKey: queryKeys.databases(connectionTarget.id),
 					type: "active",
 				});
 				void queryClient.invalidateQueries({
-					queryKey: queryKeys.tableProperties(connectionTarget.id, selectedTable),
+					queryKey: queryKeys.tables(connectionTarget.id),
 				});
 				void queryClient.refetchQueries({
-					queryKey: queryKeys.tableProperties(connectionTarget.id, selectedTable),
+					queryKey: queryKeys.tables(connectionTarget.id),
 					type: "active",
 				});
-				queryWorkspaceRef.current?.refreshFocusedResults();
-			}
+				void queryClient.invalidateQueries({
+					queryKey: queryKeys.queryEditorMetadata(connectionTarget.id),
+				});
+				void queryClient.refetchQueries({
+					queryKey: queryKeys.queryEditorMetadata(connectionTarget.id),
+					type: "active",
+				});
+				void queryClient.invalidateQueries({
+					queryKey: queryKeys.foreignKeys(connectionTarget.id),
+				});
+				void queryClient.refetchQueries({
+					queryKey: queryKeys.foreignKeys(connectionTarget.id),
+					type: "active",
+				});
+
+				if (connection?.id === connectionTarget.id) {
+					void queryClient.invalidateQueries({
+						queryKey: queryKeys.schema(connectionTarget.id, selectedTable),
+					});
+					void queryClient.refetchQueries({
+						queryKey: queryKeys.schema(connectionTarget.id, selectedTable),
+						type: "active",
+					});
+					void queryClient.invalidateQueries({
+						queryKey: queryKeys.tableProperties(connectionTarget.id, selectedTable),
+					});
+					void queryClient.refetchQueries({
+						queryKey: queryKeys.tableProperties(connectionTarget.id, selectedTable),
+						type: "active",
+					});
+					queryWorkspaceRef.current?.refreshFocusedResults();
+				}
+			})();
 		},
 		[connection?.id, queryClient, selectedTable],
 	);
@@ -637,6 +664,10 @@ function VeloxApp() {
 			void queryClient.invalidateQueries({
 				queryKey: queryKeys.databases(connectionId),
 			});
+			void queryClient.refetchQueries({
+				queryKey: queryKeys.databases(connectionId),
+				type: "active",
+			});
 		},
 		[queryClient],
 	);
@@ -770,6 +801,7 @@ function VeloxApp() {
 
 	const handleAskVeloxyChatSubmit = async (
 		naturalPrompt: string,
+		requestId: string,
 	): Promise<AskVeloxyChatResponse> => {
 			if (!connection?.id) {
 				const message = "Select a connection before using Ask Veloxy.";
@@ -792,6 +824,7 @@ function VeloxApp() {
 				return await veloxDbRepository.chatWithDb({
 					connectionId: connection.id,
 					naturalPrompt,
+					requestId,
 					targetTable: selectedTable
 						? { schema: selectedTable.schema, name: selectedTable.name }
 						: undefined,
@@ -813,6 +846,16 @@ function VeloxApp() {
 			} finally {
 				setAskVeloxyPending(false);
 			}
+	};
+
+	const handleCancelVeloxyRequest = async () => {
+		try {
+			await veloxDbRepository.cancelVeloxyRequest();
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : "Failed to stop Veloxy.";
+			setAskVeloxyError(message);
+		}
 	};
 
 	const handleAskVeloxyActionSubmit = async (
@@ -969,6 +1012,7 @@ function VeloxApp() {
 									onRefreshDatabases={handleRefreshDatabases}
 									onCopyDatabaseName={handleCopyDatabaseName}
 									onCopyConnectionString={handleCopyConnectionString}
+									onDatabaseSwitched={setConnection}
 									onToggleCollapsed={() => setIsSidebarCollapsed(true)}
 								/>
 							)}
@@ -1090,6 +1134,11 @@ function VeloxApp() {
 							<AskVeloxySidebar
 								isPending={askVeloxyPending}
 								modelLabel={veloxyModel}
+								contextTableLabel={
+									selectedTable
+										? `${selectedTable.schema}.${selectedTable.name}`
+										: null
+								}
 								isConfigured={Boolean(veloxyOpenRouterApiKey.trim() && veloxyModel.trim())}
 								onClose={onClose}
 								onOpenSettings={() => {
@@ -1103,6 +1152,16 @@ function VeloxApp() {
 									queryWorkspaceRef.current?.openTabWithSqlAndRun(sql);
 									notifySuccess("Veloxy query executed");
 								}}
+								onInsertSql={(sql) => {
+									queryWorkspaceRef.current?.appendQuerySql(sql);
+								}}
+								onReplaceSql={(sql) => {
+									queryWorkspaceRef.current?.replaceQuerySql(sql);
+								}}
+								onOpenTabWithSql={(sql) => {
+									queryWorkspaceRef.current?.openTabWithSql(sql);
+								}}
+								onCancelRequest={handleCancelVeloxyRequest}
 								errorMessage={askVeloxyError}
 							/>
 						)}

@@ -438,13 +438,13 @@ function QueryPane({
 				) : null}
 
 				{tab.runError ? (
-					<div className="border-t border-border bg-destructive/10 px-4 py-2 text-xs text-destructive">
+					<div className="border-t border-border bg-destructive/10 px-4 py-2 font-mono text-xs whitespace-pre-wrap text-destructive">
 						{tab.runError}
 					</div>
 				) : null}
 
 				{tab.planError ? (
-					<div className="border-t border-border bg-destructive/10 px-4 py-2 text-xs text-destructive">
+					<div className="border-t border-border bg-destructive/10 px-4 py-2 font-mono text-xs whitespace-pre-wrap text-destructive">
 						{tab.planError}
 					</div>
 				) : null}

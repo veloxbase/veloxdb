@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildExplainSql } from '@/features/queries/queries'
+import { buildExplainSql, buildTransactionalSql } from '@/features/queries/queries'
 import { useSettings } from '@/lib/settings'
 
 describe('maxQueryRows wiring', () => {
@@ -31,5 +31,19 @@ describe('engine-aware explain sql', () => {
 
   it('builds sqlite explain wrapper', () => {
     expect(buildExplainSql('sqlite', 'select 1')).toContain('EXPLAIN QUERY PLAN')
+  })
+})
+
+describe('transactional result mutations', () => {
+  it('wraps postgres edits in an explicit transaction', () => {
+    expect(buildTransactionalSql('postgres', ['UPDATE "t" SET "a" = 1;'])).toBe(
+      'BEGIN;\nUPDATE "t" SET "a" = 1;\nCOMMIT;',
+    )
+  })
+
+  it('runs mysql edits without begin or commit', () => {
+    expect(buildTransactionalSql('mysql', ['UPDATE `t` SET `a` = 1;'])).toBe(
+      'UPDATE `t` SET `a` = 1;',
+    )
   })
 })

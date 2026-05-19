@@ -363,6 +363,28 @@ pub struct AskVeloxyChatRequest {
     pub provider_config: AskVeloxyProviderConfig,
     #[serde(default)]
     pub max_rows: Option<usize>,
+    #[serde(default)]
+    pub request_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VeloxyStreamChunk {
+    pub request_id: String,
+    pub delta: String,
+    pub done: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub suggestions: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sql_draft: Option<String>,
+    #[serde(default)]
+    pub needs_sql_generation: bool,
+    #[serde(default)]
+    pub needs_clarification: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

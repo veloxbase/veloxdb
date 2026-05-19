@@ -75,6 +75,12 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
     )
   }
 
+  async refreshConnection(connectionId: string): Promise<void> {
+    return invokeCommand('refresh_connection', () =>
+      invoke<void>('refresh_connection', { connectionId }),
+    )
+  }
+
   async listConnections(): Promise<ConnectionSummary[]> {
     return invokeCommand('list_connections', () =>
       invoke<ConnectionSummary[]>('list_connections_command'),
@@ -96,6 +102,12 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
   async chatWithDb(request: AskVeloxyChatRequest): Promise<AskVeloxyChatResponse> {
     return invokeCommand('chat_with_db', () =>
       invoke<AskVeloxyChatResponse>('chat_with_db', { input: request }),
+    )
+  }
+
+  async cancelVeloxyRequest(): Promise<void> {
+    return invokeCommand('cancel_veloxy_request', () =>
+      invoke<void>('cancel_veloxy_request'),
     )
   }
 

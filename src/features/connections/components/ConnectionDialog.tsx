@@ -163,7 +163,7 @@ const engineOptions: Array<{
   experimental?: boolean
 }> = [
   { value: 'postgres', label: 'PostgreSQL', hint: 'Recommended default' },
-  { value: 'mysql', label: 'MySQL', hint: 'Experimental', experimental: true },
+  { value: 'mysql', label: 'MySQL', hint: 'MariaDB compatible' },
   { value: 'sqlite', label: 'SQLite', hint: 'Experimental', experimental: true },
 ]
 
@@ -523,8 +523,8 @@ export function ConnectionDialog({
                 })}
               </div>
               <p className="text-[11px] text-muted-foreground/80">
-                PostgreSQL is the safest default. MySQL and SQLite are marked experimental and may
-                have limited support.
+                PostgreSQL is the safest default. SQLite is marked experimental and may have
+                limited support.
               </p>
               {form.formState.errors.engine?.message ? (
                 <span className="block text-xs text-destructive">
