@@ -53,6 +53,7 @@ const ASK_VELOXY_MAX_CONTEXT_RELATIONSHIPS: usize = 36;
 const ASK_VELOXY_SCHEMA_CHAR_BUDGET: usize = 6_000;
 const ASK_VELOXY_PROMPT_CHAR_BUDGET: usize = 12_000;
 const ASK_VELOXY_MAX_HISTORY_MESSAGES: usize = 30;
+const ASK_VELOXY_MAX_CHAT_TOKENS: u32 = 10_000;
 
 fn mysql_decode_error(context: &str, column_name: &str, index: Option<usize>, detail: &str) -> String {
     match index {
@@ -1834,7 +1835,31 @@ fn decode_json_quoted_string(value: &str) -> Option<String> {
     serde_json::from_str::<String>(&format!("\"{}\"", value)).ok()
 }
 
-fn extract_json_string_field(content: &str, key: &str) -> Option<String> {
+fn unescape_json_string_fragment(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn extract_json_string_field(content: &str, key: &str, allow_partial: bool) -> Option<String> {
     let marker = format!("\"{}\"", key);
     let marker_idx = content.find(&marker)?;
     let mut idx = marker_idx + marker.len();
@@ -1871,13 +1896,20 @@ fn extract_json_string_field(content: &str, key: &str) -> Option<String> {
         if byte == b'"' {
             let raw = &content[start..idx];
             return decode_json_quoted_string(raw)
-                .or_else(|| Some(raw.replace("\\n", "\n").replace("\\t", "\t")))
+                .or_else(|| Some(unescape_json_string_fragment(raw)))
                 .map(|text| text.trim().to_string())
                 .filter(|text| !text.is_empty());
         }
         idx += 1;
     }
 
+    if allow_partial && start < bytes.len() {
+        let raw = &content[start..];
+        let text = unescape_json_string_fragment(raw).trim().to_string();
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
     None
 }
 
@@ -1886,9 +1918,40 @@ fn extract_message_from_loose_json(content: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
+    let unwrapped = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```JSON"))
+        .map(str::trim_start)
+        .unwrap_or(trimmed);
+    let unwrapped = unwrapped.strip_suffix("```").unwrap_or(unwrapped).trim();
+
     ["message", "reply", "content"]
         .iter()
-        .find_map(|key| extract_json_string_field(trimmed, key))
+        .find_map(|key| extract_json_string_field(unwrapped, key, false))
+        .or_else(|| {
+            ["message", "reply", "content"]
+                .iter()
+                .find_map(|key| extract_json_string_field(unwrapped, key, true))
+        })
+}
+
+fn looks_like_json_response(content: &str) -> bool {
+    let trimmed = content.trim_start();
+    trimmed.starts_with('{') || trimmed.starts_with("```")
+}
+
+fn streaming_display_text(accumulated: &str) -> String {
+    let trimmed = accumulated.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if let Some(text) = extract_message_from_loose_json(trimmed) {
+        return text;
+    }
+    if !looks_like_json_response(trimmed) {
+        return trimmed.to_string();
+    }
+    String::new()
 }
 
 fn parse_chat_message(value: &Value) -> Option<String> {
@@ -1971,13 +2034,23 @@ fn parse_ask_veloxy_chat_content(message_content: &str) -> ParsedAskVeloxyChat {
         }
         Err(_) => {
             let normalized_message = extract_message_from_loose_json(message_content)
-                .unwrap_or_else(|| message_content.trim().to_string());
+                .unwrap_or_else(|| {
+                    if looks_like_json_response(message_content) {
+                        String::new()
+                    } else {
+                        message_content.trim().to_string()
+                    }
+                });
+            let mut warnings = vec!["Model returned non-JSON chat output. Parsed in tolerant mode.".to_string()];
+            if normalized_message.is_empty() && looks_like_json_response(message_content) {
+                warnings.push("Response JSON could not be parsed. Try asking again.".to_string());
+            }
             let draft = extract_sql_draft_from_text(&normalized_message);
             let needs_sql_generation = draft.is_some();
             (
                 normalized_message,
                 Vec::new(),
-                vec!["Model returned non-JSON chat output. Parsed in tolerant mode.".to_string()],
+                warnings,
                 draft,
                 needs_sql_generation,
                 false,
@@ -2002,6 +2075,16 @@ fn emit_veloxy_stream_chunk(app: &AppHandle, chunk: VeloxyStreamChunk) {
     let _ = app.emit("veloxy-stream-chunk", chunk);
 }
 
+fn extract_openrouter_finish_reason(data: &str) -> Option<String> {
+    let payload: Value = serde_json::from_str(data).ok()?;
+    payload
+        .get("choices")
+        .and_then(|choices| choices.get(0))
+        .and_then(|choice| choice.get("finish_reason"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
 async fn stream_openrouter_chat_completion(
     app: &AppHandle,
     client: &reqwest::Client,
@@ -2012,7 +2095,7 @@ async fn stream_openrouter_chat_completion(
     user_prompt: &str,
     request_id: &str,
     cancel: Arc<AtomicBool>,
-) -> Result<String, String> {
+) -> Result<(String, bool), String> {
     let response = client
         .post(endpoint)
         .header("Authorization", format!("Bearer {}", api_key))
@@ -2020,7 +2103,7 @@ async fn stream_openrouter_chat_completion(
         .json(&serde_json::json!({
             "model": model,
             "temperature": 0.2,
-            "max_tokens": 700,
+            "max_tokens": ASK_VELOXY_MAX_CHAT_TOKENS,
             "stream": true,
             "messages": [
                 { "role": "system", "content": system_prompt },
@@ -2051,10 +2134,12 @@ async fn stream_openrouter_chat_completion(
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut accumulated = String::new();
+    let mut last_display_len = 0usize;
+    let mut hit_token_limit = false;
 
     while let Some(chunk) = stream.next().await {
         if cancel.load(Ordering::Relaxed) {
-            return Ok(accumulated);
+            return Ok((accumulated, hit_token_limit));
         }
         let bytes = chunk.map_err(|error| format!("OpenRouter stream read failed: {}", error))?;
         buffer.push_str(&String::from_utf8_lossy(&bytes));
@@ -2070,27 +2155,39 @@ async fn stream_openrouter_chat_completion(
             if data == "[DONE]" {
                 continue;
             }
+            if extract_openrouter_finish_reason(data).as_deref() == Some("length") {
+                hit_token_limit = true;
+            }
             if let Some(delta) = extract_openrouter_stream_delta(data) {
                 accumulated.push_str(&delta);
-                emit_veloxy_stream_chunk(
-                    app,
-                    VeloxyStreamChunk {
-                        request_id: request_id.to_string(),
-                        delta,
-                        done: false,
-                        message: None,
-                        suggestions: Vec::new(),
-                        warnings: Vec::new(),
-                        sql_draft: None,
-                        needs_sql_generation: false,
-                        needs_clarification: false,
-                    },
-                );
+                let display = streaming_display_text(&accumulated);
+                let display_delta = if display.len() > last_display_len {
+                    display[last_display_len..].to_string()
+                } else {
+                    String::new()
+                };
+                last_display_len = display.len();
+                if !display_delta.is_empty() {
+                    emit_veloxy_stream_chunk(
+                        app,
+                        VeloxyStreamChunk {
+                            request_id: request_id.to_string(),
+                            delta: display_delta,
+                            done: false,
+                            message: None,
+                            suggestions: Vec::new(),
+                            warnings: Vec::new(),
+                            sql_draft: None,
+                            needs_sql_generation: false,
+                            needs_clarification: false,
+                        },
+                    );
+                }
             }
         }
     }
 
-    Ok(accumulated)
+    Ok((accumulated, hit_token_limit))
 }
 
 #[tauri::command]
@@ -2169,7 +2266,7 @@ pub async fn chat_with_db(
         *guard = Some(cancel.clone());
     }
 
-    let message_content = stream_openrouter_chat_completion(
+    let (message_content, hit_token_limit) = stream_openrouter_chat_completion(
         &app,
         client,
         &endpoint,
@@ -2192,6 +2289,12 @@ pub async fn chat_with_db(
 
     if cancel.load(Ordering::Relaxed) {
         warnings.push("Stopped early.".to_string());
+    }
+    if hit_token_limit {
+        warnings.push(format!(
+            "Response may be truncated (model output limit of {} tokens).",
+            ASK_VELOXY_MAX_CHAT_TOKENS
+        ));
     }
 
     emit_veloxy_stream_chunk(
@@ -3722,12 +3825,29 @@ mod tests {
     use super::{
         build_schema_context, classify_sql_intent, database_name_from_mysql_value,
         decode_mysql_bytes_as_string, extract_openrouter_stream_delta, mysql_decode_error,
-        parse_ask_veloxy_json, sqlite_decode_error, validate_generated_sql,
+        parse_ask_veloxy_json, sqlite_decode_error, streaming_display_text,
+        validate_generated_sql,
     };
     use crate::models::{
         AskVeloxyDbContextCache, DatabaseEngine, QueryEditorColumn, QueryEditorMetadata,
         QueryEditorTable,
     };
+
+    #[test]
+    fn streaming_display_text_extracts_partial_json_message() {
+        let partial = r#"{ "message": "The messages table has relationships with:\n- delivery_reports"#;
+        let display = streaming_display_text(partial);
+        assert!(display.contains("messages table"));
+        assert!(display.contains("delivery_reports"));
+    }
+
+    #[test]
+    fn streaming_display_text_returns_plain_text_directly() {
+        assert_eq!(
+            streaming_display_text("Hello from Veloxy"),
+            "Hello from Veloxy"
+        );
+    }
 
     #[test]
     fn extract_openrouter_stream_delta_reads_content() {
