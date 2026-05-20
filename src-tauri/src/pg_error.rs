@@ -103,7 +103,7 @@ mod tests {
         let sql = "SELECT 1;\nSELECT bad";
         assert_eq!(byte_offset_to_line_col(sql, 1), Some((1, 2)));
         assert_eq!(byte_offset_to_line_col(sql, 11), Some((2, 2)));
-        assert_eq!(byte_offset_to_line_col(sql, 16), Some((2, 6)));
+        assert_eq!(byte_offset_to_line_col(sql, 15), Some((2, 6)));
     }
 
     #[test]

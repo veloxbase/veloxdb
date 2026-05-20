@@ -345,6 +345,7 @@ function VeloxApp() {
 			: t("table.failedToLoadProperties");
 
 	const tablesForUi = tablesQuery.data ?? [];
+	const activeConnectionEngine = connection?.engine ?? "postgres";
 
 	const handleSelectTable = (table: TableInfo) => {
 		setSelectedTable(table);
@@ -373,12 +374,12 @@ function VeloxApp() {
 				switch (action) {
 					case "selectAll":
 						queryWorkspaceRef.current?.openTabWithSql(
-							buildSelectAllSql(table, 200, connection?.engine ?? "postgres"),
+							buildSelectAllSql(table, 200, activeConnectionEngine),
 						);
 						return;
 					case "selectCount":
 						queryWorkspaceRef.current?.openTabWithSql(
-							buildSelectCountSql(table, connection?.engine ?? "postgres"),
+							buildSelectCountSql(table, activeConnectionEngine),
 						);
 						return;
 					case "insertTemplate":
@@ -402,7 +403,7 @@ function VeloxApp() {
 								buildInsertTemplateSql(
 									table,
 									insertCols,
-									connection?.engine ?? "postgres",
+									activeConnectionEngine,
 								),
 							);
 							return;
@@ -412,7 +413,7 @@ function VeloxApp() {
 								buildUpdateTemplateSql(
 									table,
 									pk,
-									connection?.engine ?? "postgres",
+									activeConnectionEngine,
 								),
 							);
 							return;
@@ -421,7 +422,7 @@ function VeloxApp() {
 							buildDeleteTemplateSql(
 								table,
 								pk,
-								connection?.engine ?? "postgres",
+								activeConnectionEngine,
 							),
 						);
 						return;
@@ -437,7 +438,7 @@ function VeloxApp() {
 				});
 			}
 		},
-		[queryClient, connection?.engine],
+		[queryClient, activeConnectionEngine],
 	);
 
 	const handleSelectConnection = (nextConnection: ConnectionSummary) => {
