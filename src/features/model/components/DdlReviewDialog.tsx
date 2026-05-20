@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import {
   Dialog,
@@ -27,6 +28,7 @@ function splitStatements(sql: string): string[] {
 }
 
 export function DdlReviewDialog({ open, onOpenChange, connectionId, engine }: DdlReviewDialogProps) {
+  const { t } = useTranslation()
   const [text, setText] = useState(
     '-- Paste one or more SQL statements separated by semicolons.\n-- They run in a single transaction.\n',
   )
@@ -36,11 +38,11 @@ export function DdlReviewDialog({ open, onOpenChange, connectionId, engine }: Dd
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl border border-border">
         <DialogHeader>
-          <DialogTitle>Run DDL script</DialogTitle>
+          <DialogTitle>{t("model.runDdlScript")}</DialogTitle>
           <DialogDescription>
             {engine === 'postgres'
-              ? 'Statements execute in order inside one PostgreSQL transaction. On failure, the whole batch rolls back.'
-              : `Statements execute in order for the active ${engine} connection.`}
+              ? t("model.ddlPostgresDesc")
+              : t("model.ddlEngineDesc", { engine })}
           </DialogDescription>
         </DialogHeader>
 
@@ -53,7 +55,7 @@ export function DdlReviewDialog({ open, onOpenChange, connectionId, engine }: Dd
 
         {mutation.isError ? (
           <p className="text-xs text-destructive">
-            {mutation.error instanceof Error ? mutation.error.message : 'Execution failed'}
+            {mutation.error instanceof Error ? mutation.error.message : t("model.executionFailed")}
           </p>
         ) : null}
 

@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "react-i18next";
 
 type ColumnVisibilityItem = {
 	id: string;
@@ -18,7 +19,7 @@ type ResultsToolbarProps = {
 	onDownloadCsv: () => void;
 	onDownloadJson: () => void;
 	onSave: () => void;
-	/** When set, show “Add row” for direct INSERT into the selected table. */
+	/** When set, show "Add row" for direct INSERT into the selected table. */
 	onAddRow?: () => void;
 	/** Shown when the inline insert row is visible. */
 	insertRowVisible?: boolean;
@@ -54,6 +55,8 @@ export function ResultsToolbar({
 	deleteBusy,
 	deleteDisabledReason,
 }: ResultsToolbarProps) {
+	const { t } = useTranslation();
+
 	return (
 		<div className="min-w-0 overflow-x-auto border-b border-border bg-muted/20 px-3 py-2">
 			<div className="flex min-w-full w-max items-center justify-between gap-3">
@@ -65,7 +68,7 @@ export function ResultsToolbar({
 							onClick={onAddRow}
 							disabled={isBusy}
 						>
-							Add row
+							{t("editor.insertRow")}
 						</Button>
 					) : null}
 					{insertRowVisible && onInsertRow ? (
@@ -76,7 +79,7 @@ export function ResultsToolbar({
 								onClick={onInsertRow}
 								disabled={isBusy || insertBusy || insertDisabled}
 							>
-								{insertBusy ? "Inserting…" : "Insert"}
+								{insertBusy ? t("editor.inserting") : t("editor.insert")}
 							</Button>
 							{onCancelInsert ? (
 								<Button
@@ -85,7 +88,7 @@ export function ResultsToolbar({
 									onClick={onCancelInsert}
 									disabled={isBusy || insertBusy}
 								>
-									Cancel insert
+									{t("editor.cancelInsert")}
 								</Button>
 							) : null}
 						</>
@@ -99,7 +102,7 @@ export function ResultsToolbar({
               title={deleteDisabledReason}
               className="text-destructive hover:bg-destructive/10"
             >
-              {deleteBusy ? "Deleting…" : `Delete${selectionCount ? ` (${selectionCount})` : ""}`}
+              {deleteBusy ? t("editor.deleting") : `${t("editor.deleteRow")}${selectionCount ? ` (${selectionCount})` : ""}`}
             </Button>
           ) : null}
           <Button
@@ -108,16 +111,16 @@ export function ResultsToolbar({
             onClick={onRefresh}
             disabled={isBusy}
           >
-            Refresh
+            {t("editor.refresh")}
           </Button>
 					<Button variant="outline" size="xs" onClick={onCopy}>
-						Copy
+						{t("editor.copy")}
 					</Button>
 					<Button variant="outline" size="xs" onClick={onDownloadCsv}>
-						Download CSV
+						{t("editor.exportCsv")}
 					</Button>
 					<Button variant="outline" size="xs" onClick={onDownloadJson}>
-						Download JSON
+						{t("editor.exportJson")}
 					</Button>
 				</div>
 
@@ -125,12 +128,12 @@ export function ResultsToolbar({
 					<details className="relative shrink-0">
 						<summary className="list-none">
 							<Button variant="outline" size="xs" asChild>
-								<span>Columns</span>
+								<span>{t("editor.columns")}</span>
 							</Button>
 						</summary>
 						<div className="absolute right-0 z-10 mt-1 min-w-44 border border-border bg-background p-2 shadow-sm">
 							<div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-								Visibility
+								{t("editor.visibility")}
 							</div>
 							<div className="max-h-48 space-y-1 overflow-auto">
 								{columns.map((column) => (
@@ -160,7 +163,7 @@ export function ResultsToolbar({
 						disabled={isBusy || !canEdit || !isDirty}
 						variant={isDirty ? "default" : "outline"}
 					>
-						{isBusy ? "Saving..." : "Save"}
+						{isBusy ? t("editor.saving") : t("editor.save")}
 					</Button>
 				</div>
 			</div>

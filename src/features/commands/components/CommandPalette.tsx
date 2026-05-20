@@ -1,4 +1,5 @@
 import { ClockCounterClockwiseIcon, DatabaseIcon, PlayIcon, PlugIcon } from '@phosphor-icons/react'
+import { useTranslation } from 'react-i18next'
 
 import {
   Command,
@@ -32,14 +33,16 @@ export function CommandPalette({
   onRunLastQuery,
   onSelectTable,
 }: CommandPaletteProps) {
+  const { t } = useTranslation()
+
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
       <Command>
-        <CommandInput placeholder="Search commands and tables..." />
+        <CommandInput placeholder={t("commandPalette.searchCommands")} />
         <CommandList>
-          <CommandEmpty>No matching command.</CommandEmpty>
+          <CommandEmpty>{t("commandPalette.noCommands")}</CommandEmpty>
 
-          <CommandGroup heading="Actions">
+          <CommandGroup heading={t("commandPalette.actions")}>
             <CommandItem
               onSelect={() => {
                 onOpenChange(false)
@@ -47,7 +50,7 @@ export function CommandPalette({
               }}
             >
               <PlugIcon />
-              Connection manager
+              {t("commandPalette.openConnection")}
               <CommandShortcut>Cmd+Shift+C</CommandShortcut>
             </CommandItem>
 
@@ -59,14 +62,14 @@ export function CommandPalette({
               }}
             >
               <PlayIcon />
-              Run last query
+              {t("commandPalette.runLastQuery")}
               <CommandShortcut>Cmd+Enter</CommandShortcut>
             </CommandItem>
           </CommandGroup>
 
           <CommandSeparator />
 
-          <CommandGroup heading="Tables">
+          <CommandGroup heading={t("commandPalette.tables")}>
             {tables.map((table) => (
               <CommandItem
                 key={`${table.schema}.${table.name}`}

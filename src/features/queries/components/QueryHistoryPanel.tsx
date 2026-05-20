@@ -5,6 +5,7 @@ import {
   TrashIcon,
 } from '@phosphor-icons/react'
 import { useCallback, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -37,6 +38,7 @@ export function QueryHistoryPanel({
   favorites,
   onToggleFavorite,
 }: QueryHistoryPanelProps) {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'all' | 'favorites'>('all')
 
@@ -65,9 +67,9 @@ export function QueryHistoryPanel({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl border-border p-0 sm:max-w-2xl">
         <DialogHeader className="border-b border-border px-4 py-3">
-          <DialogTitle className="text-sm">Query History</DialogTitle>
+          <DialogTitle className="text-sm">{t("editor.queryHistory")}</DialogTitle>
           <DialogDescription className="text-xs">
-            Search and load previously executed queries.
+            {t("editor.queryHistoryDesc")}
           </DialogDescription>
         </DialogHeader>
 
@@ -77,7 +79,7 @@ export function QueryHistoryPanel({
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search query history..."
+              placeholder={t("editor.searchQueryHistory")}
               className="h-7 border-border bg-background pl-7 text-xs"
             />
           </div>
@@ -87,7 +89,7 @@ export function QueryHistoryPanel({
             className="h-7 text-[10px]"
             onClick={() => setFilter('all')}
           >
-            All
+            {t("editor.all")}
           </Button>
           <Button
             variant={filter === 'favorites' ? 'secondary' : 'ghost'}
@@ -96,13 +98,13 @@ export function QueryHistoryPanel({
             onClick={() => setFilter('favorites')}
           >
             <StarIcon className="mr-1 size-3" />
-            Favorites
+            {t("editor.favorites")}
           </Button>
           <Button
             variant="ghost"
             size="icon-sm"
             className="size-7 text-muted-foreground hover:text-destructive"
-            title="Clear all history"
+            title={t("editor.clearAllHistory")}
             onClick={onClearHistory}
           >
             <TrashIcon className="size-3.5" />
@@ -114,8 +116,8 @@ export function QueryHistoryPanel({
             <div className="flex flex-col items-center gap-2 px-4 py-10 text-center text-xs text-muted-foreground">
               <ClockCounterClockwiseIcon className="size-6 opacity-30" />
               {history.length === 0
-                ? 'Query history will appear here as you run queries.'
-                : 'No matching queries found.'}
+                ? t("editor.queryHistoryEmpty")
+                : t("editor.noMatchingQueries")}
             </div>
           ) : (
             <div className="divide-y divide-border">
@@ -133,7 +135,7 @@ export function QueryHistoryPanel({
                         isFavorite ? 'text-amber-500' : 'text-muted-foreground/30 group-hover:text-muted-foreground/60',
                       )}
                       onClick={() => onToggleFavorite(entry.id)}
-                      title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                      title={isFavorite ? t("editor.removeFromFavorites") : t("editor.addToFavorites")}
                     >
                       <StarIcon className="size-3.5" weight={isFavorite ? 'fill' : 'regular'} />
                     </button>

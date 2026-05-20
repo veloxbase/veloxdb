@@ -21,6 +21,7 @@ import {
   TreeStructureIcon,
 } from '@phosphor-icons/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -108,6 +109,7 @@ export function ModelWorkspace({
   isTablesLoading,
   selectedTable,
 }: ModelWorkspaceProps) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const foreignKeysQuery = useForeignKeysQuery(connectionId)
 
@@ -1294,7 +1296,7 @@ export function ModelWorkspace({
     if (
       totalTableCount >= LOAD_ALL_CONFIRM_THRESHOLD &&
       !window.confirm(
-        `Load all ${totalTableCount} tables into the diagram? This may reduce responsiveness on large schemas.`,
+        t("model.loadAllConfirm", { count: totalTableCount }),
       )
     ) {
       return
@@ -1339,7 +1341,7 @@ export function ModelWorkspace({
     return (
       <div className="flex flex-1 items-center justify-center px-4">
         <div className="max-w-sm rounded-md border border-border/80 bg-background/90 px-5 py-4 text-center shadow-sm">
-          <p className="text-sm font-medium text-foreground">No tables yet</p>
+				<p className="text-sm font-medium text-foreground">{t("model.noTablesYet")}</p>
           <p className="mt-1.5 text-xs text-muted-foreground">
             This database has no tables. Create your first table visually or run a DDL script.
           </p>
@@ -1351,7 +1353,7 @@ export function ModelWorkspace({
               className="text-xs"
               onClick={() => setCreateTableOpen(true)}
             >
-              + Create table
+              {t("model.createTable")}
             </Button>
             <Button
               type="button"
@@ -1360,7 +1362,7 @@ export function ModelWorkspace({
               className="text-xs"
               onClick={() => setDdlOpen(true)}
             >
-              Run DDL script…
+              {t("model.runDdlScript")}
             </Button>
           </div>
         </div>
@@ -1403,7 +1405,7 @@ export function ModelWorkspace({
             disabled={!isModelDirty}
             onClick={() => setMigrationPreviewOpen(true)}
           >
-            Review & Apply
+            {t("model.reviewAndApply")}
           </Button>
           <Button
             type="button"
@@ -1414,10 +1416,10 @@ export function ModelWorkspace({
             onClick={handleDownloadMigrationSql}
           >
             <DownloadSimpleIcon className="mr-1 size-3.5" aria-hidden />
-            Download SQL
+            {t("model.downloadSql")}
           </Button>
           <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setDdlOpen(true)}>
-            Run DDL script…
+            {t("model.runDdlScript")}
           </Button>
         </div>
       </div>
@@ -1430,10 +1432,10 @@ export function ModelWorkspace({
         <div className="shrink-0 border-b border-border px-3 pt-2">
           <TabsList variant="line" className="h-8">
             <TabsTrigger value="diagram" className="text-xs">
-              Diagram
+              {t("model.diagram")}
             </TabsTrigger>
             <TabsTrigger value="catalog" className="text-xs">
-              Catalog
+              {t("model.catalog")}
             </TabsTrigger>
           </TabsList>
         </div>
@@ -1441,13 +1443,13 @@ export function ModelWorkspace({
         <TabsContent value="diagram" className="m-0 flex min-h-0 flex-1 data-[state=inactive]:hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-2 py-1.5">
-              <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">Align</span>
+              <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">{t("model.align")}</span>
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Align left"
+                title={t("model.alignLeft")}
                 disabled={selectedKeys.length < 2}
                 onClick={() => applyAlign('left')}
               >
@@ -1458,7 +1460,7 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Align right"
+                title={t("model.alignRight")}
                 disabled={selectedKeys.length < 2}
                 onClick={() => applyAlign('right')}
               >
@@ -1469,7 +1471,7 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Align top"
+                title={t("model.alignTop")}
                 disabled={selectedKeys.length < 2}
                 onClick={() => applyAlign('top')}
               >
@@ -1480,16 +1482,16 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Align bottom"
+                title={t("model.alignBottom")}
                 disabled={selectedKeys.length < 2}
                 onClick={() => applyAlign('bottom')}
               >
                 <AlignBottomIcon className="size-4" aria-hidden />
               </Button>
               <div className="mx-1 hidden h-5 w-px bg-border sm:block" />
-              <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">Views</span>
+              <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">{t("model.views")}</span>
               <label className="sr-only" htmlFor="diagram-view-select">
-                Diagram view
+                {t("model.diagramView")}
               </label>
               <select
                 id="diagram-view-select"
@@ -1508,7 +1510,7 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="New diagram view (copies current layout)"
+                title={t("model.newDiagramView")}
                 onClick={() => handleNewDiagramView()}
               >
                 <PlusIcon className="size-4" aria-hidden />
@@ -1518,14 +1520,14 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Delete current view"
+                title={t("model.deleteCurrentView")}
                 disabled={activeViewId === DEFAULT_DIAGRAM_VIEW_ID || viewsRegistry.views.length < 2}
                 onClick={() => handleDeleteDiagramView()}
               >
                 <TrashIcon className="size-4" aria-hidden />
               </Button>
               <label className="sr-only" htmlFor="column-detail-select">
-                Column detail
+                {t("model.columnDetail")}
               </label>
               <select
                 id="column-detail-select"
@@ -1533,19 +1535,19 @@ export function ModelWorkspace({
                 value={columnDetail}
                 onChange={(e) => setColumnDetail(e.target.value as ColumnDetailLevel)}
               >
-                <option value="full">All cols</option>
-                <option value="keys">FK cols</option>
-                <option value="header">Headers</option>
+                <option value="full">{t("model.allCols")}</option>
+                <option value="keys">{t("model.fkCols")}</option>
+				<option value="header">{t("model.headers")}</option>
               </select>
               <div className="mx-1 hidden h-5 w-px bg-border sm:block" />
-              <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">History</span>
+				<span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">{t("model.history")}</span>
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Undo (Cmd/Ctrl+Z)"
-                disabled={!canUndo}
+				title={t("model.undo")}
+				disabled={!canUndo}
                 onClick={() => undo()}
               >
                 <ArrowCounterClockwiseIcon className="size-4" aria-hidden />
@@ -1555,20 +1557,20 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Redo (Shift+Cmd/Ctrl+Z)"
-                disabled={!canRedo}
+				title={t("model.redo")}
+				disabled={!canRedo}
                 onClick={() => redo()}
               >
                 <ArrowClockwiseIcon className="size-4" aria-hidden />
               </Button>
               <div className="mx-1 hidden h-5 w-px bg-border sm:block" />
-              <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">Layout</span>
+				<span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">{t("model.layout")}</span>
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
                 className={cn('size-8', snapToGrid && 'border-primary bg-primary/10')}
-                title={snapToGrid ? 'Snap to grid (on)' : 'Snap to grid (off)'}
+				title={snapToGrid ? t("model.snapToGridOn") : t("model.snapToGridOff")}
                 aria-pressed={snapToGrid}
                 onClick={() => setSnapToGrid((v) => !v)}
               >
@@ -1579,7 +1581,7 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Arrange tables on a grid"
+				title={t("model.arrangeGrid")}
                 disabled={onCanvas.length === 0}
                 onClick={() => handleAutoLayoutGrid()}
               >
@@ -1590,7 +1592,7 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Arrange by FK dependency (parents left)"
+				title={t("model.topologicalLayout")}
                 disabled={onCanvas.length === 0}
                 onClick={() => handleAutoLayoutTopo()}
               >
@@ -1601,7 +1603,7 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Auto-layout with dagre (hierarchical edges)"
+				title={t("model.dagreLayout")}
                 disabled={onCanvas.length === 0}
                 onClick={() => handleAutoLayoutDagre()}
               >
@@ -1612,7 +1614,7 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Reset viewport (zoom/pan)"
+				title={t("model.fitView")}
                 disabled={onCanvas.length === 0}
                 onClick={() => handleResetViewport()}
               >
@@ -1623,7 +1625,7 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Reset table positions to grid"
+				title={t("model.resetGrid")}
                 disabled={onCanvas.length === 0}
                 onClick={() => handleResetLayout()}
               >
@@ -1634,8 +1636,8 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Group selected tables (visual frame)"
-                disabled={selectedKeys.length < 2}
+				title={t("model.groupTables")}
+				disabled={selectedKeys.length < 2}
                 onClick={() => handleAddGroupFromSelection()}
               >
                 <SquaresFourIcon className="size-4" aria-hidden />
@@ -1645,7 +1647,7 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Create new table"
+				title={t("model.createNewTable")}
                 onClick={() => setCreateTableOpen(true)}
               >
                 <PlusIcon className="size-4" aria-hidden />
@@ -1655,7 +1657,7 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Export diagram as PNG"
+				title={t("model.exportPng")}
                 disabled={onCanvas.length === 0}
                 onClick={() => handleExportDiagramPng()}
               >
@@ -1666,7 +1668,7 @@ export function ModelWorkspace({
                 variant="outline"
                 size="icon"
                 className="size-8"
-                title="Print / save as PDF (opens print dialog)"
+				title={t("model.exportPdf")}
                 disabled={onCanvas.length === 0}
                 onClick={() => handleExportDiagramPdf()}
               >
@@ -1674,13 +1676,13 @@ export function ModelWorkspace({
               </Button>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/70 px-2 py-1.5 text-[11px]">
-              <span className="text-muted-foreground">
-                Showing {onDiagramCount} of {totalTableCount} tables on diagram.
-              </span>
+				<span className="text-muted-foreground">
+					{t("model.catalogSummary", { filtered: onDiagramCount, total: totalTableCount, onDiagram: onDiagramCount })}
+				</span>
               {isPartialDiagram ? (
-                <span className="text-muted-foreground">Subset is loaded first for performance.</span>
+				<span className="text-muted-foreground">{t("model.subsetLoaded")}</span>
               ) : (
-                <span className="text-emerald-600">All tables are currently on the diagram.</span>
+				<span className="text-emerald-600">{t("model.allTablesOnDiagram")}</span>
               )}
               {isPartialDiagram ? (
                 <>
@@ -1690,7 +1692,7 @@ export function ModelWorkspace({
                     className="h-7 px-2 text-[11px]"
                     onClick={handleLoadAllTables}
                   >
-                    Load all tables ({hiddenTableCount} more)
+					{t("model.loadAllTables", { count: hiddenTableCount })}
                   </Button>
                   <Button
                     type="button"
@@ -1699,15 +1701,15 @@ export function ModelWorkspace({
                     className="h-7 px-2 text-[11px]"
                     onClick={() => setModelTab('catalog')}
                   >
-                    Open catalog
+					{t("model.openCatalog")}
                   </Button>
                 </>
               ) : null}
               {showInitialSeedHint ? (
                 <span className="text-muted-foreground/80">
-                  {initialSeedReason === 'relationships'
-                    ? 'Seeded from FK-connected tables.'
-                    : 'Seeded with a starter subset.'}
+					{initialSeedReason === 'relationships'
+						? t("model.seededFromFk")
+						: t("model.seededStarter")}
                 </span>
               ) : null}
             </div>
@@ -1716,13 +1718,10 @@ export function ModelWorkspace({
                 {onCanvas.length === 0 && tables.length > 0 ? (
                   <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center px-6">
                     <div className="pointer-events-auto max-w-sm rounded-md border border-border/80 bg-background/90 px-4 py-3 text-center shadow-sm backdrop-blur-sm">
-                      <p className="text-xs font-medium text-foreground">Diagram is empty</p>
-                      <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-                        Open the <span className="font-medium text-foreground">Catalog</span> tab and add tables.
-                        Use the <span className="font-medium text-foreground">Select</span> tool to drag tables;{' '}
-                        <span className="font-medium text-foreground">Hand</span> pans the canvas (
-                        <span className="font-medium text-foreground">Space</span> + drag also pans).
-                      </p>
+					<p className="text-xs font-medium text-foreground">{t("model.diagramIsEmpty")}</p>
+						<p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+						{t("model.diagramEmptyHint")}
+						</p>
                       <div className="mt-3 flex items-center justify-center gap-2">
                         <Button
                           type="button"
@@ -1731,7 +1730,7 @@ export function ModelWorkspace({
                           className="text-xs"
                           onClick={() => setModelTab('catalog')}
                         >
-                          Open Catalog
+						{t("model.openCatalog")}
                         </Button>
                         <Button
                           type="button"
@@ -1740,7 +1739,7 @@ export function ModelWorkspace({
                           className="text-xs"
                           onClick={() => setCreateTableOpen(true)}
                         >
-                          + Create table
+						{t("model.createTable")}
                         </Button>
                       </div>
                     </div>

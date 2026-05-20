@@ -1,5 +1,6 @@
 import { PlusIcon, TrashIcon } from '@phosphor-icons/react'
 import { useCallback, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -43,6 +44,7 @@ export function CreateTableDialog({
   onCommit,
   defaultSchema = 'public',
 }: CreateTableDialogProps) {
+  const { t } = useTranslation()
   const [schema, setSchema] = useState(defaultSchema)
   const [name, setName] = useState('')
   const [columns, setColumns] = useState<PendingModelColumn[]>([freshColumn()])
@@ -93,15 +95,14 @@ export function CreateTableDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl border border-border">
         <DialogHeader>
-          <DialogTitle>Create Table</DialogTitle>
+          <DialogTitle>{t("model.createTable")}</DialogTitle>
           <DialogDescription>
-            Define the new table on the diagram. This will be included in the migration
-            preview and applied with the rest of your model changes.
+            {t("model.createTableDesc")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-[80px_1fr] items-center gap-2">
-          <span className="text-xs font-medium">Schema</span>
+          <span className="text-xs font-medium">{t("model.schema")}</span>
           <Input
             className="h-8 text-xs"
             value={schema}
@@ -109,7 +110,7 @@ export function CreateTableDialog({
             placeholder="public"
             spellCheck={false}
           />
-          <span className="text-xs font-medium">Name</span>
+          <span className="text-xs font-medium">{t("model.tableName")}</span>
           <Input
             className="h-8 text-xs"
             value={name}
@@ -122,7 +123,7 @@ export function CreateTableDialog({
 
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-muted-foreground">Columns</span>
+            <span className="text-xs font-medium text-muted-foreground">{t("model.columns")}</span>
             <Button
               type="button"
               variant="ghost"
@@ -131,7 +132,7 @@ export function CreateTableDialog({
               onClick={addColumn}
             >
               <PlusIcon className="mr-1 size-3" />
-              Add column
+              {t("model.addColumn")}
             </Button>
           </div>
 
@@ -181,7 +182,7 @@ export function CreateTableDialog({
                   className="size-7"
                   disabled={columns.length <= 1}
                   onClick={() => removeColumn(col.id)}
-                  title="Remove column"
+                  title={t("model.removeColumn")}
                 >
                   <TrashIcon className="size-3.5" />
                 </Button>

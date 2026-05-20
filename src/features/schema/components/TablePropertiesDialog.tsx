@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { SpinnerGapIcon, CheckIcon } from '@phosphor-icons/react'
+import { useTranslation } from 'react-i18next'
 
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -54,9 +55,9 @@ function ToggleButton({
   )
 }
 
-function formatConstraintHint(column: ColumnProperties) {
-  if (column.isPrimaryKey) return 'Primary key'
-  if (column.isPartOfCompositeUnique) return 'Composite UNIQUE'
+function formatConstraintHint(column: ColumnProperties, t: (key: string) => string) {
+  if (column.isPrimaryKey) return t("model.primaryKey")
+  if (column.isPartOfCompositeUnique) return t("model.compositeUnique")
   return undefined
 }
 
@@ -67,6 +68,7 @@ export function TablePropertiesDialog({
   tablePropertyEditingSupported = false,
   table,
 }: TablePropertiesDialogProps) {
+  const { t } = useTranslation()
   const propertiesQuery = useTablePropertiesQuery({
     connectionId,
     table,
@@ -106,17 +108,17 @@ export function TablePropertiesDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl border border-border p-0 sm:max-w-3xl">
         <DialogHeader className="border-b border-border px-5 py-4">
-          <DialogTitle>Table properties</DialogTitle>
-          <DialogDescription>Configure nullability and UNIQUE constraints for columns.</DialogDescription>
+          <DialogTitle>{t("table.tableProperties")}</DialogTitle>
+          <DialogDescription>{t("table.tablePropertiesDesc")}</DialogDescription>
         </DialogHeader>
 
         <div className="flex max-h-[70vh] flex-col overflow-hidden">
           <div className="px-5 py-3 text-xs text-muted-foreground">
-            Editing: <span className="text-foreground">{targetTableLabel}</span>
+            {t("table.editing")}: <span className="text-foreground">{targetTableLabel}</span>
           </div>
           {!tablePropertyEditingSupported ? (
             <div className="px-5 pb-3 text-xs text-amber-600">
-              Table property editing is currently supported for PostgreSQL connections only.
+              {t("table.tablePropertyEditingPostgresOnly")}
             </div>
           ) : null}
 
@@ -124,18 +126,18 @@ export function TablePropertiesDialog({
             {propertiesQuery.isLoading ? (
               <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
                 <SpinnerGapIcon className="size-4 animate-spin" />
-                Loading properties...
+                {t("table.loadingProperties")}
               </div>
             ) : null}
 
             {propertiesQuery.isError ? (
               <div className="py-4 text-xs text-destructive">
-                {propertiesQuery.error instanceof Error ? propertiesQuery.error.message : 'Failed to load properties'}
+                {propertiesQuery.error instanceof Error ? propertiesQuery.error.message : t("table.failedToLoadProperties")}
               </div>
             ) : null}
 
             {propertiesQuery.isSuccess && columns.length === 0 ? (
-              <div className="py-4 text-xs text-muted-foreground">No columns found for this table.</div>
+              <div className="py-4 text-xs text-muted-foreground">{t("table.noColumnsFound")}</div>
             ) : null}
 
             {propertiesQuery.isSuccess && columns.length > 0 ? (
@@ -148,7 +150,7 @@ export function TablePropertiesDialog({
 
                   const uniqueDisabled = col.isPrimaryKey || col.isPartOfCompositeUnique
                   const nullableDisabled = col.isPrimaryKey
-                  const hint = formatConstraintHint(col)
+                  const hint = formatConstraintHint(col, t)
 
                   return (
                     <div key={col.columnName} className="grid grid-cols-[1.4fr_1fr_auto_auto] items-center gap-3 py-3">
@@ -162,7 +164,7 @@ export function TablePropertiesDialog({
                       </div>
 
                       <div className="flex items-center justify-end gap-2">
-                        <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Nullable</span>
+                        <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">{t("model.nullable")}</span>
                         <ToggleButton
                           checked={d.isNullable}
                           disabled={nullableDisabled}
@@ -188,7 +190,7 @@ export function TablePropertiesDialog({
                       </div>
 
                       <div className="flex items-center justify-end gap-2">
-                        <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Unique</span>
+                        <span className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">{t("model.unique")}</span>
                         <ToggleButton
                           checked={d.isUnique}
                           disabled={uniqueDisabled}

@@ -10,6 +10,7 @@ import {
   DownloadSimpleIcon,
 } from '@phosphor-icons/react'
 import { useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -42,17 +43,6 @@ const kindIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   rls_policy: LockKeyIcon,
 }
 
-const kindLabels: Record<string, string> = {
-  add_column: 'Add Column',
-  add_foreign_key: 'Foreign Key',
-  rename_table: 'Rename Table',
-  column_identity_change: 'Column Change',
-  column_override: 'Column Constraint',
-  rule: 'Rule',
-  trigger: 'Trigger',
-  rls_policy: 'RLS Policy',
-}
-
 export function MigrationPreviewDialog({
   open,
   onOpenChange,
@@ -60,8 +50,20 @@ export function MigrationPreviewDialog({
   onApply,
   isApplying,
 }: MigrationPreviewDialogProps) {
+  const { t } = useTranslation()
   const changes = summary?.changes ?? []
   const hasChanges = changes.length > 0
+
+  const kindLabels: Record<string, string> = {
+    add_column: t("model.addColumn"),
+    add_foreign_key: t("model.foreignKey"),
+    rename_table: t("model.renameTable"),
+    column_identity_change: t("model.columnChange"),
+    column_override: t("model.columnConstraint"),
+    rule: t("model.rule"),
+    trigger: t("model.trigger"),
+    rls_policy: t("model.rlsPolicy"),
+  }
 
   const handleDownloadSql = useCallback(() => {
     if (!summary) return
@@ -79,18 +81,18 @@ export function MigrationPreviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl border-border p-0 sm:max-w-2xl">
         <DialogHeader className="border-b border-border px-5 py-4">
-          <DialogTitle>Migration Preview</DialogTitle>
+          <DialogTitle>{t("model.migrationPreview")}</DialogTitle>
           <DialogDescription>
             {hasChanges
-              ? `Review ${changes.length} pending change${changes.length !== 1 ? 's' : ''} (${summary?.totalStatements ?? 0} SQL statement${(summary?.totalStatements ?? 0) !== 1 ? 's' : ''}) before applying.`
-              : 'No pending changes to apply.'}
+              ? t("model.migrationChangesDesc", { changes: changes.length, statements: summary?.totalStatements ?? 0 })
+              : t("model.noPendingChanges")}
           </DialogDescription>
         </DialogHeader>
 
         {!hasChanges ? (
           <div className="flex flex-col items-center gap-2 px-5 py-8 text-center text-xs text-muted-foreground">
             <FileSqlIcon className="size-8 opacity-30" />
-            <p>No pending changes. Add tables, columns, or relationships to the diagram first.</p>
+            <p>{t("model.noPendingChangesDesc")}</p>
           </div>
         ) : (
           <div className="max-h-[50vh] overflow-y-auto divide-y divide-border">
@@ -143,7 +145,7 @@ export function MigrationPreviewDialog({
               onClick={handleDownloadSql}
             >
               <DownloadSimpleIcon className="mr-1.5 size-3.5" aria-hidden />
-              Download SQL
+              {t("model.downloadSql")}
             </Button>
           )}
           <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => onOpenChange(false)}>

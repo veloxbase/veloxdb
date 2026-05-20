@@ -17,6 +17,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -324,6 +325,7 @@ export function AskVeloxySidebar({
 	onCancelRequest,
 	errorMessage,
 }: AskVeloxySidebarProps) {
+	const { t } = useTranslation()
 	const entranceMotionClass =
 		"motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-safe:ease-out motion-reduce:animate-none motion-reduce:opacity-100";
 
@@ -672,7 +674,7 @@ export function AskVeloxySidebar({
 						variant="ghost"
 						size="icon-sm"
 						className="size-6 text-muted-foreground hover:text-foreground"
-						aria-label="Close Ask Veloxy"
+						aria-label={t("veloxy.closeAskVeloxy")}
 						onClick={onClose}
 					>
 						<XIcon className="size-3.5" />
@@ -696,10 +698,9 @@ export function AskVeloxySidebar({
 									aria-hidden
 								/>
 								<div>
-									<p className="font-medium">Veloxy is not configured</p>
+									<p className="font-medium">{t("veloxy.notConfigured")}</p>
 									<p className="mt-1 text-[11px] text-amber-900/80 dark:text-amber-100/75">
-										Add your OpenRouter API key and pick a model in Settings →
-										Veloxy to enable the assistant.
+										{t("veloxy.configureDesc")}
 									</p>
 									<Button
 										variant="outline"
@@ -707,7 +708,7 @@ export function AskVeloxySidebar({
 										className="mt-3 h-7 border-amber-500/40 bg-background/60 text-[11px] hover:bg-background"
 										onClick={onOpenSettings}
 									>
-										Open settings
+										{t("veloxy.openSettings")}
 									</Button>
 								</div>
 							</div>
@@ -721,15 +722,10 @@ export function AskVeloxySidebar({
 							</div>
 							<div className="max-w-[16.5rem] space-y-1">
 								<p className="text-[13px] font-medium text-foreground">
-									Schema-aware copilot
+									{t("veloxy.schemaAwareCopilot")}
 								</p>
 								<p className="text-[11px] leading-relaxed text-muted-foreground">
-									Ask about relationships, performance tradeoffs, or fixes. When
-									you are ready, use{" "}
-									<span className="font-medium text-foreground/90">
-										Generate SQL
-									</span>{" "}
-									from a reply — chat stays read-only until then.
+									{t("veloxy.schemaAwareCopilotDesc")}
 								</p>
 							</div>
 						</div>
@@ -901,7 +897,7 @@ export function AskVeloxySidebar({
 													)}
 													aria-valuemin={0}
 													aria-valuemax={100}
-													aria-label="Model confidence"
+													aria-label={t("veloxy.modelConfidence")}
 												>
 													<div
 														className="h-full rounded-full bg-foreground/25 transition-[width] duration-300"
@@ -1034,7 +1030,7 @@ export function AskVeloxySidebar({
 										<div className="mt-3 rounded-md border border-amber-500/35 bg-amber-500/[0.05] p-2.5">
 											<p className="text-[11px] font-medium leading-snug text-amber-950 dark:text-amber-100">
 												{message.decisionReason ??
-													"Confirmation required before running this statement."}
+													t("veloxy.confirmationRequired")}
 											</p>
 											<Button
 												variant="outline"

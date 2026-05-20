@@ -21,6 +21,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { format } from "sql-formatter";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -251,6 +252,7 @@ function QueryPane({
 	askVeloxyWidth,
 	onAskVeloxyResizeStart,
 }: QueryPaneProps) {
+	const { t } = useTranslation()
 	const resultsTab = tab.resultsSubTab;
 	const runPending = tab.runInFlight;
 	const explainPending = tab.explainInFlight;
@@ -258,7 +260,7 @@ function QueryPane({
 	return (
 		<section
 			className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden outline-none"
-			aria-label="Query editor"
+						aria-label={t("editor.queryEditor")}
 		>
 			<section className="relative z-0 min-h-0 min-w-0 flex-1 overflow-hidden">
 				<div className="flex h-full min-w-0 overflow-hidden">
@@ -278,7 +280,7 @@ function QueryPane({
 							<div
 								className="w-1 shrink-0 cursor-col-resize border-x border-transparent bg-muted/20 transition-colors hover:bg-muted/60"
 								onPointerDown={onAskVeloxyResizeStart}
-								title="Resize Ask Veloxy"
+								title={t("editor.resizeAskVeloxy")}
 							/>
 							<aside
 								className="h-full min-h-0 min-w-0 shrink-0 overflow-hidden border-l border-border"
@@ -294,7 +296,7 @@ function QueryPane({
 			<div
 				className="relative z-20 h-1 shrink-0 cursor-row-resize border-y border-border bg-muted/10 hover:bg-muted/30"
 				onPointerDown={onResultsResizeStart}
-				title="Resize results"
+						title={t("editor.resizeResults")}
 			/>
 
 			<section
@@ -311,22 +313,22 @@ function QueryPane({
 							<div className="min-w-0 flex-1">
 								<TabsList variant="line" className="h-8">
 									<TabsTrigger value="results" className="text-xs">
-										Results
+										{t("editor.resultsTab")}
 									</TabsTrigger>
 									<TabsTrigger value="plan" className="text-xs">
-										Explain plan
+										{t("editor.explainPlanTab")}
 									</TabsTrigger>
 								</TabsList>
 								<p className="mt-1 truncate text-sm text-foreground">
 									{resultsTab === "plan"
 										? connectionEngine === "mysql"
-											? "EXPLAIN output"
+											? t("editor.explainOutput")
 											: connectionEngine === "sqlite"
-												? "EXPLAIN QUERY PLAN output"
-												: "EXPLAIN (ANALYZE, BUFFERS) output"
+												? t("editor.explainQueryPlanOutput")
+												: t("editor.explainAnalyzeOutput")
 										: selectedTable
 											? `${selectedTable.schema}.${selectedTable.name}`
-											: "Current query output"}
+											: t("editor.currentQueryOutput")}
 								</p>
 							</div>
 
@@ -334,28 +336,28 @@ function QueryPane({
 								{resultsTab === "plan" ? (
 									<span>
 										{tab.planResult
-											? `${tab.planResult.rowCount} plan lines in ${tab.planResult.executionMs} ms`
+											? t("editor.planLinesIn", { count: tab.planResult.rowCount, time: tab.planResult.executionMs })
 											: explainPending
-												? "Running EXPLAIN…"
+												? t("editor.runningExplain")
 												: connectionEngine === "postgres"
-													? "Run Explain (analyze) from the toolbar"
-													: "Run Explain from the toolbar"}
+													? t("editor.runExplainAnalyzeFromToolbar")
+													: t("editor.runExplainFromToolbar")}
 									</span>
 								) : tab.queryResult ? (
 									<span>
-										{`${tab.queryResult.rowCount} rows in ${tab.queryResult.executionMs} ms`}
+										{t("editor.rowsIn", { count: tab.queryResult.rowCount, time: tab.queryResult.executionMs })}
 										{columnCount != null
-											? ` · ${columnCount} columns in selected table`
+											? ` · ${t("editor.columnsInSelectedTable", { count: columnCount })}`
 											: ""}
 									</span>
 								) : schemaLoading ? (
-									<span>Loading columns...</span>
+									<span>{t("editor.loadingColumns")}</span>
 								) : schemaError ? (
 									<span className="text-destructive">{schemaError}</span>
 								) : columnCount != null ? (
-									<span>{columnCount} columns in selected table</span>
+									<span>{t("editor.columnsInSelectedTable", { count: columnCount })}</span>
 								) : (
-									<span>No query executed yet</span>
+									<span>{t("editor.noQueryExecutedYet")}</span>
 								)}
 							</div>
 						</div>
@@ -411,7 +413,7 @@ function QueryPane({
 								canEdit={false}
 								editableColumns={[]}
 								primaryKeyColumns={[]}
-								saveDisabledReason="Editing is not available for EXPLAIN output."
+								saveDisabledReason={t("editor.editingNotAvailableForExplain")}
 								onRefresh={onRefreshPlan}
 								onSaveEdits={async () => {}}
 								insertRowTrigger={0}
@@ -427,7 +429,7 @@ function QueryPane({
 				{(resultsTab === "results" && tab.queryResult?.truncated) ||
 				(resultsTab === "plan" && tab.planResult?.truncated) ? (
 					<div className="border-t border-border bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
-						Output was truncated to keep the UI responsive.
+						{t("editor.outputTruncated")}
 					</div>
 				) : null}
 
@@ -453,7 +455,7 @@ function QueryPane({
 					<div className="border-t border-border bg-destructive/10 px-4 py-2 text-xs text-destructive">
 						{saveResultEditsMutation.error instanceof Error
 							? saveResultEditsMutation.error.message
-							: "Failed to save edited rows"}
+							: t("editor.failedToSaveEditedRows")}
 					</div>
 				) : null}
 			</section>
@@ -497,6 +499,7 @@ export const QueryWorkspace = forwardRef<
 	},
 	ref,
 ) {
+	const { t } = useTranslation()
 	const [state, dispatch] = useReducer(
 		queryWorkspaceReducer,
 		undefined,
@@ -543,7 +546,7 @@ export const QueryWorkspace = forwardRef<
 		onError: (error, variables) => {
 			notifyError(error, { category: "query" });
 			const message =
-				error instanceof Error ? error.message : "Failed to run query";
+				error instanceof Error ? error.message : t("editor.failedToRunQuery");
 			dispatch({
 				type: "runError",
 				tabId: variables.tabId,
@@ -572,10 +575,10 @@ export const QueryWorkspace = forwardRef<
 		onError: (error, variables) => {
 			notifyError(error, {
 				category: "query",
-				title: "EXPLAIN failed",
+				title: t("editor.explainFailed"),
 			});
 			const message =
-				error instanceof Error ? error.message : "Failed to run EXPLAIN";
+				error instanceof Error ? error.message : t("editor.failedToRunExplain");
 			dispatch({
 				type: "explainError",
 				tabId: variables.tabId,
@@ -988,7 +991,7 @@ export const QueryWorkspace = forwardRef<
 				<div
 					className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
 					role="tablist"
-					aria-label="Query tabs"
+					aria-label={t("editor.queryTabs")}
 				>
 					{state.tabOrder.map((id) => {
 						const tab = state.tabs[id];
@@ -1033,7 +1036,7 @@ export const QueryWorkspace = forwardRef<
 						variant="outline"
 						size="icon-sm"
 						className="shrink-0"
-						aria-label="New query tab"
+						aria-label={t("editor.newQueryTab")}
 						onClick={() =>
 							dispatch({
 								type: "addTab",
@@ -1048,7 +1051,7 @@ export const QueryWorkspace = forwardRef<
 					<div className="hidden min-h-4 min-w-[132px] items-center justify-end text-right xl:flex">
 						{editorMetadataQuery.isFetching ? (
 							<span className="text-[11px] text-muted-foreground">
-								Loading metadata...
+								{t("editor.loadingMetadata2")}
 							</span>
 						) : null}
 					</div>
@@ -1057,8 +1060,8 @@ export const QueryWorkspace = forwardRef<
 							variant="ghost"
 							size="icon-sm"
 							onClick={handleFormatSql}
-							aria-label="Format SQL (Cmd/Ctrl+Shift+F)"
-							title="Format SQL (Cmd/Ctrl+Shift+F)"
+						aria-label={t("editor.formatSqlShortcut")}
+						title={t("editor.formatSqlShortcut")}
 						>
 							<TextHIcon />
 						</Button>
@@ -1067,8 +1070,8 @@ export const QueryWorkspace = forwardRef<
 							size="icon-sm"
 							onClick={() => setHistoryOpen(true)}
 							disabled={!activeConnectionForHistory}
-							aria-label="Open query history"
-							title="Query history"
+						aria-label={t("editor.openQueryHistory")}
+						title={t("editor.queryHistory")}
 						>
 							<ClockCounterClockwiseIcon />
 						</Button>
@@ -1079,13 +1082,13 @@ export const QueryWorkspace = forwardRef<
 							disabled={toolbarBusy}
 							aria-label={
 								connectionEngine === "postgres"
-									? "Run explain analyze"
-									: "Run explain"
+									? t("editor.runExplainAnalyzeAria")
+									: t("editor.runExplainAria")
 							}
 							title={
 								connectionEngine === "postgres"
-									? "Explain (analyze)"
-									: "Explain"
+									? t("editor.explainAnalyzeTitle")
+									: t("editor.explainTitle")
 							}
 						>
 							<DatabaseIcon />
@@ -1095,8 +1098,8 @@ export const QueryWorkspace = forwardRef<
 							size="icon-sm"
 							onClick={handleToolbarRunStatement}
 							disabled={toolbarBusy}
-							aria-label="Run current statement"
-							title="Run statement"
+						aria-label={t("editor.runCurrentStatement")}
+						title={t("editor.runStatement")}
 						>
 							<PlugIcon />
 						</Button>
@@ -1105,8 +1108,8 @@ export const QueryWorkspace = forwardRef<
 							size="icon-sm"
 							onClick={handleToolbarRun}
 							disabled={toolbarBusy}
-							aria-label="Run query"
-							title="Run query"
+						aria-label={t("editor.runQueryBtn")}
+						title={t("editor.runQueryBtn")}
 						>
 							<PlayIcon weight="fill" />
 						</Button>
@@ -1115,12 +1118,12 @@ export const QueryWorkspace = forwardRef<
 							size="sm"
 							onClick={() => setIsAskVeloxyOpen((prev) => !prev)}
 							disabled={!connectionId}
-							aria-label="Ask Veloxy"
-							title="Ask Veloxy"
+						aria-label={t("veloxy.askVeloxy")}
+						title={t("veloxy.askVeloxy")}
 							className="gap-1.5"
 						>
 							<RobotIcon className="size-4" />
-							Ask Veloxy
+							{t("veloxy.askVeloxy")}
 						</Button>
 					</div>
 				</div>

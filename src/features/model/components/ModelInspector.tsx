@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { SpinnerGapIcon, CheckIcon, TrashIcon } from '@phosphor-icons/react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -105,9 +106,9 @@ function ToggleButton({
   )
 }
 
-function formatConstraintHint(column: ColumnProperties) {
-  if (column.isPrimaryKey) return 'Primary key'
-  if (column.isPartOfCompositeUnique) return 'Composite UNIQUE'
+function formatConstraintHint(column: ColumnProperties, t: (key: string) => string) {
+  if (column.isPrimaryKey) return t("model.primaryKey")
+  if (column.isPartOfCompositeUnique) return t("model.compositeUnique")
   return undefined
 }
 
@@ -142,6 +143,7 @@ export function ModelInspector({
   pendingRlsPolicies,
   onPendingRlsPoliciesChange,
 }: ModelInspectorProps) {
+  const { t } = useTranslation()
   const propertiesQuery = useTablePropertiesQuery({
     connectionId,
     table,
@@ -245,7 +247,7 @@ export function ModelInspector({
   if (!table || !identityDraft) {
     return (
       <div className="flex h-full items-center justify-center border-l border-border bg-muted/10 p-4 text-center text-xs text-muted-foreground">
-        Select a table on the diagram or in the catalog to edit properties.
+        {t("model.selectTableToEditProperties")}
       </div>
     )
   }
@@ -253,7 +255,7 @@ export function ModelInspector({
   return (
     <div className="flex h-full min-h-0 min-w-[280px] max-w-[380px] flex-col border-l border-border bg-background/50">
       <div className="shrink-0 space-y-2 border-b border-border px-3 py-2">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Table</p>
+        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{t("model.table")}</p>
         <p
           className="truncate font-mono text-sm font-semibold text-foreground"
           title={titleTooltip}
@@ -301,8 +303,8 @@ export function ModelInspector({
               className="h-8 w-10 cursor-pointer rounded border border-input bg-transparent p-0.5 dark:bg-input/30"
               value={tableHeaderColor ?? defaultDiagramHeaderHex}
               onChange={(e) => onTableHeaderColorChange(e.target.value)}
-              title="Color of this table’s header on the diagram"
-              aria-label="Diagram table header color"
+              title={t("model.headerColor")}
+              aria-label={t("model.diagramTableHeaderColor")}
             />
             <Button
               type="button"
@@ -378,7 +380,7 @@ export function ModelInspector({
 
           {propertiesQuery.isSuccess && columns.length > 0 ? (
             <div className="divide-y divide-border">
-              <p className="pb-2 text-[10px] font-medium text-muted-foreground">Columns</p>
+              <p className="pb-2 text-[10px] font-medium text-muted-foreground">{t("model.columns")}</p>
               {columns.map((col) => {
                 const d = draft[col.columnName] ?? {
                   isNullable: col.isNullable,
@@ -386,7 +388,7 @@ export function ModelInspector({
                 }
                 const uniqueDisabled = col.isPrimaryKey || col.isPartOfCompositeUnique
                 const nullableDisabled = col.isPrimaryKey
-                const hint = formatConstraintHint(col)
+                const hint = formatConstraintHint(col, t)
 
                 const patchOverride = (next: ColumnOverride) => {
                   const matchesServer =
@@ -454,7 +456,7 @@ export function ModelInspector({
                     </div>
 
                     <div className="flex items-center justify-end gap-2">
-                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Null</span>
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{t("model.nullable")}</span>
                       <ToggleButton
                         checked={d.isNullable}
                         disabled={nullableDisabled}
@@ -465,7 +467,7 @@ export function ModelInspector({
                     </div>
 
                     <div className="flex items-center justify-end gap-2">
-                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Unique</span>
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{t("model.unique")}</span>
                       <ToggleButton
                         checked={d.isUnique}
                         disabled={uniqueDisabled}
@@ -487,12 +489,12 @@ export function ModelInspector({
         >
           <div className="mb-4 rounded-md border border-border/80 bg-muted/20 px-2.5 py-2 text-[10px] leading-snug text-muted-foreground">
             Staged items below are applied when you run{' '}
-            <span className="font-medium text-foreground">Review &amp; Apply</span> in the diagram toolbar (with
+            <span className="font-medium text-foreground">{t("model.reviewAndApply")}</span> in the diagram toolbar (with
             schema/table renames and column null/unique overrides).
           </div>
 
           <div className="mb-4 space-y-2 border-b border-border pb-4">
-            <p className="text-[10px] font-medium text-muted-foreground">Add column</p>
+            <p className="text-[10px] font-medium text-muted-foreground">{t("model.addColumn")}</p>
             <p className="text-[10px] leading-snug text-muted-foreground">
               Emitted as <code className="text-foreground/90">ALTER TABLE … ADD COLUMN</code>. Type is a PostgreSQL
               type fragment (not quoted).
@@ -500,7 +502,7 @@ export function ModelInspector({
             <div className="grid gap-2">
               <Input
                 className="h-8 text-xs"
-                placeholder="Column name"
+                placeholder={t("model.columnName")}
                 value={newColName}
                 onChange={(e) => setNewColName(e.target.value)}
                 spellCheck={false}
@@ -562,7 +564,7 @@ export function ModelInspector({
           <div className="mb-4 space-y-2 border-b border-border pb-4">
             {selectedEdge ? (
               <div className="rounded-md border border-border/70 bg-muted/20 px-2.5 py-2">
-                <p className="text-[10px] font-medium text-muted-foreground">Selected relationship</p>
+                <p className="text-[10px] font-medium text-muted-foreground">{t("model.selectedRelationship")}</p>
                 <p className="mt-1 break-all text-[11px] text-foreground/90">
                   {selectedEdge.fromKey}.{selectedEdge.fromColumn} → {selectedEdge.toKey}.{selectedEdge.toColumn}
                 </p>
@@ -604,7 +606,7 @@ export function ModelInspector({
           </div>
 
           <div className="mb-4 space-y-2 border-b border-border pb-4">
-            <p className="text-[10px] font-medium text-muted-foreground">Add foreign key</p>
+            <p className="text-[10px] font-medium text-muted-foreground">{t("model.foreignKey")}</p>
             <p className="text-[10px] leading-snug text-muted-foreground">
               Single-column FK as{' '}
               <code className="text-foreground/90">ALTER TABLE … ADD CONSTRAINT … FOREIGN KEY</code>.
@@ -711,7 +713,7 @@ export function ModelInspector({
                     <button
                       type="button"
                       className="shrink-0 text-muted-foreground transition hover:text-destructive"
-                      aria-label="Remove foreign key"
+                      aria-label={t("model.removeForeignKey")}
                       onClick={() => onRemovePendingForeignKey(fk.id)}
                     >
                       <TrashIcon className="size-3.5" />
@@ -729,7 +731,7 @@ export function ModelInspector({
         >
           <p className="mb-3 text-[10px] leading-snug text-muted-foreground">
             Create and drop indexes run on the database immediately after you confirm in the dialog (not part of{' '}
-            <span className="font-medium text-foreground">Apply entire model</span>).
+            <span className="font-medium text-foreground">{t("model.applyEntireModel")}</span>).
           </p>
           <IndexInspectorSection
             connectionId={connectionId}
@@ -770,7 +772,7 @@ export function ModelInspector({
       </Tabs>
 
       <div className="shrink-0 border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
-        Draft table changes and overrides: toolbar <span className="font-medium text-foreground">Review &amp; Apply</span>
+        Draft table changes and overrides: toolbar <span className="font-medium text-foreground">{t("model.reviewAndApply")}</span>
         . Index DDL: confirm in the Indexes tab dialog.
       </div>
     </div>

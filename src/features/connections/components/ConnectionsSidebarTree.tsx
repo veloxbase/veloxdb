@@ -21,6 +21,7 @@ import {
   TableIcon,
   TrashIcon,
 } from '@phosphor-icons/react'
+import { useTranslation } from 'react-i18next'
 
 import type { ConnectionSummary, DatabaseInfo, TableInfo } from '@/data/types'
 import { cn } from '@/lib/utils'
@@ -364,6 +365,7 @@ export function ConnectionsSidebarTree({
   onDatabaseSwitched,
   onToggleCollapsed,
 }: ConnectionsSidebarTreeProps) {
+  const { t } = useTranslation()
   const [isTablesPanelExpanded, setIsTablesPanelExpanded] = useState(true)
   const [contextMenu, setContextMenu] = useState<{
     x: number
@@ -485,40 +487,40 @@ export function ConnectionsSidebarTree({
 
   const connectionContextMenuActions = useMemo<ContextMenuAction[]>(
     () => [
-      { id: 'copyConnectionString', label: 'Copy connection string', group: 'primary' },
-      { id: 'refreshConnection', label: 'Refresh', group: 'secondary' },
-      { id: 'renameConnection', label: 'Rename', group: 'secondary' },
-      { id: 'disconnectConnection', label: 'Delete', group: 'danger' },
+      { id: 'copyConnectionString', label: t("connection.copyConnectionString"), group: 'primary' },
+      { id: 'refreshConnection', label: t("connection.refresh"), group: 'secondary' },
+      { id: 'renameConnection', label: t("connection.rename"), group: 'secondary' },
+      { id: 'disconnectConnection', label: t("connection.delete"), group: 'danger' },
     ],
-    [],
+    [t],
   )
 
   const tableContextMenuActions = useMemo<ContextMenuAction[]>(
     () => [
-      { id: 'selectTable', label: 'Select table', group: 'primary' },
-      { id: 'toggleFields', label: 'Toggle fields', group: 'primary' },
-      { id: 'copyTableName', label: 'Copy name', group: 'primary' },
-      { id: 'refreshTable', label: 'Refresh', group: 'secondary' },
-      { id: 'renameTable', label: 'Rename', group: 'secondary' },
+      { id: 'selectTable', label: t("table.selectAll"), group: 'primary' },
+      { id: 'toggleFields', label: t("table.toggleFields"), group: 'primary' },
+      { id: 'copyTableName', label: t("table.copyTableName"), group: 'primary' },
+      { id: 'refreshTable', label: t("table.refreshTable"), group: 'secondary' },
+      { id: 'renameTable', label: t("table.renameTable"), group: 'secondary' },
       { id: 'selectAll', label: 'SELECT * (LIMIT)', group: 'secondary' },
       { id: 'selectCount', label: 'SELECT COUNT(*)', group: 'secondary' },
-      { id: 'insertTemplate', label: 'INSERT template', group: 'secondary' },
-      { id: 'updateTemplate', label: 'UPDATE template', group: 'secondary' },
-      { id: 'deleteTemplate', label: 'DELETE template', group: 'secondary' },
-      { id: 'addRow', label: 'Add row', group: 'secondary' },
-      { id: 'tableProperties', label: 'Properties', group: 'secondary' },
-      { id: 'truncateTable', label: 'Truncate', group: 'danger' },
-      { id: 'deleteTable', label: 'Delete table', group: 'danger' },
+      { id: 'insertTemplate', label: t("table.insertTemplate"), group: 'secondary' },
+      { id: 'updateTemplate', label: t("table.updateTemplate"), group: 'secondary' },
+      { id: 'deleteTemplate', label: t("table.deleteTemplate"), group: 'secondary' },
+      { id: 'addRow', label: t("table.addRow"), group: 'secondary' },
+      { id: 'tableProperties', label: t("table.tableProperties"), group: 'secondary' },
+      { id: 'truncateTable', label: t("table.truncateTable"), group: 'danger' },
+      { id: 'deleteTable', label: t("table.dropTable"), group: 'danger' },
     ],
-    [],
+    [t],
   )
 
   const databaseContextMenuActions = useMemo<ContextMenuAction[]>(
     () => [
-      { id: 'refreshDatabases', label: 'Refresh databases', group: 'primary' },
-      { id: 'copyDatabaseName', label: 'Copy name', group: 'primary' },
+      { id: 'refreshDatabases', label: t("table.refreshDatabases"), group: 'primary' },
+      { id: 'copyDatabaseName', label: t("table.copyDatabaseName"), group: 'primary' },
     ],
-    [],
+    [t],
   )
 
   const handleContextMenuAction = useCallback(
@@ -811,7 +813,7 @@ export function ConnectionsSidebarTree({
             variant="ghost"
             size="icon-sm"
             onClick={onOpenConnection}
-            aria-label="Create connection"
+            aria-label={t("connection.newConnection")}
           >
             <PlusIcon />
           </Button>
@@ -819,7 +821,7 @@ export function ConnectionsSidebarTree({
             variant="ghost"
             size="icon-sm"
             onClick={onToggleCollapsed}
-            aria-label="Collapse sidebar"
+            aria-label={t("sidebar.close")}
           >
             <SidebarSimpleIcon />
           </Button>
@@ -837,7 +839,7 @@ export function ConnectionsSidebarTree({
         {!isConnectionsLoading && connections.length === 0 ? (
           <div className="p-4">
             <div className="rounded-md border border-dashed border-sidebar-border px-3 py-5 text-center">
-              <p className="text-xs font-medium text-sidebar-foreground">No connections yet</p>
+              <p className="text-xs font-medium text-sidebar-foreground">{t("sidebar.noConnection")}</p>
               <p className="text-[11px] text-sidebar-foreground/60 mt-1">
                 Create a new connection
               </p>
@@ -923,7 +925,7 @@ export function ConnectionsSidebarTree({
                       <button
                         type="button"
                         className="rounded p-1 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                        title="Refresh connection"
+                        title={t("connection.refresh")}
                         onClick={(e) => {
                           e.stopPropagation()
                           onRefreshConnection(connection)
@@ -935,7 +937,7 @@ export function ConnectionsSidebarTree({
                         <button
                           type="button"
                           className="rounded p-1 text-sidebar-foreground/60 hover:bg-destructive/10 hover:text-destructive"
-                          title="Delete connection"
+                          title={t("connection.delete")}
                           onClick={(e) => {
                             e.stopPropagation()
                             onDisconnectConnection(connection)

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -78,10 +79,12 @@ function IndexRow({
   row,
   onDrop,
   dropPending,
+  t,
 }: {
   row: IndexInfo
   onDrop: (sql: string) => void
   dropPending: boolean
+  t: (key: string) => string
 }) {
   return (
     <li className="space-y-1.5 border border-border/60 bg-muted/15 px-2 py-2">
@@ -90,9 +93,9 @@ function IndexRow({
           {row.indexName}
         </span>
         {row.isPrimary ? <IndexBadge label="PK" /> : null}
-        {row.isUnique && !row.isPrimary ? <IndexBadge label="Unique" /> : null}
-        {row.isPartial ? <IndexBadge label="Partial" variant="muted" /> : null}
-        {!row.isValid ? <IndexBadge label="Invalid" variant="warn" /> : null}
+        {row.isUnique && !row.isPrimary ? <IndexBadge label={t("model.unique")} /> : null}
+        {row.isPartial ? <IndexBadge label={t("model.partial")} variant="muted" /> : null}
+        {!row.isValid ? <IndexBadge label={t("model.invalid")} variant="warn" /> : null}
       </div>
       <div className="text-[10px] text-muted-foreground">
         {formatBytes(row.indexBytes)}
@@ -125,6 +128,7 @@ function IndexRow({
 }
 
 export function IndexInspectorSection({ connectionId, table, columnNames }: IndexInspectorSectionProps) {
+  const { t } = useTranslation()
   const indexesQuery = useTableIndexesQuery({
     connectionId,
     table,
@@ -178,7 +182,7 @@ export function IndexInspectorSection({ connectionId, table, columnNames }: Inde
 
   return (
     <div className="mb-4 space-y-3 border-b border-border pb-4">
-      <p className="text-[10px] font-medium text-muted-foreground">Indexes</p>
+      <p className="text-[10px] font-medium text-muted-foreground">{t("model.indexes")}</p>
       <p className="text-[10px] leading-snug text-muted-foreground">
         Usage stats reflect <span className="font-mono text-foreground/80">pg_stat_user_indexes</span> (can reset).
         <span className="font-medium text-foreground"> CONCURRENTLY</span> builds run outside a transaction.
@@ -210,14 +214,15 @@ export function IndexInspectorSection({ connectionId, table, columnNames }: Inde
               key={`${row.indexSchema}.${row.indexName}`}
               row={row}
               dropPending={dropPending}
-              onDrop={(sql) => setPendingDdl({ sql, mode: 'txn', title: 'Drop index' })}
+              onDrop={(sql) => setPendingDdl({ sql, mode: 'txn', title: t("model.dropIndex") })}
+              t={t}
             />
           ))}
         </ul>
       ) : null}
 
       <div className="space-y-2 rounded-md border border-border/70 bg-muted/10 p-2">
-        <p className="text-[10px] font-medium text-muted-foreground">Create index</p>
+        <p className="text-[10px] font-medium text-muted-foreground">{t("model.createIndex")}</p>
         <Input
           className="h-8 text-xs"
           placeholder="Index name (optional)"
@@ -225,7 +230,7 @@ export function IndexInspectorSection({ connectionId, table, columnNames }: Inde
           onChange={(e) => setNewIndexName(e.target.value)}
           spellCheck={false}
         />
-        <p className="text-[10px] text-muted-foreground">Columns</p>
+        <p className="text-[10px] text-muted-foreground">{t("model.columns")}</p>
         <div className="flex max-h-32 flex-col gap-1 overflow-y-auto">
           {columnNames.length === 0 ? (
             <span className="text-[10px] text-muted-foreground">Load table columns first.</span>
@@ -283,7 +288,7 @@ export function IndexInspectorSection({ connectionId, table, columnNames }: Inde
             setPendingDdl({
               sql: createSqlPreview,
               mode: newConcurrent ? 'stmt' : 'txn',
-              title: 'Create index',
+              title: t("model.createIndex"),
             })
           }}
         >

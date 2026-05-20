@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -20,6 +21,7 @@ type RenameConnectionDialogProps = {
 export function RenameConnectionDialog(
   { connection, onConfirm, onCancel }: RenameConnectionDialogProps,
 ) {
+  const { t } = useTranslation()
   const [name, setName] = useState(connection?.name ?? '')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -43,12 +45,12 @@ export function RenameConnectionDialog(
     <Dialog open={!!connection} onOpenChange={(open) => { if (!open) onCancel() }}>
       <DialogContent className="max-w-sm border border-border p-0">
         <DialogHeader className="border-b border-border px-6 py-4">
-          <DialogTitle>Rename connection</DialogTitle>
+          <DialogTitle>{t("connection.renameConnection")}</DialogTitle>
         </DialogHeader>
 
         <div className="px-6 py-4">
           <label htmlFor="connection-name" className="mb-2 block text-sm text-muted-foreground">
-            Connection name
+            {t("connection.name")}
           </label>
           <Input
             id="connection-name"
@@ -62,10 +64,10 @@ export function RenameConnectionDialog(
 
         <DialogFooter className="border-t border-border px-6 py-4">
           <Button variant="outline" onClick={onCancel}>
-            Cancel
+            {t("connection.cancel")}
           </Button>
           <Button onClick={handleConfirm} disabled={!name.trim()}>
-            Rename
+            {t("connection.rename")}
           </Button>
         </DialogFooter>
       </DialogContent>

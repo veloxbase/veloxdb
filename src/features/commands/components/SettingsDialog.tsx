@@ -14,6 +14,7 @@ import {
   BellIcon,
 } from '@phosphor-icons/react'
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
@@ -26,19 +27,20 @@ import pkg from '../../../../package.json'
 const GITHUB_REPO = 'abeni16/veloxdb'
 const VELOXDB_SITE = 'https://veloxdb.dev'
 
-const tabs = [
-  { id: 'appearance', label: 'Appearance', Icon: PaintBrushIcon },
-  { id: 'editor', label: 'Editor', Icon: CodeIcon },
-  { id: 'results', label: 'Results', Icon: TableIcon },
-  { id: 'connections', label: 'Connections', Icon: PlugIcon },
-  { id: 'veloxy', label: 'Veloxy', Icon: SparkleIcon },
-  { id: 'notifications', label: 'Notifications', Icon: BellIcon },
-  { id: 'data', label: 'Data', Icon: DatabaseIcon },
-  { id: 'about', label: 'About', Icon: InfoIcon },
-]
-
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const settings = useSettings()
+  const { t, i18n } = useTranslation()
+
+  const tabs = [
+    { id: 'appearance', label: t("settings.appearance"), Icon: PaintBrushIcon },
+    { id: 'editor', label: t("settings.editor"), Icon: CodeIcon },
+    { id: 'results', label: t("settings.results"), Icon: TableIcon },
+    { id: 'connections', label: t("settings.connections"), Icon: PlugIcon },
+    { id: 'veloxy', label: t("settings.veloxy"), Icon: SparkleIcon },
+    { id: 'notifications', label: t("settings.notifications"), Icon: BellIcon },
+    { id: 'data', label: t("settings.data"), Icon: DatabaseIcon },
+    { id: 'about', label: t("settings.about"), Icon: InfoIcon },
+  ]
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -123,9 +125,9 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       <DialogContent className="overflow-hidden border-border p-0 sm:max-w-[580px]">
         {/* header */}
         <div className="border-b border-border px-5 py-3.5">
-          <p className="text-sm font-medium text-foreground">Settings</p>
+          <p className="text-sm font-medium text-foreground">{t("settings.title")}</p>
           <p className="text-xs text-muted-foreground">
-            Press <kbd className="rounded border border-border bg-muted px-1 py-px text-[10px] font-mono">⌘,</kbd> anytime.
+            {t("settings.pressShortcut")}
           </p>
         </div>
 
@@ -151,66 +153,70 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto">
-            {tab === 'appearance' && <Section title="Appearance">
-              <Field label="Theme" desc="Light, dark, or follow system preference.">
+            {tab === 'appearance' && <Section title={t("settings.appearance")}>
+              <Field label={t("settings.language")} desc={t("settings.languageDesc")}>
+                <Select value={i18n.language} onChange={(v) => i18n.changeLanguage(v)}
+                  opts={[{ v: 'en', l: 'English' }, { v: 'zh', l: '中文' }]} />
+              </Field>
+              <Field label={t("settings.theme")} desc={t("settings.themeDesc")}>
                 <Select value={settings.theme} onChange={(v) => useSettings.setState({ theme: v as AppTheme })}
-                  opts={[{ v: 'system', l: 'System' }, { v: 'light', l: 'Light' }, { v: 'dark', l: 'Dark' }]} />
+                  opts={[{ v: 'system', l: t("settings.system") }, { v: 'light', l: t("settings.light") }, { v: 'dark', l: t("settings.dark") }]} />
               </Field>
-              <Field label="Font size" desc="Base font size across the application.">
+              <Field label={t("settings.fontSize")} desc={t("settings.fontSizeDesc")}>
                 <Select value={settings.fontSize} onChange={(v) => useSettings.setState({ fontSize: v as FontSize })}
-                  opts={[{ v: 'sm', l: 'Small (12px)' }, { v: 'md', l: 'Medium (14px)' }, { v: 'lg', l: 'Large (16px)' }]} />
+                  opts={[{ v: 'sm', l: t("settings.small") }, { v: 'md', l: t("settings.medium") }, { v: 'lg', l: t("settings.large") }]} />
               </Field>
-              <Field label="Monospace font" desc="Font family for the SQL editor.">
+              <Field label={t("settings.monospaceFont")} desc={t("settings.monospaceFontDesc")}>
                 <Input value={settings.monospaceFont} onChange={(e) => useSettings.setState({ monospaceFont: e.target.value })}
                   className="h-8 w-[240px] font-mono text-[11px]" spellCheck={false} />
               </Field>
             </Section>}
 
-            {tab === 'editor' && <Section title="Editor">
-              <Field label="Tab width" desc="Indentation in spaces.">
+            {tab === 'editor' && <Section title={t("settings.editor")}>
+              <Field label={t("settings.tabWidth")} desc={t("settings.tabWidthDesc")}>
                 <Select value={String(settings.tabWidth)} onChange={(v) => useSettings.setState({ tabWidth: Number(v) })}
                   opts={[{ v: '2', l: '2 spaces' }, { v: '4', l: '4 spaces' }]} />
               </Field>
-              <Field label="Line numbers" desc="Show line numbers in the SQL editor.">
+              <Field label={t("settings.lineNumbers")} desc={t("settings.lineNumbersDesc")}>
                 <Toggle value={settings.showLineNumbers} onChange={(v) => useSettings.setState({ showLineNumbers: v })} />
               </Field>
-              <Field label="Lint debounce" desc="Delay before checking SQL syntax.">
+              <Field label={t("settings.lintDebounce")} desc={t("settings.lintDebounceDesc")}>
                 <Select value={String(settings.lintDebounceMs)} onChange={(v) => useSettings.setState({ lintDebounceMs: Number(v) })}
                   opts={[{ v: '100', l: '100 ms' }, { v: '280', l: '280 ms' }, { v: '500', l: '500 ms' }, { v: '800', l: '800 ms' }]} />
               </Field>
             </Section>}
 
-            {tab === 'results' && <Section title="Results">
-              <Field label="Max rows" desc="Maximum rows returned per query.">
+            {tab === 'results' && <Section title={t("settings.results")}>
+              <Field label={t("settings.maxRows")} desc={t("settings.maxRowsDesc")}>
                 <Select value={String(settings.maxQueryRows)} onChange={(v) => useSettings.setState({ maxQueryRows: Number(v) })}
                   opts={[{ v: '500', l: '500' }, { v: '1000', l: '1,000' }, { v: '5000', l: '5,000' }, { v: '10000', l: '10,000' }]} />
               </Field>
-              <Field label="Null display" desc="How NULL values appear in results.">
+              <Field label={t("settings.nullDisplay")} desc={t("settings.nullDisplayDesc")}>
                 <Select value={settings.nullDisplay} onChange={(v) => useSettings.setState({ nullDisplay: v as NullDisplay })}
-                  opts={[{ v: 'null', l: '(null)' }, { v: 'NULL', l: 'NULL' }, { v: 'dash', l: '— (dash)' }, { v: 'empty', l: 'Empty' }]} />
+                  opts={[{ v: 'null', l: '(null)' }, { v: 'NULL', l: 'NULL' }, { v: 'dash', l: t("settings.dash") }, { v: 'empty', l: t("settings.empty") }]} />
               </Field>
-              <Field label="Click to copy" desc="Single-click a cell to copy its value.">
+              <Field label={t("settings.clickToCopy")} desc={t("settings.clickToCopyDesc")}>
                 <Toggle value={settings.clickToCopy} onChange={(v) => useSettings.setState({ clickToCopy: v })} />
               </Field>
             </Section>}
 
-            {tab === 'connections' && <Section title="Connections">
-              <Field label="Auto-reconnect" desc="Restore the last active connection on startup.">
+            {tab === 'connections' && <Section title={t("settings.connections")}>
+              <Field label={t("settings.autoReconnect")} desc={t("settings.autoReconnectDesc")}>
                 <Toggle value={settings.autoReconnect} onChange={(v) => useSettings.setState({ autoReconnect: v })} />
               </Field>
-              <Field label="Health ping" desc="How often to check connection health.">
+              <Field label={t("settings.healthPing")} desc={t("settings.healthPingDesc")}>
                 <Select value={String(settings.pingIntervalSec)} onChange={(v) => useSettings.setState({ pingIntervalSec: Number(v) })}
-                  opts={[{ v: '0', l: 'Off' }, { v: '15', l: '15s' }, { v: '30', l: '30s' }, { v: '60', l: '1 min' }, { v: '120', l: '2 min' }]} />
+                  opts={[{ v: '0', l: t("settings.off") }, { v: '15', l: '15s' }, { v: '30', l: '30s' }, { v: '60', l: '1 min' }, { v: '120', l: '2 min' }]} />
               </Field>
             </Section>}
 
-            {tab === 'veloxy' && <Section title="Veloxy">
-              <Field label="Provider" desc="Ask Veloxy uses OpenRouter with your own API key.">
+            {tab === 'veloxy' && <Section title={t("settings.veloxy")}>
+              <Field label={t("settings.provider")} desc={t("settings.providerDesc")}>
                 <span className="inline-flex items-center h-8 px-3 rounded-md border border-border bg-muted/50 text-xs text-foreground">
                   OpenRouter
                 </span>
               </Field>
-              <Field label="OpenRouter API key" desc="Used for Ask Veloxy model calls.">
+              <Field label={t("settings.openRouterApiKey")} desc={t("settings.openRouterApiKeyDesc")}>
                 <Input
                   type="password"
                   value={settings.veloxyOpenRouterApiKey}
@@ -224,7 +230,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   spellCheck={false}
                 />
               </Field>
-              <Field label="Base URL" desc="Advanced: custom OpenRouter-compatible endpoint.">
+              <Field label={t("settings.baseUrl")} desc={t("settings.baseUrlDesc")}>
                 <Input
                   value={settings.veloxyBaseUrl}
                   onChange={(e) => {
@@ -238,7 +244,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   spellCheck={false}
                 />
               </Field>
-              <Field label="Model" desc="Popular presets plus live model list from OpenRouter.">
+              <Field label={t("settings.model")} desc={t("settings.modelDesc")}>
                 <div className="flex items-center gap-2">
                   <Select
                     value={settings.veloxyModel}
@@ -256,7 +262,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                     disabled={modelsStatus === 'loading'}
                   >
                     <ArrowsClockwiseIcon className={cn('mr-1 size-3.5', modelsStatus === 'loading' && 'animate-spin')} />
-                    Refresh
+                    {t("settings.refreshModels")}
                   </Button>
                 </div>
               </Field>
@@ -265,14 +271,14 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               ) : null}
             </Section>}
 
-            {tab === 'notifications' && <Section title="Notifications">
-              <Field label="Success toasts" desc="Show success confirmation toasts.">
+            {tab === 'notifications' && <Section title={t("settings.notifications")}>
+              <Field label={t("settings.successToasts")} desc={t("settings.successToastsDesc")}>
                 <Toggle
                   value={settings.toastLevels.success}
                   onChange={(v) => useSettings.setState({ toastLevels: { ...settings.toastLevels, success: v } })}
                 />
               </Field>
-              <Field label="Error toasts" desc="Show error toasts when operations fail.">
+              <Field label={t("settings.errorToasts")} desc={t("settings.errorToastsDesc")}>
                 <Toggle
                   value={settings.toastLevels.error}
                   onChange={(v) => useSettings.setState({ toastLevels: { ...settings.toastLevels, error: v } })}
@@ -280,38 +286,38 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               </Field>
             </Section>}
 
-            {tab === 'data' && <Section title="Data">
-              <Field label="Export settings" desc="Download all settings as a JSON file.">
+            {tab === 'data' && <Section title={t("settings.data")}>
+              <Field label={t("settings.exportSettings")} desc={t("settings.exportSettingsDesc")}>
                 <Button variant="outline" size="sm" className="h-8 text-xs" onClick={handleExport}>
-                  <DownloadSimpleIcon className="mr-1.5 size-3.5" />Export JSON
+                  <DownloadSimpleIcon className="mr-1.5 size-3.5" />{t("settings.exportSettings")}
                 </Button>
               </Field>
-              <Field label="Import settings" desc="Restore settings from a JSON file.">
+              <Field label={t("settings.importSettings")} desc={t("settings.importSettingsDesc")}>
                 <Button variant="outline" size="sm" className="h-8 text-xs" onClick={handleImport}>
-                  <UploadSimpleIcon className="mr-1.5 size-3.5" />Import JSON
+                  <UploadSimpleIcon className="mr-1.5 size-3.5" />{t("settings.importSettings")}
                 </Button>
               </Field>
-              <Field label="Clear query history" desc="Remove all saved query history and favorites.">
+              <Field label={t("settings.clearHistory")} desc={t("settings.clearHistoryDesc")}>
                 <Button variant="outline" size="sm" className="h-8 text-xs text-destructive hover:bg-destructive/10" onClick={() => {
-                  if (window.confirm('Clear all query history?')) { localStorage.removeItem('veloxdb.queryWorkspace.v2'); localStorage.removeItem('veloxdb.queryFavorites'); window.location.reload() }
+                  if (window.confirm(t("settings.clearHistoryConfirm"))) { localStorage.removeItem('veloxdb.queryWorkspace.v2'); localStorage.removeItem('veloxdb.queryFavorites'); window.location.reload() }
                 }}>
-                  <TrashIcon className="mr-1.5 size-3.5" />Clear history
+                  <TrashIcon className="mr-1.5 size-3.5" />{t("settings.clearHistory")}
                 </Button>
               </Field>
             </Section>}
 
-            {tab === 'about' && <Section title="About">
-              <Field label="Version" desc={`VeloxDB v${pkg.version}`}>
+            {tab === 'about' && <Section title={t("settings.about")}>
+              <Field label={t("settings.version")} desc={`VeloxDB v${pkg.version}`}>
                 <span className="inline-flex items-center h-8 px-3 rounded-md border border-border bg-muted/50 text-xs font-mono text-foreground">
                   v{pkg.version}
                 </span>
               </Field>
 
-              <Field label="License" desc="Released under the MIT License.">
+              <Field label={t("settings.license")} desc={t("settings.licenseDesc")}>
                 <span className="text-xs text-muted-foreground">MIT</span>
               </Field>
 
-              <Field label="Website" desc="Documentation, updates, and more.">
+              <Field label={t("settings.website")} desc={t("settings.websiteDesc")}>
                 <a
                   href={VELOXDB_SITE}
                   target="_blank"
@@ -323,7 +329,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 </a>
               </Field>
 
-              <Field label="GitHub" desc="Source code, issues, and releases.">
+              <Field label={t("settings.github")} desc={t("settings.githubDesc")}>
                 <a
                   href={`https://github.com/${GITHUB_REPO}`}
                   target="_blank"
@@ -335,7 +341,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 </a>
               </Field>
 
-              <Field label="Support" desc="Keep VeloxDB free, support us.">
+              <Field label={t("settings.support")} desc={t("settings.supportDesc")}>
                 <iframe
                   src="https://github.com/sponsors/abeni16/button"
                   title="Sponsor abeni16"
@@ -345,7 +351,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 />
               </Field>
 
-              <Field label="Check for updates" desc="See if a newer version is available on GitHub.">
+              <Field label={t("settings.checkUpdates")} desc={t("settings.checkUpdatesDesc")}>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
@@ -354,10 +360,10 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                     onClick={checkForUpdates}
                     disabled={updateStatus === 'checking'}
                   >
-                    {updateStatus === 'checking' ? 'Checking...' : 'Check now'}
+                    {updateStatus === 'checking' ? t("settings.checking") : t("settings.checkNow")}
                   </Button>
                   {updateStatus === 'up-to-date' && (
-                    <span className="text-xs text-emerald-600">Up to date</span>
+                    <span className="text-xs text-emerald-600">{t("settings.upToDate")}</span>
                   )}
                   {updateStatus === 'available' && latestVersion && (
                     <a
@@ -366,12 +372,12 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs text-amber-500 hover:underline"
                     >
-                      v{latestVersion} available
+                      {t("settings.available", { version: latestVersion })}
                       <ArrowSquareOutIcon className="size-3" />
                     </a>
                   )}
                   {updateStatus === 'error' && (
-                    <span className="text-xs text-destructive">Failed to check</span>
+                    <span className="text-xs text-destructive">{t("settings.failedToCheck")}</span>
                   )}
                 </div>
               </Field>

@@ -16,6 +16,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { ColumnProperties, QueryResult, TableInfo } from "@/data/types";
 import { ResultsToolbar } from "@/features/queries/components/ResultsToolbar";
@@ -260,6 +261,7 @@ export function ResultsGrid({
 	onInsertRowSuccess = () => {},
 	onDeleteRows,
 }: ResultsGridProps) {
+	const { t } = useTranslation()
 	const parentRef = useRef<HTMLDivElement | null>(null);
 	const horizontalScrollRef = useRef<HTMLDivElement | null>(null);
 	const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -289,7 +291,7 @@ export function ResultsGrid({
 		onError: (error) => {
 			notifyError(error, {
 				category: "query",
-				title: "Insert failed",
+				title: t("editor.insertFailed"),
 			});
 		},
 	});
@@ -567,7 +569,7 @@ export function ResultsGrid({
 							<button
 								type="button"
 								className={`w-full min-w-0 truncate text-left ${value === null ? "text-muted-foreground" : ""}`}
-								title="Click to edit"
+								title={t("editor.clickToEdit")}
 								onClick={() => setEditingCell({ rowId, columnId })}
 							>
 								{formatValue(value)}
@@ -766,7 +768,7 @@ export function ResultsGrid({
 		}
 		if (columns.length === 0) {
 			setGridError(
-				"Run a query that returns at least one column (for example SELECT * FROM your_table LIMIT 1), then use Add row again.",
+				t("editor.insertNoColumns"),
 			);
 		}
 	}, [insertRowTrigger, canInsertRow, columns.length]);
@@ -787,7 +789,7 @@ export function ResultsGrid({
 		}
 		if (!canEdit) {
 			setGridError(
-				saveDisabledReason ?? "Editing is disabled for this result set.",
+				saveDisabledReason ?? t("editor.editingDisabled"),
 			);
 			return;
 		}
@@ -830,9 +832,9 @@ export function ResultsGrid({
 			.filter((patch): patch is ResultEditPatch => patch !== null);
 
 		if (patches.length === 0) {
-			setGridError(
-				"No editable row changes found. Ensure rows have primary keys and edited values differ.",
-			);
+		setGridError(
+			t("editor.noEditableChanges"),
+		);
 			return;
 		}
 
@@ -852,7 +854,7 @@ export function ResultsGrid({
 
 		const selectedRowIds = Object.keys(rowSelection);
 		if (selectedRowIds.length === 0) {
-			setGridError("Select one or more rows to delete.");
+			setGridError(t("editor.selectRowsToDelete"));
 			return;
 		}
 
@@ -865,7 +867,7 @@ export function ResultsGrid({
 		}
 
 		if (pkValues.length === 0) {
-			setGridError("None of the selected rows have a usable primary key.");
+			setGridError(t("editor.noUsablePrimaryKey"));
 			return;
 		}
 
@@ -904,7 +906,7 @@ export function ResultsGrid({
 			.filter((column) => column.id !== "__select")
 			.map((column) => column.id);
 		if (exportColumns.length === 0) {
-			setGridError("No visible data columns to copy.");
+			setGridError(t("editor.noVisibleColumnsToCopy"));
 			return;
 		}
 
@@ -915,7 +917,7 @@ export function ResultsGrid({
 			const message =
 				error instanceof Error ? error.message : "Failed to copy rows.";
 			setGridError(message);
-			notifyError(error, { title: "Copy failed", category: "internal" });
+			notifyError(error, { title: t("editor.copyFailed"), category: "internal" });
 		}
 	};
 
@@ -924,7 +926,7 @@ export function ResultsGrid({
 			.filter((column) => column.id !== "__select")
 			.map((column) => column.id);
 		if (exportColumns.length === 0) {
-			setGridError("No visible data columns to export.");
+			setGridError(t("editor.noVisibleColumnsToExport"));
 			return;
 		}
 
@@ -937,7 +939,7 @@ export function ResultsGrid({
 			);
 		} catch (error) {
 			const message =
-				error instanceof Error ? error.message : "Failed to download CSV.";
+				error instanceof Error ? error.message : t("editor.failedToDownloadCsv");
 			setGridError(message);
 			notifyError(error, { title: "CSV export failed", category: "internal" });
 		}
@@ -948,7 +950,7 @@ export function ResultsGrid({
 			.filter((column) => column.id !== "__select")
 			.map((column) => column.id);
 		if (exportColumns.length === 0) {
-			setGridError("No visible data columns to export.");
+			setGridError(t("editor.noVisibleColumnsToExport"));
 			return;
 		}
 
@@ -961,7 +963,7 @@ export function ResultsGrid({
 			);
 		} catch (error) {
 			const message =
-				error instanceof Error ? error.message : "Failed to download JSON.";
+				error instanceof Error ? error.message : t("editor.failedToDownloadJson");
 			setGridError(message);
 			notifyError(error, { title: "JSON export failed", category: "internal" });
 		}
@@ -989,7 +991,7 @@ export function ResultsGrid({
 		}
 
 		if (missing.length > 0) {
-			setGridError(`Required values missing for: ${missing.join(", ")}`);
+			setGridError(t("editor.requiredValuesMissing", { fields: missing.join(", ") }));
 			return;
 		}
 
@@ -1005,7 +1007,7 @@ export function ResultsGrid({
 			insertMutation.reset();
 			onInsertRowSuccess();
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "Insert failed";
+			const message = error instanceof Error ? error.message : t("editor.insertFailed");
 			setGridError(message);
 		}
 	};
@@ -1074,7 +1076,7 @@ export function ResultsGrid({
               !canEdit
                 ? saveDisabledReason
                 : Object.keys(rowSelection).length === 0
-                  ? "Select rows to delete"
+                  ? t("editor.selectRowsToDelete")
                   : undefined
             }
           />
@@ -1276,34 +1278,24 @@ export function ResultsGrid({
 				<div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
 					{result == null ? (
 						<>
-							<span>Run a query to see results here.</span>
+							<span>{t("editor.runQueryToSeeResults")}</span>
 							{canInsertRow ? (
 								<span className="max-w-md">
-									<strong className="text-foreground">Add row</strong> is in the
-									toolbar above. It needs a result grid with columns—run
-									something like{" "}
-									<code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground">
-										SELECT * FROM … LIMIT 50
-									</code>{" "}
-									first, then click Add row again.
+									{t("editor.addRowHint")}
 								</span>
 							) : null}
 						</>
 					) : (
 						<>
-							<span>Statement completed without a rowset.</span>
+							<span>{t("editor.statementCompleted")}</span>
 							<span>
 								{result.commandTag
-									? `${result.commandTag} rows affected.`
-									: "No rows returned."}
+									? t("editor.rowsAffected", { count: result.commandTag })
+									: t("editor.noRowsReturned")}
 							</span>
 							{canInsertRow ? (
 								<span className="max-w-md">
-									Inline add row needs a query that returns columns. Try a{" "}
-									<code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground">
-										SELECT
-									</code>{" "}
-									that lists the columns you want to fill.
+									{t("editor.inlineAddRowHint")}
 								</span>
 							) : null}
 						</>
@@ -1313,7 +1305,7 @@ export function ResultsGrid({
 			<div className="border-t border-border bg-muted/10 px-3 py-1.5 text-[11px] text-muted-foreground">
 				{saveDisabledReason && !canEdit
 					? saveDisabledReason
-					: `${Object.keys(rowSelection).length} row(s) selected`}
+					: t("editor.rowsSelected", { count: Object.keys(rowSelection).length })}
 			</div>
 			{gridError ? (
 				<div className="border-t border-border bg-destructive/10 px-3 py-1.5 text-[11px] text-destructive">

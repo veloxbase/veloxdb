@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { TrashIcon } from '@phosphor-icons/react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +19,7 @@ export function TriggerInspectorSection({
   pendingTriggers,
   onChange,
 }: TriggerInspectorSectionProps) {
+  const { t } = useTranslation()
   const [sql, setSql] = useState('')
   const [operation, setOperation] = useState<'create' | 'drop'>('create')
   const [label, setLabel] = useState('')
@@ -25,11 +27,11 @@ export function TriggerInspectorSection({
   return (
     <div className="space-y-2">
       <p className="text-[10px] text-muted-foreground">
-        PostgreSQL-only: queue TRIGGER statements for apply.
+        {t("model.triggerDesc")}
       </p>
       <Input
         className="h-8 text-xs"
-        placeholder="Label (optional)"
+        placeholder={t("model.labelOptional")}
         value={label}
         onChange={(e) => setLabel(e.target.value)}
       />
@@ -38,8 +40,8 @@ export function TriggerInspectorSection({
         value={operation}
         onChange={(e) => setOperation(e.target.value as 'create' | 'drop')}
       >
-        <option value="create">Create trigger</option>
-        <option value="drop">Drop trigger</option>
+        <option value="create">{t("model.createTrigger")}</option>
+        <option value="drop">{t("model.dropTrigger")}</option>
       </select>
       <Textarea
         className="min-h-24 font-mono text-[11px]"

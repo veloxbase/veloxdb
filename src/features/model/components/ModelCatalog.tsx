@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { useTranslation } from 'react-i18next'
 
 import { CrosshairIcon } from '@phosphor-icons/react'
 
@@ -35,6 +36,7 @@ export function ModelCatalog({
   onRequestColumns,
   onLocateOnDiagram,
 }: ModelCatalogProps) {
+  const { t } = useTranslation()
   const [needle, setNeedle] = useState('')
   const parentRef = useRef<HTMLDivElement>(null)
 
@@ -102,7 +104,7 @@ export function ModelCatalog({
                   <span className="font-medium text-foreground">{table.name}</span>
                   {onCanvas ? (
                     <span className="ml-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-                      on diagram
+                      {t("model.onDiagram")}
                     </span>
                   ) : null}
                 </button>
@@ -114,8 +116,8 @@ export function ModelCatalog({
                         variant="ghost"
                         size="icon"
                         className="size-7 shrink-0"
-                        title="Show on diagram"
-                        aria-label={`Show ${key} on diagram`}
+                        title={t("model.showOnDiagram")}
+                        aria-label={`${t("model.showOnDiagram")} ${key}`}
                         onClick={(e) => {
                           e.stopPropagation()
                           onLocateOnDiagram(key)
@@ -131,7 +133,7 @@ export function ModelCatalog({
                       className="h-7 shrink-0 px-2 text-[11px]"
                       onClick={() => onRemoveFromCanvas(table)}
                     >
-                      Remove
+                      {t("model.remove")}
                     </Button>
                   </>
                 ) : (
@@ -142,7 +144,7 @@ export function ModelCatalog({
                     className="h-7 shrink-0 px-2 text-[11px]"
                     onClick={() => onAddToCanvas(table)}
                   >
-                    Add
+                    {t("model.add")}
                   </Button>
                 )}
               </div>
@@ -151,7 +153,7 @@ export function ModelCatalog({
         </div>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        {filtered.length} of {tables.length} tables in catalog; {onDiagramCount} on diagram
+        {t("model.catalogSummary", { filtered: filtered.length, total: tables.length, onDiagram: onDiagramCount })}
       </p>
     </div>
   )

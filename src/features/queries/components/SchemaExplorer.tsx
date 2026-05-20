@@ -8,6 +8,7 @@ import {
   TableIcon,
 } from '@phosphor-icons/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,6 +30,7 @@ type TreeNode = {
 }
 
 export function SchemaExplorer({ connectionId, onInsertText }: SchemaExplorerProps) {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState(false)
   const [tab, setTab] = useState<'tables' | 'functions'>('tables')
@@ -97,7 +99,7 @@ export function SchemaExplorer({ connectionId, onInsertText }: SchemaExplorerPro
   if (collapsed) {
     return (
       <div className="flex shrink-0 flex-col items-center gap-2 border-r border-border py-2">
-        <Button variant="ghost" size="icon-sm" onClick={() => setCollapsed(false)} title="Expand schema explorer">
+        <Button variant="ghost" size="icon-sm" onClick={() => setCollapsed(false)} title={t("editor.expand")}>
           <SidebarSimpleIcon className="size-4 rotate-180" />
         </Button>
       </div>
@@ -108,14 +110,14 @@ export function SchemaExplorer({ connectionId, onInsertText }: SchemaExplorerPro
     <div className="flex w-[220px] shrink-0 flex-col border-r border-border bg-muted/20">
       <div className="flex items-center justify-between gap-1 border-b border-border px-2 py-1.5">
         <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-          Schema
+          {t("editor.schema")}
         </span>
         <div className="flex items-center gap-0.5">
           <Button
             variant="ghost"
             size="icon-sm"
             onClick={() => refetch()}
-            title="Refresh schema"
+            title={t("editor.refreshSchema")}
             className="size-6"
           >
             <CubeIcon className="size-3" />
@@ -124,7 +126,7 @@ export function SchemaExplorer({ connectionId, onInsertText }: SchemaExplorerPro
             variant="ghost"
             size="icon-sm"
             onClick={() => setCollapsed(true)}
-            title="Collapse"
+            title={t("editor.collapse")}
             className="size-6"
           >
             <SidebarSimpleIcon className="size-3" />
@@ -140,7 +142,7 @@ export function SchemaExplorer({ connectionId, onInsertText }: SchemaExplorerPro
           onClick={() => setTab('tables')}
         >
           <TableIcon className="mr-1 size-3" />
-          Tables
+          {t("editor.tables")}
         </Button>
         <Button
           variant={tab === 'functions' ? 'secondary' : 'ghost'}
@@ -149,7 +151,7 @@ export function SchemaExplorer({ connectionId, onInsertText }: SchemaExplorerPro
           onClick={() => setTab('functions')}
         >
           <FunctionIcon className="mr-1 size-3" />
-          Functions
+          {t("editor.functions")}
         </Button>
       </div>
 

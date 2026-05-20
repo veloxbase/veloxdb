@@ -2,6 +2,7 @@ import Editor from "@monaco-editor/react";
 import type { Monaco } from "@monaco-editor/react";
 import type { editor, IDisposable, languages } from "monaco-editor";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { QueryEditorMetadata, SqlDiagnostic } from "@/data/types";
 
@@ -193,6 +194,7 @@ export function SqlEditor({
 	metadata,
 	diagnostics,
 }: SqlEditorProps) {
+	const { t } = useTranslation()
 	const [editorInstance, setEditorInstance] =
 		useState<editor.IStandaloneCodeEditor | null>(null);
 	const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
@@ -262,13 +264,13 @@ export function SqlEditor({
 
 		instance.addAction({
 			id: "veloxdb-run-query",
-			label: "Run query",
+			label: t("editor.runQueryBtn"),
 			keybindings: [2048 | 3, 256 | 3],
 			run: () => onRun(),
 		});
 		instance.addAction({
 			id: "veloxdb-run-statement",
-			label: "Run statement",
+			label: t("editor.runStatement"),
 			keybindings: [1024 | 3],
 			run: () => onRunStatement(resolveCurrentStatement(instance)),
 		});

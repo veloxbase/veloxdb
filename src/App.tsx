@@ -9,6 +9,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
@@ -123,6 +124,7 @@ function engineLabel(engine: ConnectionSummary["engine"]): string {
 }
 
 function VeloxApp() {
+	const { t } = useTranslation();
 	const [connection, setConnection] = useState<ConnectionSummary | null>(null);
 	const queryWorkspaceRef = useRef<QueryWorkspaceHandle>(null);
 	const [focusedQueryCaps, setFocusedQueryCaps] = useState({
@@ -199,10 +201,10 @@ function VeloxApp() {
 	useEffect(() => {
 		if (connectionsQuery.isError && connectionsQuery.error) {
 			notifyError(connectionsQuery.error, {
-				title: "Failed to load saved connections",
+				title: t("connection.failedToLoad"),
 			});
 		}
-	}, [connectionsQuery.isError, connectionsQuery.error]);
+	}, [connectionsQuery.isError, connectionsQuery.error, t]);
 
 	const connectMutation = useConnectMutation({
 		onError: (error) => {
@@ -210,7 +212,7 @@ function VeloxApp() {
 		},
 		onSuccess: (nextConnection) => {
 			notifySuccess(
-				`Connected to ${nextConnection.database}`,
+				t("connection.connected", { database: nextConnection.database }),
 				connectionSecondaryText(nextConnection),
 			);
 			persistLastActiveConnectionId(nextConnection.id);
@@ -255,7 +257,7 @@ function VeloxApp() {
 				setSelectedTable(null);
 				setTableSearch("");
 			}
-			notifySuccess("Connection deleted");
+			notifySuccess(t("connection.deleted"));
 		},
 	});
 
@@ -311,7 +313,7 @@ function VeloxApp() {
 		onError: (error) => {
 			notifyError(error, {
 				category: "query",
-				title: "Failed to save edits",
+				title: t("editor.failedToSave"),
 			});
 		},
 	});
@@ -319,28 +321,28 @@ function VeloxApp() {
 		onError: (error) => {
 			notifyError(error, {
 				category: "query",
-				title: "Failed to delete rows",
+				title: t("editor.failedToDelete"),
 			});
 		},
 	});
 	const connectionsErrorMessage =
 		connectionsQuery.error instanceof Error
 			? connectionsQuery.error.message
-			: "Failed to load saved connections";
+			: t("connection.failedToLoad");
 
 	const tablesErrorMessage =
 		tablesQuery.error instanceof Error
 			? tablesQuery.error.message
-			: "Failed to load tables";
+			: t("table.failedToLoad");
 
 	const schemaErrorMessage =
 		schemaQuery.error instanceof Error
 			? schemaQuery.error.message
-			: "Failed to load table schema";
+			: t("table.failedToLoadSchema");
 	const tablePropertiesErrorMessage =
 		tablePropertiesQuery.error instanceof Error
 			? tablePropertiesQuery.error.message
-			: "Failed to load table properties";
+			: t("table.failedToLoadProperties");
 
 	const tablesForUi = tablesQuery.data ?? [];
 
@@ -597,7 +599,7 @@ function VeloxApp() {
 	const handleDisconnectConnectionRequest = useCallback(
 		(connectionTarget: ConnectionSummary) => {
 			const confirmed = window.confirm(
-				`Delete connection "${connectionTarget.name}"?\n\nThis will remove it from saved connections and close any active SSH tunnels.`,
+				t("connection.deleteConfirm", { name: connectionTarget.name }),
 			);
 			if (!confirmed) return;
 
@@ -738,7 +740,7 @@ function VeloxApp() {
 	const connectionErrorMessage =
 		connectionError instanceof Error
 			? connectionError.message
-			: "Failed to connect";
+			: t("connection.failedToConnect");
 	const primaryKeyColumns =
 		tablePropertiesQuery.data
 			?.filter((column) => column.isPrimaryKey)
@@ -756,15 +758,15 @@ function VeloxApp() {
 		hasPrimaryKey &&
 		!tablePropertiesQuery.isError;
 	const saveDisabledReason = !hasSelectedTable
-		? "Select a table to enable row editing."
+		? t("editor.selectTable")
 		: !hasQueryResult
-			? "Run a query to edit rows."
+			? t("editor.runQuery")
 			: tablePropertiesQuery.isLoading
-				? "Loading table metadata..."
+				? t("editor.loadingMetadata")
 				: tablePropertiesQuery.isError
 					? tablePropertiesErrorMessage
 					: !hasPrimaryKey
-						? "Editing requires a primary key on the selected table."
+						? t("editor.requiresPrimaryKey")
 						: undefined;
 
 	const handleSaveResultEdits = async (patches: ResultEditPatch[]) => {
@@ -804,17 +806,17 @@ function VeloxApp() {
 		requestId: string,
 	): Promise<AskVeloxyChatResponse> => {
 			if (!connection?.id) {
-				const message = "Select a connection before using Ask Veloxy.";
+				const message = t("veloxy.selectConnection");
 				setAskVeloxyError(message);
 				throw new Error(message);
 			}
 			if (!veloxyOpenRouterApiKey.trim()) {
-				const message = "Add your OpenRouter API key in Settings → Veloxy.";
+				const message = t("veloxy.addApiKey");
 				setAskVeloxyError(message);
 				throw new Error(message);
 			}
 			if (!veloxyModel.trim()) {
-				const message = "Choose a Veloxy model in Settings → Veloxy.";
+				const message = t("veloxy.chooseModel");
 				setAskVeloxyError(message);
 				throw new Error(message);
 			}
@@ -839,9 +841,9 @@ function VeloxApp() {
 				const message =
 					error instanceof Error
 						? error.message
-						: "Ask Veloxy chat failed.";
+						: t("veloxy.chatFailed");
 				setAskVeloxyError(message);
-				notifyError(error, { category: "query", title: "Ask Veloxy chat failed" });
+				notifyError(error, { category: "query", title: t("veloxy.chatFailed") });
 				throw error instanceof Error ? error : new Error(message);
 			} finally {
 				setAskVeloxyPending(false);
@@ -862,17 +864,17 @@ function VeloxApp() {
 		naturalPrompt: string,
 	): Promise<AskVeloxySubmitResult> => {
 			if (!connection?.id) {
-				const message = "Select a connection before using Ask Veloxy.";
+				const message = t("veloxy.selectConnection");
 				setAskVeloxyError(message);
 				throw new Error(message);
 			}
 			if (!veloxyOpenRouterApiKey.trim()) {
-				const message = "Add your OpenRouter API key in Settings → Veloxy.";
+				const message = t("veloxy.addApiKey");
 				setAskVeloxyError(message);
 				throw new Error(message);
 			}
 			if (!veloxyModel.trim()) {
-				const message = "Choose a Veloxy model in Settings → Veloxy.";
+				const message = t("veloxy.chooseModel");
 				setAskVeloxyError(message);
 				throw new Error(message);
 			}
@@ -903,7 +905,7 @@ function VeloxApp() {
 
 				if (canAutoRun) {
 					queryWorkspaceRef.current?.openTabWithSqlAndRun(sql);
-					notifySuccess("Veloxy generated SQL", "Auto-ran safe read query");
+					notifySuccess(t("veloxy.generatedSql"), t("veloxy.autoRan"));
 					return {
 						response,
 						decision: "auto-ran",
@@ -915,17 +917,17 @@ function VeloxApp() {
 					response,
 					decision: "needs-confirmation",
 					decisionReason: isReadIntent
-						? "Read query looks large/risky. Confirm before running."
-						: "Non-read query requires confirmation before running.",
+						? t("veloxy.needsConfirmation")
+						: t("veloxy.nonReadConfirmation"),
 					pendingSql: sql,
 				};
 			} catch (error) {
 				const message =
 					error instanceof Error
 						? error.message
-						: "Ask Veloxy failed to generate SQL.";
+						: t("veloxy.generateFailed");
 				setAskVeloxyError(message);
-				notifyError(error, { category: "query", title: "Ask Veloxy failed" });
+				notifyError(error, { category: "query", title: t("veloxy.generateFailed") });
 				throw error instanceof Error ? error : new Error(message);
 			} finally {
 				setAskVeloxyPending(false);
@@ -940,7 +942,7 @@ function VeloxApp() {
 			const message =
 				error instanceof Error
 					? error.message
-					: "Failed to load Ask Veloxy conversation.";
+					: t("veloxy.loadFailed");
 			setAskVeloxyError(message);
 			return { messages: [] };
 		}
@@ -954,7 +956,7 @@ function VeloxApp() {
 			const message =
 				error instanceof Error
 					? error.message
-					: "Failed to clear Ask Veloxy conversation.";
+					: t("veloxy.clearFailed");
 			setAskVeloxyError(message);
 			throw error;
 		}
@@ -1051,14 +1053,14 @@ function VeloxApp() {
 							>
 								<TabsList variant="line" className="h-8">
 									<TabsTrigger value="query" className="px-2.5 text-xs">
-										Query
+										{t("workspace.query")}
 									</TabsTrigger>
 									<TabsTrigger
 										value="model"
 										className="px-2.5 text-xs"
 										disabled={Boolean(connection && connection.engine !== "postgres")}
 									>
-										Model
+										{t("workspace.model")}
 									</TabsTrigger>
 								</TabsList>
 							</Tabs>
@@ -1070,7 +1072,7 @@ function VeloxApp() {
                 <p className="truncate text-sm text-foreground">
                   {connection
                     ? connectionHeadline(connection)
-                    : "Choose a saved connection or create a new one to start querying"}
+                    : t("workspace.chooseConnection")}
                 </p>
               </div>
 						</div>
@@ -1082,7 +1084,7 @@ function VeloxApp() {
 								onClick={() => setCommandPaletteOpen(true)}
 							>
 								<SidebarSimpleIcon />
-								Palette
+								{t("sidebar.palette")}
 							</Button>
 							<Button
 								variant="outline"
@@ -1090,7 +1092,7 @@ function VeloxApp() {
 								onClick={() => setSettingsOpen(true)}
 							>
 								<GearIcon />
-								Settings
+								{t("sidebar.settings")}
 							</Button>
 						</div>
 					</div>
@@ -1150,7 +1152,7 @@ function VeloxApp() {
 								onClearConversation={handleClearVeloxyConversation}
 								onConfirmRun={async (sql) => {
 									queryWorkspaceRef.current?.openTabWithSqlAndRun(sql);
-									notifySuccess("Veloxy query executed");
+									notifySuccess(t("veloxy.queryExecuted"));
 								}}
 								onInsertSql={(sql) => {
 									queryWorkspaceRef.current?.appendQuerySql(sql);
@@ -1184,14 +1186,13 @@ function VeloxApp() {
 							/>
 						) : (
 							<div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-								Model workspace currently supports PostgreSQL only. Active engine:{' '}
-								{engineLabel(connection.engine)}.
+								{t("model.postgresOnly", { engine: engineLabel(connection.engine) })}
 							</div>
 						)}
 					</ErrorBoundary>
 				) : (
 					<div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
-						Connect to a database to use the model workspace.
+						{t("model.connectToUse")}
 					</div>
 				)}
 			</main>

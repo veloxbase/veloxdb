@@ -20,6 +20,7 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react'
 import { toPng } from 'html-to-image'
+import { useTranslation } from 'react-i18next'
 
 import { buildRoutedDiagramEdges } from '@/features/model/diagram-geometry/edge-routing'
 import type {
@@ -296,6 +297,7 @@ export function ReactFlowCanvas({
   exportRef,
   viewportControlRef,
 }: DiagramSurfaceProps) {
+  const { t } = useTranslation()
   const wrapperRef = useRef<HTMLDivElement>(null)
   const rfRef = useRef<ReactFlowInstance<Node, Edge> | null>(null)
   const [spaceHeld, setSpaceHeld] = useState(false)
@@ -630,15 +632,15 @@ export function ReactFlowCanvas({
           position="top-right"
         />
         <Controls position="top-left" showInteractive={false}>
-          <ControlButton onClick={handleFitAll} title="Fit all tables">
+          <ControlButton onClick={handleFitAll} title={t("model.fitAllTables")}>
             A
           </ControlButton>
-          <ControlButton onClick={handleFitSelection} title="Fit selected tables">
+          <ControlButton onClick={handleFitSelection} title={t("model.fitSelectedTables")}>
             S
           </ControlButton>
         </Controls>
         <Panel position="bottom-left" className="rounded border border-border bg-background/80 px-2 py-1 text-[10px] text-muted-foreground">
-          Hover a table for connection handles. Drag nodes to move. Scroll to pan (Cmd+scroll to zoom). Space+drag pans. Shift+click multi‑selects.
+          {t("model.diagramHelp")}
         </Panel>
       </ReactFlow>
     </div>

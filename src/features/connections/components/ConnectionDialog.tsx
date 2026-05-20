@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useTranslation } from 'react-i18next'
 
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog'
 import { FolderOpenIcon } from '@phosphor-icons/react'
@@ -156,26 +157,23 @@ interface CustomParam {
   value: string
 }
 
-const engineOptions: Array<{
-  value: DatabaseEngine
-  label: string
-  hint: string
-  experimental?: boolean
-}> = [
-  { value: 'postgres', label: 'PostgreSQL', hint: 'Recommended default' },
-  { value: 'mysql', label: 'MySQL', hint: 'MariaDB compatible' },
-  { value: 'sqlite', label: 'SQLite', hint: 'Experimental', experimental: true },
-]
-
 export function ConnectionDialog({
   open,
   onOpenChange,
   onSubmit,
   isPending = false,
 }: ConnectionDialogProps) {
+  const { t } = useTranslation()
+
+  const engineOptionsWithLabels = useMemo(() => [
+    { value: 'postgres' as DatabaseEngine, label: 'PostgreSQL', hint: t("connection.recommendedDefault") },
+    { value: 'mysql' as DatabaseEngine, label: 'MySQL', hint: t("connection.experimental"), experimental: true },
+    { value: 'sqlite' as DatabaseEngine, label: 'SQLite', hint: t("connection.experimental"), experimental: true },
+  ], [t])
+
   const defaultValues = useMemo(
     () => ({
-      name: 'Local Database',
+      name: t("connection.localDatabase"),
       engine: 'postgres' as DatabaseEngine,
       host: '127.0.0.1',
       port: 5432,
@@ -231,7 +229,7 @@ export function ConnectionDialog({
     }
     const parsed = parseConnectionString(value)
     if (!parsed) {
-      setConnStringError('Invalid connection string format.')
+      setConnStringError(t("connection.invalidConnectionString"))
       return
     }
     setConnStringError(null)
@@ -391,9 +389,9 @@ export function ConnectionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl border border-border p-0 sm:max-w-2xl">
         <DialogHeader className="border-b border-border px-6 py-4">
-          <DialogTitle>New connection</DialogTitle>
+          <DialogTitle>{t("connection.newConnection")}</DialogTitle>
           <DialogDescription>
-            Credentials are sent straight to the Tauri backend and persisted there.
+            {t("connection.credentialsInfo")}
           </DialogDescription>
         </DialogHeader>
 
@@ -410,7 +408,7 @@ export function ConnectionDialog({
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              Connection string
+              {t("connection.connectionStringMode")}
             </button>
             <button
               type="button"
@@ -422,7 +420,7 @@ export function ConnectionDialog({
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              Individual fields
+              {t("connection.individualFields")}
             </button>
           </div>
 
@@ -432,30 +430,29 @@ export function ConnectionDialog({
                 htmlFor="veloxdb-connection-string"
                 className="block text-xs text-muted-foreground"
               >
-                Connection URI
+                {t("connection.connectionUriLabel")}
               </label>
               <Input
                 id="veloxdb-connection-string"
                 value={connString}
                 onChange={(e) => handleConnStringChange(e.target.value)}
-                placeholder="postgresql://... or mysql://... or sqlite:///..."
+                placeholder={t("connection.connectionUriPlaceholder")}
                 className={connStringError ? 'border-destructive' : ''}
               />
               {connStringError && (
                 <span className="block text-xs text-destructive">{connStringError}</span>
               )}
               <p className="text-[11px] text-muted-foreground/80">
-                Paste a full connection URI with scheme (`postgresql://`, `mysql://`, or `sqlite:///`).
-                Individual fields will be populated automatically.
+                {t("connection.connectionUriDesc")}
               </p>
             </div>
           )}
 
           <div className={cn('grid gap-4 sm:grid-cols-2', inputMode === 'string' && 'hidden')}>
             <div className="space-y-2 sm:col-span-2">
-              <span className="block text-left text-xs text-muted-foreground">Database engine</span>
-              <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Database engine">
-                {engineOptions.map((option) => {
+              <span className="block text-left text-xs text-muted-foreground">{t("connection.databaseEngine")}</span>
+              <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label={t("connection.databaseEngineAria")}>
+                {engineOptionsWithLabels.map((option) => {
                   const inputId = `veloxdb-connection-engine-${option.value}`
                   const selected = engine === option.value
 
@@ -511,7 +508,7 @@ export function ConnectionDialog({
                             <span className="text-sm font-medium text-foreground">{option.label}</span>
                             {option.experimental ? (
                             <span className="rounded-full border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-normal text-amber-600 dark:text-amber-400">
-                                Experimental
+                                {t("connection.experimental")}
                               </span>
                             ) : null}
                           </div>
@@ -523,8 +520,7 @@ export function ConnectionDialog({
                 })}
               </div>
               <p className="text-[11px] text-muted-foreground/80">
-                PostgreSQL is the safest default. SQLite is marked experimental and may have
-                limited support.
+                {t("connection.engineDesc")}
               </p>
               {form.formState.errors.engine?.message ? (
                 <span className="block text-xs text-destructive">
@@ -534,21 +530,21 @@ export function ConnectionDialog({
             </div>
 
             <Field
-              label="Connection name"
+              label={t("connection.name")}
               inputId="veloxdb-connection-name"
               error={form.formState.errors.name?.message}
             >
               <Input
                 id="veloxdb-connection-name"
                 {...form.register('name')}
-                placeholder="VeloxDB local"
+                placeholder={t("connection.connectionNamePlaceholder")}
               />
             </Field>
 
             {engine !== 'sqlite' ? (
               <>
                 <Field
-                  label="Host"
+                  label={t("connection.host")}
                   inputId="veloxdb-connection-host"
                   error={form.formState.errors.host?.message}
                 >
@@ -560,7 +556,7 @@ export function ConnectionDialog({
                 </Field>
 
                 <Field
-                  label="Port"
+                  label={t("connection.port")}
                   inputId="veloxdb-connection-port"
                   error={form.formState.errors.port?.message}
                 >
@@ -568,7 +564,7 @@ export function ConnectionDialog({
                 </Field>
 
                 <Field
-                  label="Database"
+                  label={t("connection.database")}
                   inputId="veloxdb-connection-database"
                   error={form.formState.errors.database?.message}
                 >
@@ -580,7 +576,7 @@ export function ConnectionDialog({
                 </Field>
 
                 <Field
-                  label="User"
+                  label={t("connection.user")}
                   inputId="veloxdb-connection-user"
                   error={form.formState.errors.user?.message}
                 >
@@ -588,7 +584,7 @@ export function ConnectionDialog({
                 </Field>
 
                 <Field
-                  label="Password"
+                  label={t("connection.password")}
                   inputId="veloxdb-connection-password"
                   error={form.formState.errors.password?.message}
                 >
@@ -597,21 +593,21 @@ export function ConnectionDialog({
               </>
             ) : (
               <Field
-                label="SQLite file path"
+                label={t("connection.sqliteFilePath")}
                 inputId="veloxdb-connection-file-path"
                 error={form.formState.errors.filePath?.message}
               >
                 <Input
                   id="veloxdb-connection-file-path"
                   {...form.register('filePath')}
-                  placeholder="/absolute/path/to/database.db or :memory:"
+                  placeholder={t("connection.sqliteFilePlaceholder")}
                 />
               </Field>
             )}
 
             {engine === 'postgres' && (
               <Field
-                label="SSL mode"
+                label={t("connection.sslMode")}
                 inputId="veloxdb-connection-ssl-mode"
                 error={form.formState.errors.sslMode?.message}
               >
@@ -620,9 +616,9 @@ export function ConnectionDialog({
                   className={selectClassName}
                   {...form.register('sslMode')}
                 >
-                  <option value="disable">Disable (plain TCP)</option>
-                  <option value="prefer">Prefer (try TLS; local Postgres)</option>
-                  <option value="require">Require (Neon, hosted Postgres)</option>
+                  <option value="disable">{t("connection.sslDisable")}</option>
+                  <option value="prefer">{t("connection.sslPrefer")}</option>
+                  <option value="require">{t("connection.sslRequire")}</option>
                 </select>
               </Field>
             )}
@@ -636,12 +632,10 @@ export function ConnectionDialog({
                 {...form.register('sshEnabled')}
                 className="h-4 w-4 rounded border-input accent-primary"
               />
-              Connect via SSH tunnel
+              {t("connection.sshTunnel")}
             </label>
             <p className="mt-1 text-[11px] leading-snug text-muted-foreground/70">
-              Tunnel the database connection through a bastion/jump host. Key-based auth is
-              recommended. Password auth requires{' '}
-              <code className="rounded bg-muted px-1 py-px text-[11px]">sshpass</code> installed.
+              {t("connection.sshTunnelDesc")}
             </p>
           </div>
           )}
@@ -649,19 +643,19 @@ export function ConnectionDialog({
           {engine !== 'sqlite' && sshEnabled && (
             <div className="grid gap-4 sm:grid-cols-2">
               <Field
-                label="SSH host"
+                label={t("connection.sshHost")}
                 inputId="veloxdb-ssh-host"
                 error={form.formState.errors.sshHost?.message}
               >
                 <Input
                   id="veloxdb-ssh-host"
                   {...form.register('sshHost')}
-                  placeholder="bastion.example.com"
+                  placeholder={t("connection.sshHostPlaceholder")}
                 />
               </Field>
 
               <Field
-                label="SSH port"
+                label={t("connection.sshPort")}
                 inputId="veloxdb-ssh-port"
                 error={form.formState.errors.sshPort?.message}
               >
@@ -674,7 +668,7 @@ export function ConnectionDialog({
               </Field>
 
               <Field
-                label="SSH user"
+                label={t("connection.sshUser")}
                 inputId="veloxdb-ssh-user"
                 error={form.formState.errors.sshUser?.message}
               >
@@ -686,7 +680,7 @@ export function ConnectionDialog({
               </Field>
 
               <Field
-                label="Auth method"
+                label={t("connection.sshAuthMethod")}
                 inputId="veloxdb-ssh-auth-method"
                 error={form.formState.errors.sshAuthMethod?.message}
               >
@@ -695,14 +689,14 @@ export function ConnectionDialog({
                   className={selectClassName}
                   {...form.register('sshAuthMethod')}
                 >
-                  <option value="keyfile">Key file (recommended)</option>
-                  <option value="password">Password</option>
+                  <option value="keyfile">{t("connection.sshKeyFile")}</option>
+                  <option value="password">{t("connection.sshPassword")}</option>
                 </select>
               </Field>
 
               {sshAuthMethod === 'password' && (
                 <Field
-                  label="SSH password"
+                  label={t("connection.sshPassword")}
                   inputId="veloxdb-ssh-password"
                   error={form.formState.errors.sshPassword?.message}
                 >
@@ -710,7 +704,7 @@ export function ConnectionDialog({
                     id="veloxdb-ssh-password"
                     {...form.register('sshPassword')}
                     type="password"
-                    placeholder="SSH user password"
+                    placeholder={t("connection.sshPasswordPlaceholder")}
                   />
                 </Field>
               )}
@@ -718,19 +712,19 @@ export function ConnectionDialog({
               {sshAuthMethod === 'keyfile' && (
                 <>
                   <Field
-                    label="Private key path"
+                    label={t("connection.privateKeyPath")}
                     inputId="veloxdb-ssh-key-path"
                     error={form.formState.errors.sshPrivateKeyPath?.message}
                   >
                     <Input
                       id="veloxdb-ssh-key-path"
                       {...form.register('sshPrivateKeyPath')}
-                      placeholder="~/.ssh/id_rsa (optional)"
+                      placeholder={t("connection.privateKeyPlaceholder")}
                     />
                   </Field>
 
                   <Field
-                    label="Passphrase"
+                    label={t("connection.passphrase")}
                     inputId="veloxdb-ssh-passphrase"
                     error={form.formState.errors.sshPassphrase?.message}
                   >
@@ -738,7 +732,7 @@ export function ConnectionDialog({
                       id="veloxdb-ssh-passphrase"
                       {...form.register('sshPassphrase')}
                       type="password"
-                      placeholder="Key passphrase (optional)"
+                      placeholder={t("connection.passphrasePlaceholder")}
                     />
                   </Field>
                 </>
@@ -768,51 +762,50 @@ export function ConnectionDialog({
               >
                 <path d="m9 18 6-6-6-6" />
               </svg>
-              <span>Advanced parameters</span>
+              <span>{t("connection.advancedParameters")}</span>
             </button>
             <p className="mt-0.5 pl-6 text-[11px] text-muted-foreground/70">
-              Additional PostgreSQL connection parameters (libpq-compatible). Optional and only
-              applied to PostgreSQL.
+              {t("connection.advancedDesc2")}
             </p>
 
             {advancedOpen && (
               <div className="mt-4 space-y-4 pl-6">
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div className="space-y-1.5 text-xs text-muted-foreground">
-                    <span className="block">Connect timeout</span>
+                    <span className="block">{t("connection.connectTimeoutLabel")}</span>
                     <Input
                       value={advancedConnectTimeout}
                       onChange={(e) => setAdvancedConnectTimeout(e.target.value)}
-                      placeholder="12"
+                      placeholder={t("connection.connectTimeoutPlaceholder")}
                       inputMode="numeric"
                     />
                   </div>
 
                   <div className="space-y-1.5 text-xs text-muted-foreground">
-                    <span className="block">Application name</span>
+                    <span className="block">{t("connection.applicationNameLabel")}</span>
                     <Input
                       value={advancedAppName}
                       onChange={(e) => setAdvancedAppName(e.target.value)}
-                      placeholder="VeloxDB"
+                      placeholder={t("connection.applicationNamePlaceholder")}
                     />
                   </div>
 
                   <div className="space-y-1.5 text-xs text-muted-foreground">
-                    <span className="block">Keepalives idle</span>
+                    <span className="block">{t("connection.keepalivesIdleLabel")}</span>
                     <Input
                       value={advancedKeepalivesIdle}
                       onChange={(e) => setAdvancedKeepalivesIdle(e.target.value)}
-                      placeholder="60"
+                      placeholder={t("connection.keepalivesIdlePlaceholder")}
                       inputMode="numeric"
                     />
                   </div>
 
                   <div className="space-y-1.5 text-xs text-muted-foreground col-span-full sm:col-span-2">
-                    <span className="block">Options</span>
+                    <span className="block">{t("connection.optionsLabel")}</span>
                     <Input
                       value={advancedOptions}
                       onChange={(e) => setAdvancedOptions(e.target.value)}
-                      placeholder="-c statement_timeout=30000"
+                      placeholder={t("connection.optionsPlaceholder")}
                     />
                   </div>
 
@@ -823,27 +816,27 @@ export function ConnectionDialog({
                       onChange={(e) => setAdvancedKeepalives(e.target.checked)}
                       className="h-4 w-4 rounded border-input"
                     />
-                    Keepalives
+                    {t("connection.keepalivesLabel")}
                   </label>
                 </div>
 
                 <div className="border-t border-border/50 pt-4">
                   <span className="block text-xs text-muted-foreground mb-3">
-                    TLS Certificates
+                    {t("connection.tlsCertificates")}
                   </span>
                   <div className="grid gap-4 sm:grid-cols-3">
                     <div className="space-y-1.5 text-xs text-muted-foreground">
-                      <span className="block">Root certificate</span>
+                      <span className="block">{t("connection.rootCertLabel")}</span>
                       <InputGroup>
                         <InputGroupInput
                           value={advancedSslRootCert}
                           onChange={(e) => setAdvancedSslRootCert(e.target.value)}
-                          placeholder="/path/to/ca.crt"
+                          placeholder={t("connection.rootCertPlaceholder")}
                         />
                         <InputGroupAddon align="inline-end">
                           <InputGroupButton
                             size="icon-xs"
-                            title="Browse"
+                            title={t("connection.browse")}
                             onClick={() => pickFile(setAdvancedSslRootCert, [{ name: 'Certificate', extensions: ['pem', 'crt', 'cer'] }])}
                           >
                             <FolderOpenIcon />
@@ -853,17 +846,17 @@ export function ConnectionDialog({
                     </div>
 
                     <div className="space-y-1.5 text-xs text-muted-foreground">
-                      <span className="block">Client certificate</span>
+                      <span className="block">{t("connection.clientCertLabel")}</span>
                       <InputGroup>
                         <InputGroupInput
                           value={advancedSslCert}
                           onChange={(e) => setAdvancedSslCert(e.target.value)}
-                          placeholder="/path/to/client.crt"
+                          placeholder={t("connection.clientCertPlaceholder")}
                         />
                         <InputGroupAddon align="inline-end">
                           <InputGroupButton
                             size="icon-xs"
-                            title="Browse"
+                            title={t("connection.browse")}
                             onClick={() => pickFile(setAdvancedSslCert, [{ name: 'Certificate', extensions: ['pem', 'crt', 'cer'] }])}
                           >
                             <FolderOpenIcon />
@@ -873,17 +866,17 @@ export function ConnectionDialog({
                     </div>
 
                     <div className="space-y-1.5 text-xs text-muted-foreground">
-                      <span className="block">Client key</span>
+                      <span className="block">{t("connection.clientKeyLabel")}</span>
                       <InputGroup>
                         <InputGroupInput
                           value={advancedSslKey}
                           onChange={(e) => setAdvancedSslKey(e.target.value)}
-                          placeholder="/path/to/client.key"
+                          placeholder={t("connection.clientKeyPlaceholder")}
                         />
                         <InputGroupAddon align="inline-end">
                           <InputGroupButton
                             size="icon-xs"
-                            title="Browse"
+                            title={t("connection.browse")}
                             onClick={() => pickFile(setAdvancedSslKey, [{ name: 'Key', extensions: ['pem', 'key'] }])}
                           >
                             <FolderOpenIcon />
@@ -897,7 +890,7 @@ export function ConnectionDialog({
                 <div className="border-t border-border/50 pt-4">
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-xs text-muted-foreground">
-                      Custom parameters
+                      {t("connection.customParamsLabel")}
                     </span>
                     <Button
                       type="button"
@@ -906,7 +899,7 @@ export function ConnectionDialog({
                       onClick={addCustomParam}
                       className="h-auto px-2 py-0.5 text-xs"
                     >
-                      + Add
+                      {t("connection.addCustomParam")}
                     </Button>
                   </div>
                   {customParams.length > 0 ? (
@@ -916,13 +909,13 @@ export function ConnectionDialog({
                           <Input
                             value={param.key}
                             onChange={(e) => updateCustomParam(param.id, 'key', e.target.value)}
-                            placeholder="param name"
+                            placeholder={t("connection.paramNamePlaceholder")}
                             className="flex-1"
                           />
                           <Input
                             value={param.value}
                             onChange={(e) => updateCustomParam(param.id, 'value', e.target.value)}
-                            placeholder="value"
+                            placeholder={t("connection.paramValuePlaceholder")}
                             className="flex-1"
                           />
                           <Button
@@ -953,7 +946,7 @@ export function ConnectionDialog({
                     </div>
                   ) : (
                     <p className="text-[11px] text-muted-foreground/60">
-                      No custom parameters. Add one to pass extra PostgreSQL options.
+                      {t("connection.noCustomParams")}
                     </p>
                   )}
                 </div>
@@ -971,10 +964,10 @@ export function ConnectionDialog({
               onClick={() => onOpenChange(false)}
               disabled={isPending}
             >
-              Cancel
+              {t("connection.cancel")}
             </Button>
             <Button type="submit" disabled={isPending}>
-              {isPending ? 'Connecting...' : 'Connect'}
+              {isPending ? t("connection.testing") : t("connection.connect")}
             </Button>
           </DialogFooter>
         </form>

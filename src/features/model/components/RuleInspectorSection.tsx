@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { TrashIcon } from '@phosphor-icons/react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,6 +15,7 @@ type RuleInspectorSectionProps = {
 }
 
 export function RuleInspectorSection({ tableKey, pendingRules, onChange }: RuleInspectorSectionProps) {
+  const { t } = useTranslation()
   const [sql, setSql] = useState('')
   const [operation, setOperation] = useState<'create' | 'drop'>('create')
   const [label, setLabel] = useState('')
@@ -21,11 +23,11 @@ export function RuleInspectorSection({ tableKey, pendingRules, onChange }: RuleI
   return (
     <div className="space-y-2">
       <p className="text-[10px] text-muted-foreground">
-        PostgreSQL-only: queue RULE statements for apply.
+        {t("model.ruleDesc")}
       </p>
       <Input
         className="h-8 text-xs"
-        placeholder="Label (optional)"
+        placeholder={t("model.labelOptional")}
         value={label}
         onChange={(e) => setLabel(e.target.value)}
       />
@@ -34,8 +36,8 @@ export function RuleInspectorSection({ tableKey, pendingRules, onChange }: RuleI
         value={operation}
         onChange={(e) => setOperation(e.target.value as 'create' | 'drop')}
       >
-        <option value="create">Create rule</option>
-        <option value="drop">Drop rule</option>
+        <option value="create">{t("model.createRule")}</option>
+        <option value="drop">{t("model.dropRule")}</option>
       </select>
       <Textarea
         className="min-h-24 font-mono text-[11px]"
@@ -57,7 +59,7 @@ export function RuleInspectorSection({ tableKey, pendingRules, onChange }: RuleI
           setLabel('')
         }}
       >
-        Queue rule
+        {t("model.queueRule")}
       </Button>
       {pendingRules.map((row) => (
         <div key={row.id} className="flex items-start gap-2 rounded border border-border/70 bg-muted/20 px-2 py-1.5">

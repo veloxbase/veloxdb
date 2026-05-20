@@ -2,6 +2,7 @@ import {
   CommandIcon,
 } from '@phosphor-icons/react'
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import {
   Dialog,
@@ -12,44 +13,43 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 
-type ShortcutEntry = { key: string; description: string }
-
-const shortcuts: Record<string, ShortcutEntry[]> = {
-  Global: [
-    { key: 'Cmd/Ctrl + /', description: 'Show this cheat sheet' },
-    { key: 'Cmd/Ctrl + P', description: 'Open command palette' },
-    { key: 'Cmd/Ctrl + Shift + C', description: 'New connection' },
-    { key: 'Cmd/Ctrl + Z', description: 'Undo' },
-    { key: 'Cmd/Ctrl + Shift + Z', description: 'Redo' },
-  ],
-  'Query Editor': [
-    { key: 'Cmd/Ctrl + Enter', description: 'Run query' },
-    { key: 'Cmd/Ctrl + Shift + F', description: 'Format SQL' },
-    { key: 'Tab', description: 'Indent' },
-    { key: 'Shift + Tab', description: 'Outdent' },
-  ],
-  Diagram: [
-    { key: 'Click + drag table', description: 'Move table' },
-    { key: 'Hover + drag edge handle', description: 'Create FK relationship' },
-    { key: 'Scroll', description: 'Pan canvas' },
-    { key: 'Cmd/Ctrl + Scroll', description: 'Zoom' },
-    { key: 'Space + drag', description: 'Pan override' },
-    { key: 'Shift + Click', description: 'Multi-select tables' },
-    { key: 'Escape', description: 'Clear selection' },
-    { key: '+ / -', description: 'Zoom in / out' },
-    { key: '0', description: 'Reset zoom' },
-  ],
-  Results: [
-    { key: '↑ ↓ ← →', description: 'Navigate cells' },
-    { key: 'Space', description: 'Toggle row selection' },
-    { key: 'Cmd/Ctrl + C', description: 'Copy selected rows' },
-  ],
-}
-
 const modKey = navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'
 
 export function ShortcutSheet() {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+
+  const shortcuts: Record<string, { key: string; description: string }[]> = {
+    [t("shortcuts.general")]: [
+      { key: 'Cmd/Ctrl + /', description: t("shortcuts.showSheet") },
+      { key: 'Cmd/Ctrl + P', description: t("shortcuts.commandPalette") },
+      { key: 'Cmd/Ctrl + Shift + C', description: t("shortcuts.openConnection") },
+      { key: 'Cmd/Ctrl + Z', description: t("shortcuts.undo") },
+      { key: 'Cmd/Ctrl + Shift + Z', description: t("shortcuts.redo") },
+    ],
+    [t("shortcuts.query")]: [
+      { key: 'Cmd/Ctrl + Enter', description: t("shortcuts.runQuery") },
+      { key: 'Cmd/Ctrl + Shift + F', description: t("shortcuts.formatSql") },
+      { key: 'Tab', description: t("shortcuts.indent") },
+      { key: 'Shift + Tab', description: t("shortcuts.outdent") },
+    ],
+    [t("shortcuts.diagram")]: [
+      { key: t("shortcuts.clickDragTable"), description: t("shortcuts.moveTable") },
+      { key: t("shortcuts.hoverDragEdge"), description: t("shortcuts.createFk") },
+      { key: t("shortcuts.scroll"), description: t("shortcuts.panCanvas") },
+      { key: t("shortcuts.cmdScroll"), description: t("shortcuts.zoom") },
+      { key: t("shortcuts.spaceDrag"), description: t("shortcuts.panOverride") },
+      { key: t("shortcuts.shiftClick"), description: t("shortcuts.multiSelect") },
+      { key: 'Escape', description: t("shortcuts.clearSelection") },
+      { key: '+ / -', description: t("shortcuts.zoomInOut") },
+      { key: '0', description: t("shortcuts.resetZoom") },
+    ],
+    [t("shortcuts.results")]: [
+      { key: '↑ ↓ ← →', description: t("shortcuts.navigateCells") },
+      { key: 'Space', description: t("shortcuts.toggleRowSelection") },
+      { key: 'Cmd/Ctrl + C', description: t("shortcuts.copyRows") },
+    ],
+  }
 
   const onKeyDown = useCallback((e: KeyboardEvent) => {
     const cmd = e.metaKey || e.ctrlKey
@@ -70,10 +70,10 @@ export function ShortcutSheet() {
         <DialogHeader className="border-b border-border px-5 py-4">
           <DialogTitle className="flex items-center gap-2 text-sm">
             <CommandIcon className="size-4 text-muted-foreground" />
-            Keyboard Shortcuts
+            {t("shortcuts.title")}
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Available shortcuts across all panels. Press <kbd className="rounded border border-border bg-muted px-1 py-0.5 text-[10px]">{modKey}</kbd> + <kbd className="rounded border border-border bg-muted px-1 py-0.5 text-[10px]">/</kbd> to toggle.
+            {t("shortcuts.description", { modKey })}
           </DialogDescription>
         </DialogHeader>
 

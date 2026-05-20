@@ -9,6 +9,7 @@ import {
 	TerminalWindowIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { writeOnboardingCompleted } from "@/features/onboarding/constants";
@@ -24,82 +25,12 @@ type OnboardingStep = {
 	highlights?: string[];
 };
 
-const STEPS: OnboardingStep[] = [
-	{
-		id: "welcome",
-		kicker: "Fast · Secure · Local-first",
-		title: "SQL databases, unleashed on your desktop",
-		body: "Built for builders who live in SQL. VeloxDB keeps you in flow—snappy queries, crisp results, a workspace that feels premium. Your data stays between you and your database: private by design, secure by default, no extra cloud hop just to run a SELECT.",
-		icon: DatabaseIcon,
-	},
-	{
-		id: "engines",
-		kicker: "PostgreSQL · MySQL · SQLite",
-		title: "One app, three engines",
-		body: "Connect to the database you already run. PostgreSQL is the safest default for production workloads. MySQL and MariaDB work alongside it. SQLite is there for local files, prototypes, and edge cases—same editor, same sidebar, same shortcuts.",
-		icon: PlugsConnectedIcon,
-		pills: [
-			{ label: "PostgreSQL", accent: true },
-			{ label: "MySQL / MariaDB", accent: true },
-			{ label: "SQLite", accent: true },
-		],
-		highlights: [
-			"Saved connection profiles with SSL and SSH tunnels",
-			"Switch databases from the sidebar without reconnecting rituals",
-			"Engine-aware SQL linting and result grids",
-		],
-	},
-	{
-		id: "query",
-		kicker: "Query workspace",
-		title: "A real editor for serious SQL",
-		body: "Multi-tab Monaco editing, schema-aware autocomplete, streaming results for heavy reads, and EXPLAIN when milliseconds matter. Export to CSV or JSON, edit rows inline, and keep history per connection.",
-		icon: TerminalWindowIcon,
-		highlights: [
-			"Cmd/Ctrl+Enter to run · multi-tab editing",
-			"Virtualized grids for large result sets",
-			"Query history with favorites",
-		],
-	},
-	{
-		id: "model",
-		kicker: "Visual · Interactive",
-		title: "See your schema as a diagram",
-		body: "Toggle to Model for a live ER canvas—tables, columns, and relationships laid out clearly. Drag objects, inspect indexes and triggers, preview DDL before you apply, and export the diagram when you need to share context.",
-		icon: GraphIcon,
-		highlights: [
-			"Auto-layout and snap-to-grid",
-			"Relationship creation between columns",
-			"DDL migration preview before apply",
-		],
-	},
-	{
-		id: "veloxy",
-		kicker: "Ask Veloxy",
-		title: "Your schema-aware SQL copilot",
-		body: "Veloxy reads your connected database—tables, columns, and foreign keys—and helps you explore, explain, and generate SQL in plain language. Chat to understand relationships, then generate and run read queries with guardrails when you are ready.",
-		icon: RobotIcon,
-		pills: [{ label: "OpenRouter", accent: true }],
-		highlights: [
-			"Natural-language chat grounded in your live schema",
-			"Generate SQL from a reply, with confirmation for writes",
-			"Configure your model in Settings → Veloxy",
-		],
-	},
-	{
-		id: "shortcuts",
-		kicker: "Productivity",
-		title: "Shortcuts that keep you in the zone",
-		body: "Keyboard-driven workflow: Cmd/Ctrl+P for the palette, Cmd/Ctrl+Shift+C for connections, Cmd/Ctrl+Enter to run. Less mouse mileage, fewer tab dances—stay locked in on what matters.",
-		icon: KeyboardIcon,
-	},
-];
-
 type OnboardingFlowProps = {
 	onComplete: () => void;
 };
 
 export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
+	const { t } = useTranslation();
 	const [step, setStep] = useState(0);
 
 	useEffect(() => {
@@ -108,6 +39,77 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 			window.matchMedia("(prefers-color-scheme: dark)").matches,
 		);
 	}, []);
+
+	const STEPS: OnboardingStep[] = [
+		{
+			id: "welcome",
+			kicker: t("onboarding.welcomeKicker"),
+			title: t("onboarding.welcomeTitle"),
+			body: t("onboarding.welcomeBody"),
+			icon: DatabaseIcon,
+		},
+		{
+			id: "engines",
+			kicker: t("onboarding.enginesKicker"),
+			title: t("onboarding.enginesTitle"),
+			body: t("onboarding.enginesBody"),
+			icon: PlugsConnectedIcon,
+			pills: [
+				{ label: "PostgreSQL", accent: true },
+				{ label: "MySQL / MariaDB", accent: true },
+				{ label: "SQLite", accent: true },
+			],
+			highlights: [
+				t("onboarding.enginesHighlight1"),
+				t("onboarding.enginesHighlight2"),
+				t("onboarding.enginesHighlight3"),
+			],
+		},
+		{
+			id: "query",
+			kicker: t("onboarding.queryKicker"),
+			title: t("onboarding.queryTitle"),
+			body: t("onboarding.queryBody"),
+			icon: TerminalWindowIcon,
+			highlights: [
+				t("onboarding.queryHighlight1"),
+				t("onboarding.queryHighlight2"),
+				t("onboarding.queryHighlight3"),
+			],
+		},
+		{
+			id: "model",
+			kicker: t("onboarding.modelKicker"),
+			title: t("onboarding.modelTitle"),
+			body: t("onboarding.modelBody"),
+			icon: GraphIcon,
+			highlights: [
+				t("onboarding.modelHighlight1"),
+				t("onboarding.modelHighlight2"),
+				t("onboarding.modelHighlight3"),
+			],
+		},
+		{
+			id: "veloxy",
+			kicker: t("onboarding.veloxyKicker"),
+			title: t("onboarding.veloxyTitle"),
+			body: t("onboarding.veloxyBody"),
+			icon: RobotIcon,
+			pills: [{ label: "OpenRouter", accent: true }],
+			highlights: [
+				t("onboarding.veloxyHighlight1"),
+				t("onboarding.veloxyHighlight2"),
+				t("onboarding.veloxyHighlight3"),
+			],
+		},
+		{
+			id: "shortcuts",
+			kicker: t("onboarding.shortcutsKicker"),
+			title: t("onboarding.shortcutsTitle"),
+			body: t("onboarding.shortcutsBody"),
+			icon: KeyboardIcon,
+		},
+	];
 
 	const finish = () => {
 		writeOnboardingCompleted(true);
@@ -190,7 +192,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
 					<div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6">
 						<Button type="button" variant="ghost" size="sm" onClick={finish}>
-							Skip
+							{t("onboarding.skip")}
 						</Button>
 						<div className="flex flex-wrap items-center gap-2">
 							<Button
@@ -201,11 +203,11 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 								onClick={() => setStep((s) => Math.max(0, s - 1))}
 							>
 								<ArrowLeftIcon aria-hidden />
-								Back
+								{t("onboarding.back")}
 							</Button>
 							{isLast ? (
 								<Button type="button" size="sm" onClick={finish}>
-									Get started
+									{t("onboarding.getStarted")}
 								</Button>
 							) : (
 								<Button
@@ -213,7 +215,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 									size="sm"
 									onClick={() => setStep((s) => s + 1)}
 								>
-									Next
+									{t("onboarding.next")}
 									<ArrowRightIcon aria-hidden />
 								</Button>
 							)}
