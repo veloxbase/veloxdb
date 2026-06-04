@@ -14,8 +14,21 @@ export type ParsedConnectionString = {
 
 const DEFAULT_PG_PORT = 5432
 const SSL_MODE_KEY = 'sslmode'
+const MYSQL_SSL_MODE_KEY = 'ssl-mode'
 
 const VALID_SSL_MODES: Set<string> = new Set(['disable', 'prefer', 'require'])
+
+const MYSQL_SSL_MODE_FROM_PARAM: Record<string, ConnectionSslMode> = {
+  disabled: 'disable',
+  preferred: 'prefer',
+  required: 'require',
+}
+
+const MYSQL_SSL_MODE_TO_PARAM: Record<ConnectionSslMode, string> = {
+  disable: 'DISABLED',
+  prefer: 'PREFERRED',
+  require: 'REQUIRED',
+}
 
 function normalizeUrl(raw: string): string {
   return raw.trim()
@@ -70,7 +83,7 @@ export function parseConnectionString(raw: string): ParsedConnectionString | nul
   const password = decodeURIComponent(url.password || '')
 
   const params = new URLSearchParams(url.search)
-  let sslMode: ConnectionSslMode = engine === 'postgres' ? 'prefer' : 'disable'
+  let sslMode: ConnectionSslMode = 'prefer'
 
   if (params.has(SSL_MODE_KEY)) {
     const rawMode = (params.get(SSL_MODE_KEY) ?? '').toLowerCase()
@@ -78,6 +91,14 @@ export function parseConnectionString(raw: string): ParsedConnectionString | nul
       sslMode = rawMode as ConnectionSslMode
     }
     params.delete(SSL_MODE_KEY)
+  }
+
+  if (engine === 'mysql' && params.has(MYSQL_SSL_MODE_KEY)) {
+    const rawMode = (params.get(MYSQL_SSL_MODE_KEY) ?? '').toLowerCase()
+    if (rawMode in MYSQL_SSL_MODE_FROM_PARAM) {
+      sslMode = MYSQL_SSL_MODE_FROM_PARAM[rawMode]
+    }
+    params.delete(MYSQL_SSL_MODE_KEY)
   }
 
   const extraParams: Record<string, string> = {}
@@ -115,6 +136,9 @@ export function buildConnectionString(fields: {
   const params = new URLSearchParams()
   if (fields.engine === 'postgres' && fields.sslMode !== 'prefer') {
     params.set('sslmode', fields.sslMode)
+  }
+  if (fields.engine === 'mysql' && fields.sslMode !== 'prefer') {
+    params.set(MYSQL_SSL_MODE_KEY, MYSQL_SSL_MODE_TO_PARAM[fields.sslMode])
   }
   if (fields.extraParams) {
     for (const [key, value] of Object.entries(fields.extraParams)) {

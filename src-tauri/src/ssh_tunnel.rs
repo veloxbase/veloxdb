@@ -40,14 +40,14 @@ async fn spawn_ssh_tunnel_password(
         .as_deref()
         .ok_or("SSH password required")?;
 
+    // `sshpass -e` reads the password from the SSHPASS env var, which keeps it
+    // out of the process argument list (visible via `ps aux`).
     let child = Command::new("sshpass")
-        .arg("-p")
-        .arg(password)
+        .arg("-e")
+        .env("SSHPASS", password)
         .arg("ssh")
         .arg("-o")
         .arg("StrictHostKeyChecking=accept-new")
-        .arg("-o")
-        .arg("UserKnownHostsFile=/dev/null")
         .arg("-o")
         .arg("PasswordAuthentication=yes")
         .arg("-o")
@@ -84,8 +84,6 @@ async fn spawn_ssh_tunnel_key(
 
     cmd.arg("-o")
         .arg("StrictHostKeyChecking=accept-new")
-        .arg("-o")
-        .arg("UserKnownHostsFile=/dev/null")
         .arg("-o")
         .arg("ServerAliveInterval=30")
         .arg("-o")

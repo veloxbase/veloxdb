@@ -54,6 +54,7 @@ import type {
 	SaveResultEditsRequest,
 } from "@/features/queries/result-edits";
 import { notifyError, notifySuccess } from "@/lib/error-notifier";
+import { isReadOnlySql } from "@/lib/sql-intent";
 import { cn } from "@/lib/utils";
 
 const ASK_VELOXY_WIDTH_KEY = "veloxdb.askVeloxyWidth";
@@ -757,16 +758,21 @@ export const QueryWorkspace = forwardRef<
 				onRequestConnection();
 				return;
 			}
+			const allowWrite = !isReadOnlySql(trimmed);
+			if (allowWrite && !window.confirm(t("editor.confirmWrite"))) {
+				return;
+			}
 			const flightId = tab.runFlightId + 1;
 			dispatch({ type: "runStart", tabId, flightId });
 			runQueryMutation.mutate({
 				connectionId: targetId,
 				sql: trimmed,
+				allowWrite,
 				tabId,
 				flightId,
 			});
 		},
-		[connectionId, onRequestConnection, runQueryMutation],
+		[connectionId, onRequestConnection, runQueryMutation, t],
 	);
 
 	const explainForTab = useCallback(
@@ -851,6 +857,7 @@ export const QueryWorkspace = forwardRef<
 				runQueryMutation.mutate({
 					connectionId: targetId,
 					sql: trimmed,
+					allowWrite: !isReadOnlySql(trimmed),
 					tabId,
 					flightId,
 				});

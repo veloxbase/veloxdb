@@ -19,6 +19,24 @@ describe('connection string parsing and building', () => {
     expect(parsed?.port).toBe(3306)
   })
 
+  it('parses mysql ssl-mode and builds it back', () => {
+    const parsed = parseConnectionString(
+      'mysql://root:pw@127.0.0.1:3306/app_db?ssl-mode=REQUIRED',
+    )
+    expect(parsed?.sslMode).toBe('require')
+
+    const value = buildConnectionString({
+      engine: 'mysql',
+      host: '127.0.0.1',
+      port: 3306,
+      database: 'app_db',
+      user: 'root',
+      password: 'pw',
+      sslMode: 'require',
+    })
+    expect(value).toContain('ssl-mode=REQUIRED')
+  })
+
   it('parses sqlite uri', () => {
     const parsed = parseConnectionString('sqlite:///tmp/velox.db')
     expect(parsed).not.toBeNull()

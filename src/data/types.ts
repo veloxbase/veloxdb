@@ -51,6 +51,8 @@ export type QueryRequest = {
   sql: string
   /** Maximum rows to return. Matches the user's Settings > Results > Max rows preference. */
   maxRows?: number
+  /** Allows non-read-only statements to run. The editor sets this after confirming a write. */
+  allowWrite?: boolean
 }
 
 export type LintSqlRequest = {

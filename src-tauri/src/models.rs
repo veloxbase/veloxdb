@@ -150,6 +150,10 @@ pub struct QueryRequest {
     pub sql: String,
     /// Maximum rows to return for this query. When omitted, the default (`MAX_QUERY_ROWS`) is used.
     pub max_rows: Option<usize>,
+    /// Allows non-read-only statements to run. Defaults to false so the editor
+    /// must explicitly confirm writes; programmatic DML (grid edits) sets it.
+    #[serde(default)]
+    pub allow_write: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
