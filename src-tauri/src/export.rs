@@ -514,6 +514,18 @@ fn mysql_value_to_string(row: &MySqlRow, index: usize, column_name: &str, contex
     if let Ok(value) = row.try_get::<Option<bool>, _>(index) {
         return Ok(value.map(|v| v.to_string()).unwrap_or_default());
     }
+    if let Ok(value) = row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>(index) {
+        return Ok(value.map(|v| v.format("%Y-%m-%d %H:%M:%S").to_string()).unwrap_or_default());
+    }
+    if let Ok(value) = row.try_get::<Option<chrono::NaiveDateTime>, _>(index) {
+        return Ok(value.map(|v| v.format("%Y-%m-%d %H:%M:%S").to_string()).unwrap_or_default());
+    }
+    if let Ok(value) = row.try_get::<Option<chrono::NaiveDate>, _>(index) {
+        return Ok(value.map(|v| v.to_string()).unwrap_or_default());
+    }
+    if let Ok(value) = row.try_get::<Option<chrono::NaiveTime>, _>(index) {
+        return Ok(value.map(|v| v.to_string()).unwrap_or_default());
+    }
     if let Ok(value) = row.try_get::<Option<Vec<u8>>, _>(index) {
         return Ok(value
             .map(|v| format!("0x{}", hex::encode(v)))
