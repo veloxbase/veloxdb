@@ -46,6 +46,7 @@ async function runTransactionalStatements(
 		await veloxDbRepository.runQuery({
 			connectionId,
 			sql,
+			allowWrite: true,
 		});
 	} catch (error) {
 		if (engine !== "mysql") {
@@ -53,6 +54,7 @@ async function runTransactionalStatements(
 				await veloxDbRepository.runQuery({
 					connectionId,
 					sql: "ROLLBACK;",
+					allowWrite: true,
 				});
 			} catch {
 				// Ignore rollback failure; surface original save failure to the UI.
@@ -83,8 +85,8 @@ export function useRunQueryMutation(options: UseRunQueryMutationOptions = {}) {
 
 	return useMutation({
 		retry: shouldRetryTransientDbInvoke,
-		mutationFn: ({ connectionId, sql }: RunQueryTabVariables) =>
-			veloxDbRepository.runQuery({ connectionId, sql, maxRows: maxQueryRows }),
+		mutationFn: ({ connectionId, sql, allowWrite }: RunQueryTabVariables) =>
+			veloxDbRepository.runQuery({ connectionId, sql, allowWrite, maxRows: maxQueryRows }),
 		onSuccess: (result, variables) => {
 			options.onSuccess?.(result, variables);
 		},
@@ -212,6 +214,7 @@ export function useInsertRowMutation(
 			await veloxDbRepository.runQuery({
 				connectionId: request.connectionId,
 				sql,
+				allowWrite: true,
 			});
 		},
 		onError: (error, variables) => {

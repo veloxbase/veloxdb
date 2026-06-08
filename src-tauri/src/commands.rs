@@ -16,7 +16,8 @@ use crate::db::{
     build_mysql_pool, build_mysql_pool_custom, build_pool, build_pool_custom, build_sqlite_pool,
     disconnect_connection, drop_pool, get_or_create_mysql_pool, get_or_create_sqlite_pool,
     list_connections, load_connection, persist_connection_with_password, quote_identifier,
-    refresh_connection_pools, resolve_connection_engine, with_pool_client_retry, AppState,
+    refresh_connection_pools, require_safe_identifier, resolve_connection_engine,
+    with_pool_client_retry, AppState,
     DEFAULT_MYSQL_PORT, MAX_QUERY_ROWS,
 };
 use crate::credentials;
@@ -831,6 +832,14 @@ pub async fn run_query(
         return Err("Enter a SQL statement before running the query.".to_string());
     }
 
+    if !input.allow_write.unwrap_or(false) && !is_read_only_sql(&sql) {
+        return Err(
+            "This statement modifies data or schema. Confirm execution in the editor, \
+             or use the model/DDL workflow for schema changes."
+                .to_string(),
+        );
+    }
+
     let max_query_rows = input.max_rows.unwrap_or(MAX_QUERY_ROWS);
 
     match engine {
@@ -995,6 +1004,7 @@ async fn fetch_query_editor_metadata_for_connection(
         let mut truncated_columns = false;
         for row in table_rows.into_iter().take(MAX_EDITOR_TABLES as usize) {
             let name: String = sqlite_get_idx(&row, 0, "name", "get_query_editor_metadata")?;
+            require_safe_identifier(&name, "table name")?;
             let pragma_sql = format!("PRAGMA table_info(\"{}\");", quote_identifier(&name));
             let column_rows = sqlx::query(&pragma_sql)
                 .fetch_all(&pool)
@@ -1207,6 +1217,7 @@ async fn fetch_foreign_keys_for_connection(
         let mut edges = Vec::new();
         for table in tables {
             let table_name: String = sqlite_get_idx(&table, 0, "name", "get_foreign_keys")?;
+            require_safe_identifier(&table_name, "table name")?;
             let fk_sql = format!("PRAGMA foreign_key_list(\"{}\");", quote_identifier(&table_name));
             let fk_rows = sqlx::query(&fk_sql)
                 .fetch_all(&pool)
@@ -1450,6 +1461,7 @@ pub async fn get_query_editor_metadata(
         let mut truncated_columns = false;
         for row in table_rows.into_iter().take(MAX_EDITOR_TABLES as usize) {
             let name: String = sqlite_get_idx(&row, 0, "name", "get_query_editor_metadata")?;
+            require_safe_identifier(&name, "table name")?;
             let pragma_sql = format!("PRAGMA table_info(\"{}\");", quote_identifier(&name));
             let column_rows = sqlx::query(&pragma_sql)
                 .fetch_all(&pool)
@@ -1755,6 +1767,29 @@ fn classify_sql_intent(sql: &str) -> String {
         return "explain".to_string();
     }
     "unknown".to_string()
+}
+
+/// Whether every statement in `sql` is read-only. Transaction-control keywords
+/// (`begin`/`commit`/`rollback`/`start`/`savepoint`) are ignored so a wrapped
+/// `BEGIN; SELECT ...; COMMIT;` still counts as read-only, while any write
+/// statement makes the whole batch non-read-only.
+fn is_read_only_sql(sql: &str) -> bool {
+    let mut saw_statement = false;
+    for statement in sql.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+        let normalized = statement.to_ascii_lowercase();
+        let is_transaction_control = ["begin", "commit", "rollback", "start", "savepoint", "release"]
+            .iter()
+            .any(|kw| normalized.starts_with(kw));
+        if is_transaction_control {
+            continue;
+        }
+        saw_statement = true;
+        match classify_sql_intent(statement).as_str() {
+            "select" | "explain" => {}
+            _ => return false,
+        }
+    }
+    saw_statement
 }
 
 fn has_multiple_statements(sql: &str) -> bool {
@@ -2712,6 +2747,7 @@ pub async fn get_tables(
             let mut tables = Vec::new();
             for row in rows {
                 let name: String = sqlite_get_idx(&row, 0, "name", "get_tables")?;
+                require_safe_identifier(&name, "table name")?;
                 tables.push(TableInfo {
                     schema: "main".to_string(),
                     preview_query: format!("select * from \"{}\" limit 100;", quote_identifier(&name)),
@@ -2796,6 +2832,7 @@ pub async fn get_schema(
         }
         DatabaseEngine::Sqlite => {
             let pool = get_or_create_sqlite_pool(&app, &state, &connection_id).await?;
+            require_safe_identifier(&schema_request.table_name, "table name")?;
             let pragma_sql = format!(
                 "PRAGMA table_info(\"{}\");",
                 quote_identifier(&schema_request.table_name)
@@ -2956,6 +2993,7 @@ pub async fn get_table_properties(
 
     if engine == DatabaseEngine::Sqlite {
         let pool = get_or_create_sqlite_pool(&app, &state, &connection_id).await?;
+        require_safe_identifier(&ctx.table_name, "table name")?;
         let pragma_sql = format!("PRAGMA table_info(\"{}\");", quote_identifier(&ctx.table_name));
         let rows = sqlx::query(&pragma_sql)
             .fetch_all(&pool)
@@ -2978,6 +3016,7 @@ pub async fn get_table_properties(
                 continue;
             }
             let index_name = sqlite_get_name::<String>(&index, "name", "get_table_properties")?;
+            require_safe_identifier(&index_name, "index name")?;
             let info_sql = format!("PRAGMA index_info(\"{}\");", quote_identifier(&index_name));
             let info_rows = sqlx::query(&info_sql)
                 .fetch_all(&pool)
@@ -3167,6 +3206,9 @@ pub async fn apply_table_properties(
         let table_name = input.table_name;
         let columns = input.columns;
 
+        require_safe_identifier(&table_schema, "schema name")?;
+        require_safe_identifier(&table_name, "table name")?;
+
         let current_columns = client
         .query(
             "
@@ -3273,6 +3315,7 @@ pub async fn apply_table_properties(
             quote_identifier(&table_name)
         );
 
+        require_safe_identifier(column_name, "column name")?;
         let qualified_column = format!("\"{}\"", quote_identifier(column_name));
 
         if *desired_is_nullable {
@@ -3328,6 +3371,7 @@ pub async fn apply_table_properties(
             quote_identifier(&table_schema),
             quote_identifier(&table_name)
         );
+        require_safe_identifier(column_name, "column name")?;
         let qualified_column = format!("\"{}\"", quote_identifier(column_name));
 
         if *desired_is_unique {
@@ -3363,6 +3407,7 @@ pub async fn apply_table_properties(
                 .unwrap_or_default();
 
             for constraint_name in constraint_names {
+                require_safe_identifier(&constraint_name, "constraint name")?;
                 let sql = format!(
                     "ALTER TABLE {} DROP CONSTRAINT \"{}\"",
                     qualified_table,
@@ -3438,6 +3483,7 @@ pub async fn get_foreign_keys(
         let mut edges = Vec::new();
         for table in tables {
             let table_name: String = sqlite_get_idx(&table, 0, "name", "get_foreign_keys")?;
+            require_safe_identifier(&table_name, "table name")?;
             let fk_sql = format!("PRAGMA foreign_key_list(\"{}\");", quote_identifier(&table_name));
             let fk_rows = sqlx::query(&fk_sql)
                 .fetch_all(&pool)
@@ -3576,6 +3622,7 @@ pub async fn get_table_indexes(
 
     if engine == DatabaseEngine::Sqlite {
         let pool = get_or_create_sqlite_pool(&app, &state, &connection_id).await?;
+        require_safe_identifier(&ctx.table_name, "table name")?;
         let pragma_sql = format!(
             "PRAGMA index_list(\"{}\");",
             quote_identifier(&ctx.table_name)
@@ -3588,6 +3635,7 @@ pub async fn get_table_indexes(
         let mut indexes = Vec::new();
         for row in rows.into_iter().take(MAX_TABLE_INDEX_ROWS as usize) {
             let index_name: String = sqlite_get_name(&row, "name", "get_table_indexes")?;
+            require_safe_identifier(&index_name, "index name")?;
             let index_info_sql = format!("PRAGMA index_info(\"{}\");", quote_identifier(&index_name));
             let index_info_rows = sqlx::query(&index_info_sql)
                 .fetch_all(&pool)
@@ -3844,6 +3892,24 @@ pub async fn save_text_file(content: String, output_path: String) -> Result<(), 
     std::fs::write(&output_path, content).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn store_openrouter_api_key(api_key: String) -> Result<(), String> {
+    if api_key.trim().is_empty() {
+        return credentials::delete_openrouter_api_key();
+    }
+    credentials::store_openrouter_api_key(&api_key)
+}
+
+#[tauri::command]
+pub async fn get_openrouter_api_key() -> Result<Option<String>, String> {
+    credentials::get_openrouter_api_key()
+}
+
+#[tauri::command]
+pub async fn delete_openrouter_api_key() -> Result<(), String> {
+    credentials::delete_openrouter_api_key()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -3969,6 +4035,23 @@ mod tests {
     #[test]
     fn sql_intent_classifier_recognizes_update() {
         assert_eq!(classify_sql_intent("UPDATE foo SET bar = 1"), "update");
+    }
+
+    #[test]
+    fn read_only_check_allows_selects_and_explain() {
+        assert!(super::is_read_only_sql("SELECT 1"));
+        assert!(super::is_read_only_sql("EXPLAIN ANALYZE SELECT * FROM t"));
+        assert!(super::is_read_only_sql("WITH x AS (SELECT 1) SELECT * FROM x"));
+        assert!(super::is_read_only_sql("BEGIN; SELECT 1; COMMIT;"));
+    }
+
+    #[test]
+    fn read_only_check_blocks_writes() {
+        assert!(!super::is_read_only_sql("DELETE FROM t"));
+        assert!(!super::is_read_only_sql("DROP TABLE t"));
+        assert!(!super::is_read_only_sql("BEGIN; UPDATE t SET a = 1; COMMIT;"));
+        assert!(!super::is_read_only_sql("SELECT 1; DELETE FROM t"));
+        assert!(!super::is_read_only_sql(""));
     }
 
     #[test]

@@ -309,6 +309,7 @@
     "insertFailed": "Insert failed",
     "copyFailed": "Copy failed",
     "runQueryBtn": "Run Query",
+    "confirmWrite": "This statement modifies data or schema. Run it anyway?",
     "stopQuery": "Stop Query",
     "formatSql": "Format SQL",
     "explainAnalyze": "Explain Analyze",

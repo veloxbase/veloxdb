@@ -309,6 +309,7 @@
     "insertFailed": "插入失败",
     "copyFailed": "复制失败",
     "runQueryBtn": "运行查询",
+    "confirmWrite": "此语句将修改数据或结构。仍要运行吗？",
     "stopQuery": "停止查询",
     "formatSql": "格式化 SQL",
     "explainAnalyze": "Explain Analyze",

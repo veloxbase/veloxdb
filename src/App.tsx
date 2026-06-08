@@ -48,6 +48,7 @@ import {
 } from "@/features/queries/components/AskVeloxyDialog";
 import { useSaveResultEditsMutation, useDeleteRowsMutation } from "@/features/queries/queries";
 import { notifyError, notifySuccess } from "@/lib/error-notifier";
+import { loadOpenRouterApiKey } from "@/lib/openrouter-credentials";
 import { useSettings, resolveTheme } from "@/lib/settings";
 import {
 	buildDropTableSql,
@@ -180,6 +181,10 @@ function VeloxApp() {
 		const sizes = { sm: 12, md: 14, lg: 16 }
 		document.documentElement.style.fontSize = `${sizes[fontSize]}px`
 	}, [fontSize])
+
+	useEffect(() => {
+		void loadOpenRouterApiKey()
+	}, [])
 
 	useEffect(() => {
 		window.localStorage.setItem(
@@ -614,7 +619,7 @@ function VeloxApp() {
 				setTablePropertiesTarget(null);
 			}
 		},
-		[connection?.id, deleteConnectionMutation],
+		[connection?.id, deleteConnectionMutation, t],
 	);
 
 	const handleCopyConnectionString = useCallback(

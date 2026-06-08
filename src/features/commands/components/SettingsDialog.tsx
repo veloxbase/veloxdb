@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { saveOpenRouterApiKey } from '@/lib/openrouter-credentials'
 import { fetchOpenRouterModels, OPENROUTER_POPULAR_MODELS, type OpenRouterModelOption } from '@/lib/openrouter-models'
 import { cn } from '@/lib/utils'
 import { useSettings, type AppTheme, type FontSize, type NullDisplay } from '@/lib/settings'
@@ -53,7 +54,8 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const [tab, setTab] = useState('appearance')
 
   const handleExport = useCallback(() => {
-    const data = JSON.stringify(useSettings.getState(), null, 2)
+    const { veloxyOpenRouterApiKey: _omitApiKey, ...exportable } = useSettings.getState()
+    const data = JSON.stringify(exportable, null, 2)
     const blob = new Blob([data], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url; a.download = 'veloxdb-settings.json'; a.click()
@@ -222,7 +224,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   value={settings.veloxyOpenRouterApiKey}
                   onChange={(e) => {
                     const value = e.target.value
-                    useSettings.setState({ veloxyOpenRouterApiKey: value })
+                    void saveOpenRouterApiKey(value)
                     if (value.trim()) void refreshOpenRouterModels()
                   }}
                   className="h-8 w-[260px] text-[11px]"

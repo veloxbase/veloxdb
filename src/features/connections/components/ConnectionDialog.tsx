@@ -351,7 +351,10 @@ export function ConnectionDialog({
       filePath: values.filePath || null,
       user: values.engine === 'sqlite' ? '' : values.user,
       password: values.engine === 'sqlite' ? '' : values.password,
-      sslMode: values.engine === 'postgres' ? values.sslMode : 'disable',
+      sslMode:
+        values.engine === 'postgres' || values.engine === 'mysql'
+          ? values.sslMode
+          : 'disable',
       extraParams:
         values.engine === 'postgres' && Object.keys(extraParams).length > 0 ? extraParams : null,
       sshConfig: values.engine !== 'sqlite' && values.sshEnabled
@@ -605,7 +608,7 @@ export function ConnectionDialog({
               </Field>
             )}
 
-            {engine === 'postgres' && (
+            {(engine === 'postgres' || engine === 'mysql') && (
               <Field
                 label={t("connection.sslMode")}
                 inputId="veloxdb-connection-ssl-mode"

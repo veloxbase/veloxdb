@@ -237,7 +237,15 @@ fn mysql_url(host: &str, port: u16, input: &ConnectionInput) -> String {
     let password = urlencoding::encode(&input.password);
     let user = urlencoding::encode(&input.user);
     let database = urlencoding::encode(&input.database);
-    format!("mysql://{}:{}@{}:{}/{}", user, password, host, port, database)
+    let ssl_param = match input.ssl_mode {
+        ConnectionSslMode::Disable => "ssl-mode=DISABLED",
+        ConnectionSslMode::Prefer => "ssl-mode=PREFERRED",
+        ConnectionSslMode::Require => "ssl-mode=REQUIRED",
+    };
+    format!(
+        "mysql://{}:{}@{}:{}/{}?{}",
+        user, password, host, port, database, ssl_param
+    )
 }
 
 fn sqlite_url(input: &ConnectionInput) -> Result<String, String> {
@@ -710,4 +718,73 @@ pub fn load_connection(
 
 pub fn quote_identifier(value: &str) -> String {
     value.replace('"', "\"\"")
+}
+
+/// Whether `name` is safe to interpolate into dynamic SQL (e.g. SQLite `PRAGMA`
+/// statements, where bind parameters are not allowed). Restricted to ASCII
+/// alphanumerics and underscores so it cannot terminate or escape a statement.
+pub fn is_safe_identifier(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Validates an identifier before it is interpolated into dynamic SQL. Returns
+/// the identifier unchanged when safe, or a descriptive error otherwise.
+pub fn require_safe_identifier<'a>(name: &'a str, context: &str) -> Result<&'a str, String> {
+    if is_safe_identifier(name) {
+        Ok(name)
+    } else {
+        Err(format!("Invalid identifier for {}: {:?}", context, name))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_safe_identifier, mysql_url, require_safe_identifier};
+    use crate::models::{ConnectionInput, ConnectionSslMode, DatabaseEngine};
+
+    fn mysql_input(ssl_mode: ConnectionSslMode) -> ConnectionInput {
+        ConnectionInput {
+            id: None,
+            name: "test".to_string(),
+            engine: DatabaseEngine::Mysql,
+            host: "localhost".to_string(),
+            port: 3306,
+            database: "app".to_string(),
+            file_path: None,
+            user: "root".to_string(),
+            password: "pw".to_string(),
+            ssl_mode,
+            ssh_config: None,
+            extra_params: None,
+        }
+    }
+
+    #[test]
+    fn mysql_url_maps_ssl_mode() {
+        assert!(mysql_url("localhost", 3306, &mysql_input(ConnectionSslMode::Disable))
+            .ends_with("?ssl-mode=DISABLED"));
+        assert!(mysql_url("localhost", 3306, &mysql_input(ConnectionSslMode::Prefer))
+            .ends_with("?ssl-mode=PREFERRED"));
+        assert!(mysql_url("localhost", 3306, &mysql_input(ConnectionSslMode::Require))
+            .ends_with("?ssl-mode=REQUIRED"));
+    }
+
+    #[test]
+    fn rejects_sql_injection_in_identifiers() {
+        assert!(!is_safe_identifier("\"; DROP TABLE users; --"));
+        assert!(!is_safe_identifier("foo; DELETE FROM bar"));
+        assert!(!is_safe_identifier("a\0b"));
+        assert!(!is_safe_identifier(""));
+        assert!(require_safe_identifier("foo);", "table name").is_err());
+    }
+
+    #[test]
+    fn accepts_plain_identifiers() {
+        assert!(is_safe_identifier("users"));
+        assert!(is_safe_identifier("_internal"));
+        assert!(is_safe_identifier("Table123"));
+        assert_eq!(require_safe_identifier("users", "table name"), Ok("users"));
+    }
 }

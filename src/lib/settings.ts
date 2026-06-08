@@ -45,7 +45,11 @@ const defaults: AppSettings = {
 }
 
 export const useSettings = create<AppSettings>()(
-  persist(() => defaults, { name: 'veloxdb.settings' }),
+  persist(() => defaults, {
+    name: 'veloxdb.settings',
+    // The OpenRouter API key is kept in the OS keychain, never in localStorage.
+    partialize: ({ veloxyOpenRouterApiKey: _omitApiKey, ...rest }) => rest,
+  }),
 )
 
 export function resolveTheme(theme: AppTheme): 'light' | 'dark' {

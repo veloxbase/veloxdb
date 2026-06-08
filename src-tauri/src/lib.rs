@@ -9,12 +9,12 @@ mod ssh_tunnel;
 
 use commands::{
   apply_table_properties, cancel_veloxy_request, chat_with_db, clear_veloxy_conversation, connect_db, delete_connection,
-  disconnect_db, execute_ddl_statement, execute_ddl_transaction, export_diagram_png,
+  delete_openrouter_api_key, disconnect_db, execute_ddl_statement, execute_ddl_transaction, export_diagram_png,
   export_results_csv_command, export_results_json_command, generate_sql_from_nl, get_foreign_keys,
-  get_query_editor_metadata, get_schema, get_table_indexes, get_table_properties, get_tables,
+  get_openrouter_api_key, get_query_editor_metadata, get_schema, get_table_indexes, get_table_properties, get_tables,
   lint_sql, list_connections_command, list_databases, load_veloxy_conversation, ping_connection,
   refresh_connection, rename_connection, run_query, save_base64_png, save_text_file, set_active_connection,
-  switch_database,
+  store_openrouter_api_key, switch_database,
 };
 use db::AppState;
 use tauri::Manager;
@@ -25,7 +25,6 @@ pub fn run() {
     .manage(AppState::default())
     .plugin(tauri_plugin_store::Builder::default().build())
     .plugin(tauri_plugin_dialog::init())
-    .plugin(tauri_plugin_fs::init())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -79,7 +78,10 @@ pub fn run() {
       chat_with_db,
       cancel_veloxy_request,
       load_veloxy_conversation,
-      clear_veloxy_conversation
+      clear_veloxy_conversation,
+      store_openrouter_api_key,
+      get_openrouter_api_key,
+      delete_openrouter_api_key
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
