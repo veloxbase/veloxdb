@@ -146,6 +146,18 @@ fn mysql_value_to_string(row: &MySqlRow, index: usize, column_name: &str, contex
     if let Ok(value) = row.try_get::<Option<bool>, _>(index) {
         return Ok(value.map(|v| v.to_string()));
     }
+    if let Ok(value) = row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>(index) {
+        return Ok(value.map(|v| v.format("%Y-%m-%d %H:%M:%S").to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<chrono::NaiveDateTime>, _>(index) {
+        return Ok(value.map(|v| v.format("%Y-%m-%d %H:%M:%S").to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<chrono::NaiveDate>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<chrono::NaiveTime>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
     if let Ok(value) = row.try_get::<Option<Vec<u8>>, _>(index) {
         return Ok(value.map(|v| decode_mysql_bytes_as_string(&v)));
     }
@@ -187,6 +199,18 @@ fn mysql_value_to_display_string(
         return Ok(value.map(|v| v.to_string()));
     }
     if let Ok(value) = row.try_get::<Option<bool>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>(index) {
+        return Ok(value.map(|v| v.format("%Y-%m-%d %H:%M:%S").to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<chrono::NaiveDateTime>, _>(index) {
+        return Ok(value.map(|v| v.format("%Y-%m-%d %H:%M:%S").to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<chrono::NaiveDate>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<chrono::NaiveTime>, _>(index) {
         return Ok(value.map(|v| v.to_string()));
     }
     if let Ok(value) = row.try_get::<Option<Vec<u8>>, _>(index) {
@@ -3945,5 +3969,31 @@ mod tests {
     #[test]
     fn sql_intent_classifier_recognizes_update() {
         assert_eq!(classify_sql_intent("UPDATE foo SET bar = 1"), "update");
+    }
+
+    #[test]
+    fn mysql_timestamp_formats_as_datetime_string() {
+        let dt = chrono::DateTime::parse_from_rfc3339("2024-03-15T10:30:45Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-03-15 10:30:45");
+    }
+
+    #[test]
+    fn mysql_datetime_formats_as_naive_datetime_string() {
+        let dt = chrono::NaiveDateTime::parse_from_str("2024-03-15 10:30:45", "%Y-%m-%d %H:%M:%S").unwrap();
+        assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2024-03-15 10:30:45");
+    }
+
+    #[test]
+    fn mysql_date_formats_as_iso_date() {
+        let d = chrono::NaiveDate::from_ymd_opt(2024, 3, 15).unwrap();
+        assert_eq!(d.to_string(), "2024-03-15");
+    }
+
+    #[test]
+    fn mysql_time_formats_as_iso_time() {
+        let t = chrono::NaiveTime::from_hms_opt(10, 30, 45).unwrap();
+        assert_eq!(t.to_string(), "10:30:45");
     }
 }
