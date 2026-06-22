@@ -1,0 +1,73 @@
+import { useShallow } from 'zustand/react/shallow';
+import { useCanvasStore } from '@/features/model/state/canvas-store';
+
+/**
+ * Centralised Zustand selector for the ModelWorkspace.
+ * Pulls every slice the workspace needs into one call, avoiding
+ * repeated useCanvasStore invocations in the component body.
+ */
+export function useModelWorkspaceStore() {
+	return useCanvasStore(
+		useShallow((s) => ({
+			hydrated: s.hydrated,
+			hydrateFromConnection: s.hydrateFromConnection,
+			storeConnectionId: s.connectionId,
+			viewsRegistry: s.viewsRegistry,
+			setViewsRegistry: s.setViewsRegistry,
+			activeViewId: s.activeViewId,
+			diagramTool: s.diagramTool,
+			setDiagramTool: s.setDiagramTool,
+			selectedKeys: s.selectedKeys,
+			setSelectedKeys: s.setSelectedKeys,
+			primaryKey: s.primaryKey,
+			replaceSelection: s.replaceSelection,
+			selectTable: s.selectTable,
+			clearSelection: s.clearSelection,
+			applyMarquee: s.applyMarquee,
+			selectSingleFromCatalog: s.selectSingleFromCatalog,
+			snapToGrid: s.snapToGrid,
+			setSnapToGrid: s.setSnapToGrid,
+			onCanvas: s.onCanvas,
+			setOnCanvas: s.setOnCanvas,
+			positions: s.positions,
+			setPositions: s.setPositions,
+			viewport: s.viewport,
+			setViewport: s.setViewport,
+			modelTitle: s.modelTitle,
+			setModelTitle: s.setModelTitle,
+			headerColorsByKey: s.headerColorsByKey,
+			setHeaderColorsByKey: s.setHeaderColorsByKey,
+			columnDetail: s.columnDetail,
+			setColumnDetail: s.setColumnDetail,
+			diagramGroups: s.diagramGroups,
+			setDiagramGroups: s.setDiagramGroups,
+			modelTab: s.modelTab,
+			setModelTab: s.setModelTab,
+			identityDraftByKey: s.identityDraftByKey,
+			setIdentityDraftByKey: s.setIdentityDraftByKey,
+			columnOverridesByKey: s.columnOverridesByKey,
+			setColumnOverridesByKey: s.setColumnOverridesByKey,
+			columnIdentityOverridesByKey: s.columnIdentityOverridesByKey,
+			setColumnIdentityOverridesByKey: s.setColumnIdentityOverridesByKey,
+			pendingAddColumnsByKey: s.pendingAddColumnsByKey,
+			setPendingAddColumnsByKey: s.setPendingAddColumnsByKey,
+			pendingForeignKeys: s.pendingForeignKeys,
+			setPendingForeignKeys: s.setPendingForeignKeys,
+			selectedEdge: s.selectedEdge,
+			setSelectedEdge: s.setSelectedEdge,
+			pendingRules: s.pendingRules,
+			setPendingRules: s.setPendingRules,
+			pendingTriggers: s.pendingTriggers,
+			setPendingTriggers: s.setPendingTriggers,
+			pendingRlsPolicies: s.pendingRlsPolicies,
+			setPendingRlsPolicies: s.setPendingRlsPolicies,
+			pendingCreateTables: s.pendingCreateTables,
+			setPendingCreateTables: s.setPendingCreateTables,
+			applyQuickColumnEdit: s.applyQuickColumnEdit,
+			canUndo: s.canUndo,
+			canRedo: s.canRedo,
+			undo: s.undo,
+			redo: s.redo,
+		})),
+	);
+}

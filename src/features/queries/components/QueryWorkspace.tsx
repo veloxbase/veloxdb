@@ -272,6 +272,7 @@ function QueryPane({
 							onChange={onSqlChange}
 							onRun={onRun}
 							onRunStatement={onRunStatement}
+							language={connectionEngine === "mongo" ? "json" : "sql"}
 							metadata={editorMetadata}
 							diagnostics={lintDiagnostics}
 						/>
@@ -688,7 +689,7 @@ export const QueryWorkspace = forwardRef<
 		if (lintTimerRef.current != null) {
 			window.clearTimeout(lintTimerRef.current);
 		}
-		if (!targetConnectionId || sql.trim().length === 0) {
+		if (!targetConnectionId || sql.trim().length === 0 || connectionEngine === "mongo") {
 			lintReset();
 			return;
 		}
@@ -758,7 +759,7 @@ export const QueryWorkspace = forwardRef<
 				onRequestConnection();
 				return;
 			}
-			const allowWrite = !isReadOnlySql(trimmed);
+			const allowWrite = !isReadOnlySql(trimmed, connectionEngine ?? undefined);
 			if (allowWrite && !window.confirm(t("editor.confirmWrite"))) {
 				return;
 			}

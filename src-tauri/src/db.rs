@@ -14,6 +14,7 @@ use tokio::sync::RwLock;
 use tokio_postgres::NoTls;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
+use mongodb::{Client as MongoClient, bson::doc};
 use crate::models::{
     AskVeloxyConversationMessage, AskVeloxyDbContextCache, ConnectionInput, ConnectionSslMode,
     ConnectionSummary, DatabaseEngine, StoredConnection,
@@ -32,6 +33,7 @@ const POOL_WAIT_SECS: u64 = 30;
 const POOL_CREATE_SECS: u64 = 15;
 const POOL_RECYCLE_SECS: u64 = 15;
 pub const DEFAULT_MYSQL_PORT: u16 = 3306;
+pub const DEFAULT_MONGO_PORT: u16 = 27017;
 
 fn deadpool_ssl_mode(mode: ConnectionSslMode) -> DeadpoolSslMode {
     match mode {
@@ -46,6 +48,7 @@ pub struct AppState {
     pub pools: RwLock<HashMap<String, Pool>>,
     pub mysql_pools: RwLock<HashMap<String, MySqlPool>>,
     pub sqlite_pools: RwLock<HashMap<String, SqlitePool>>,
+    pub mongo_clients: RwLock<HashMap<String, MongoClient>>,
     pub active_connection_id: RwLock<Option<String>>,
     pub ssh_tunnels: RwLock<HashMap<String, SshTunnel>>,
     pub ask_veloxy_db_context_cache: RwLock<HashMap<String, AskVeloxyDbContextCache>>,
@@ -300,6 +303,60 @@ pub async fn build_sqlite_pool(input: &ConnectionInput) -> Result<SqlitePool, St
         .map_err(|error| error.to_string())
 }
 
+// ── MongoDB ─────────────────────────────────────────────────────
+
+pub fn build_mongo_connection_string(input: &ConnectionInput) -> String {
+    let host = if input.host.is_empty() { "localhost" } else { &input.host };
+    let port = if input.port == 0 { DEFAULT_MONGO_PORT } else { input.port };
+    let mut uri = if input.user.is_empty() {
+        format!("mongodb://{}:{}/", host, port)
+    } else {
+        format!(
+            "mongodb://{}:{}@{}:{}/",
+            urlencoding::encode(&input.user),
+            urlencoding::encode(&input.password),
+            host,
+            port,
+        )
+    };
+    let database = if input.database.is_empty() { "admin" } else { &input.database };
+    uri.push_str(database);
+    if let Some(ref params) = input.extra_params {
+        let qs: Vec<String> = params.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
+        if !qs.is_empty() {
+            uri.push('?');
+            uri.push_str(&qs.join("&"));
+        }
+    }
+    uri
+}
+
+pub async fn get_or_create_mongo_client(
+    app: &AppHandle,
+    state: &AppState,
+    connection_id: &str,
+) -> Result<MongoClient, String> {
+    {
+        let clients = state.mongo_clients.read().await;
+        if let Some(client) = clients.get(connection_id) {
+            return Ok(client.clone());
+        }
+    }
+    let stored = load_connection(app, connection_id)?
+        .ok_or_else(|| "Stored connection details were not found.".to_string())?;
+    let uri = build_mongo_connection_string(&stored.to_input());
+    let client = MongoClient::with_uri_str(&uri)
+        .await
+        .map_err(|e| format!("MongoDB connection failed: {}", e))?;
+    client
+        .database("admin")
+        .run_command(doc! { "ping": 1 })
+        .await
+        .map_err(|e| format!("MongoDB ping failed: {}", e))?;
+    state.mongo_clients.write().await.insert(connection_id.to_string(), client.clone());
+    Ok(client)
+}
+
 /// Heuristic for transport-level failures where discarding the pool and opening
 /// a new TCP session may succeed (sleep/VPN blips, idle disconnects).
 fn is_retryable_connection_error(message: &str) -> bool {
@@ -325,6 +382,7 @@ pub async fn drop_pool(state: &AppState, connection_id: &str) {
     state.pools.write().await.remove(connection_id);
     state.mysql_pools.write().await.remove(connection_id);
     state.sqlite_pools.write().await.remove(connection_id);
+    state.mongo_clients.write().await.remove(connection_id);
     state
         .ask_veloxy_db_context_cache
         .write()
@@ -558,6 +616,11 @@ pub async fn refresh_connection_pools(
                 .execute(&pool)
                 .await
                 .map_err(|error| error.to_string())?;
+        }
+        DatabaseEngine::Mongo => {
+            let client = get_or_create_mongo_client(app, state, connection_id).await?;
+            client.database("admin").run_command(doc! { "ping": 1 }).await
+                .map_err(|e| format!("MongoDB ping failed: {}", e))?;
         }
     }
 

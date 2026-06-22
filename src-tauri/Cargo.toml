@@ -46,3 +46,5 @@ printpdf = "0.7"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 futures-util = "0.3"
 chrono = "0.4.45"
+mongodb = "3"
+bson = "2"

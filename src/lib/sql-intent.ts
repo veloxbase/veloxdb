@@ -25,7 +25,8 @@ export function classifySqlIntent(sql: string): SqlIntent {
 const TRANSACTION_CONTROL = ['begin', 'commit', 'rollback', 'start', 'savepoint', 'release']
 
 /** True when every statement in `sql` is read-only (select/explain). */
-export function isReadOnlySql(sql: string): boolean {
+export function isReadOnlySql(sql: string, engine?: string): boolean {
+  if (engine === "mongo") return true; // MongoDB find() queries are always read-only
   let sawStatement = false
   for (const raw of sql.split(';')) {
     const statement = raw.trim()

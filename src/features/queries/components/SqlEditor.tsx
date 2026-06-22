@@ -12,8 +12,10 @@ type SqlEditorProps = {
 	onChange: (value: string) => void;
 	onRun: () => void;
 	onRunStatement: (sql: string) => void;
+	/** Language mode for Monaco. Defaults to "sql" for relational, "json" for MongoDB. */
+	language?: string;
 	metadata?: QueryEditorMetadata;
-	diagnostics: SqlDiagnostic[];
+	diagnostics?: SqlDiagnostic[];
 };
 
 function completionItemsFromMetadata(
@@ -191,6 +193,7 @@ export function SqlEditor({
 	onChange,
 	onRun,
 	onRunStatement,
+	language = "sql",
 	metadata,
 	diagnostics,
 }: SqlEditorProps) {
@@ -302,7 +305,8 @@ export function SqlEditor({
 	return (
 		<Editor
 			height="100%"
-			defaultLanguage="sql"
+			language={language}
+			defaultLanguage={language}
 			theme={isDark ? "vs-dark" : "vs-light"}
 			value={value}
 			onMount={handleMount}

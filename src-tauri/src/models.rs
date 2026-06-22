@@ -26,6 +26,7 @@ pub enum DatabaseEngine {
     Postgres,
     Mysql,
     Sqlite,
+    Mongo,
 }
 
 fn default_database_engine() -> DatabaseEngine {

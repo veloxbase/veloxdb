@@ -169,6 +169,7 @@ export function ConnectionDialog({
     { value: 'postgres' as DatabaseEngine, label: 'PostgreSQL', hint: t("connection.recommendedDefault") },
     { value: 'mysql' as DatabaseEngine, label: 'MySQL', hint: t("connection.experimental"), experimental: true },
     { value: 'sqlite' as DatabaseEngine, label: 'SQLite', hint: t("connection.experimental"), experimental: true },
+    { value: 'mongo' as DatabaseEngine, label: 'MongoDB', hint: t("connection.experimental"), experimental: true },
   ], [t])
 
   const defaultValues = useMemo(

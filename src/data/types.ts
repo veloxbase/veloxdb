@@ -1,6 +1,6 @@
 /** PostgreSQL `sslmode`-style TLS (lowercase in JSON for Tauri). */
 export type ConnectionSslMode = 'disable' | 'prefer' | 'require'
-export type DatabaseEngine = 'postgres' | 'mysql' | 'sqlite'
+export type DatabaseEngine = 'postgres' | 'mysql' | 'sqlite' | 'mongo'
 
 export type SshAuthMethod = 'keyfile' | 'password'
 

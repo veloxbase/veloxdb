@@ -37,6 +37,7 @@ import { readExpandedIds, writeExpandedIds } from '@/lib/tree-expanded-persisten
 function engineBadge(engine: ConnectionSummary['engine']): string {
   if (engine === 'postgres') return 'PG'
   if (engine === 'mysql') return 'MY'
+  if (engine === 'mongo') return 'MG'
   return 'SQ'
 }
 

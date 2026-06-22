@@ -12,7 +12,8 @@ use commands::{
   delete_openrouter_api_key, disconnect_db, execute_ddl_statement, execute_ddl_transaction, export_diagram_png,
   export_results_csv_command, export_results_json_command, generate_sql_from_nl, get_foreign_keys,
   get_openrouter_api_key, get_query_editor_metadata, get_schema, get_table_indexes, get_table_properties, get_tables,
-  lint_sql, list_connections_command, list_databases, load_veloxy_conversation, ping_connection,
+  lint_sql, list_connections_command, list_databases, load_veloxy_conversation, mongo_run_query, mongo_get_collections,
+  mongo_get_schema, ping_connection,
   refresh_connection, rename_connection, run_query, save_base64_png, save_text_file, set_active_connection,
   store_openrouter_api_key, switch_database,
 };
@@ -81,7 +82,10 @@ pub fn run() {
       clear_veloxy_conversation,
       store_openrouter_api_key,
       get_openrouter_api_key,
-      delete_openrouter_api_key
+      delete_openrouter_api_key,
+      mongo_run_query,
+      mongo_get_collections,
+      mongo_get_schema
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

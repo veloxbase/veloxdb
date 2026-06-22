@@ -374,6 +374,9 @@ pub async fn export_results_csv(
                 lines
             }
         }
+        DatabaseEngine::Mongo => {
+            return Err("MongoDB export is not supported.".to_string());
+        }
     };
 
     let content = lines.join("\n") + "\n";
@@ -479,6 +482,9 @@ pub async fn export_results_json(
                 result.push(serde_json::to_string(&obj).map_err(|e| e.to_string())?);
             }
             result
+        }
+        DatabaseEngine::Mongo => {
+            return Err("MongoDB JSON export is not supported.".to_string());
         }
     };
 
