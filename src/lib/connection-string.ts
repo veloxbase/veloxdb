@@ -44,6 +44,22 @@ function normalizeUrl(raw: string): string {
  */
 export function parseConnectionString(raw: string): ParsedConnectionString | null {
   const trimmed = raw.trim()
+
+  // MongoDB URIs
+  if (trimmed.startsWith('mongodb://') || trimmed.startsWith('mongodb+srv://')) {
+    const url = new URL(trimmed)
+    return {
+      engine: 'mongo',
+      host: decodeURIComponent(url.hostname || 'localhost'),
+      port: url.port ? Number(url.port) : 27017,
+      database: decodeURIComponent(url.pathname.replace(/^\//, '') || 'admin'),
+      user: decodeURIComponent(url.username || ''),
+      password: decodeURIComponent(url.password || ''),
+      sslMode: trimmed.startsWith('mongodb+srv') ? 'require' : 'prefer',
+      extraParams: Object.fromEntries(new URLSearchParams(url.search)),
+    }
+  }
+
   if (trimmed.startsWith('sqlite://')) {
     const path = trimmed.replace(/^sqlite:\/\//, '')
     return {
@@ -121,6 +137,18 @@ export function buildConnectionString(fields: {
   sslMode: ConnectionSslMode
   extraParams?: Record<string, string>
 }): string {
+  if (fields.engine === 'mongo') {
+    const encodedUser = fields.user ? encodeURIComponent(fields.user) : ''
+    const encodedPassword = fields.password ? `:${encodeURIComponent(fields.password)}` : ''
+    const auth = encodedUser ? `${encodedUser}${encodedPassword}@` : ''
+    let uri = `mongodb://${auth}${fields.host || 'localhost'}:${fields.port || 27017}/${encodeURIComponent(fields.database || 'admin')}`
+    if (fields.extraParams && Object.keys(fields.extraParams).length > 0) {
+      const params = new URLSearchParams(fields.extraParams).toString()
+      uri += `?${params}`
+    }
+    return uri
+  }
+
   if (fields.engine === 'sqlite') {
     const path = fields.filePath || fields.database || ':memory:'
     return `sqlite://${path}`

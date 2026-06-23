@@ -272,7 +272,7 @@ function QueryPane({
 							onChange={onSqlChange}
 							onRun={onRun}
 							onRunStatement={onRunStatement}
-							language={connectionEngine === "mongo" ? "json" : "sql"}
+							language={connectionEngine === "mongo" ? "json" : connectionEngine === "redis" ? "plaintext" : "sql"}
 							metadata={editorMetadata}
 							diagnostics={lintDiagnostics}
 						/>

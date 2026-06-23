@@ -62,6 +62,14 @@ export function connectionSecondaryText(connection: ConnectionSummary): string {
 	if (connection.engine === "mongo") {
 		return `mongodb://${connection.host}:${connection.port}/${connection.database}`;
 	}
+	if (connection.engine === "redis") {
+		return `redis://${connection.host}:${connection.port}`;
+	}
+	if (connection.engine === "duckdb") {
+		return connection.filePath === ":memory:" || !connection.filePath
+			? "DuckDB in-memory database"
+			: `DuckDB file: ${connection.filePath}`;
+	}
 	if (connection.engine === "sqlite") {
 		return connection.filePath === ":memory:"
 			? "SQLite in-memory database"
@@ -74,6 +82,12 @@ export function connectionHeadline(connection: ConnectionSummary): string {
 	if (connection.engine === "mongo") {
 		return `Connected to MongoDB (${connection.host}:${connection.port}/${connection.database})`;
 	}
+	if (connection.engine === "redis") {
+		return `Connected to Redis (${connection.host}:${connection.port})`;
+	}
+	if (connection.engine === "duckdb") {
+		return `Connected to DuckDB (${connection.filePath || "in-memory"})`;
+	}
 	if (connection.engine === "sqlite") {
 		return `Connected to SQLite (${connection.filePath ?? connection.database})`;
 	}
@@ -85,6 +99,8 @@ export function engineLabel(engine: ConnectionSummary["engine"]): string {
 	if (engine === "mysql") return "MySQL";
 	if (engine === "sqlite") return "SQLite";
 	if (engine === "mongo") return "MongoDB";
+	if (engine === "duckdb") return "DuckDB";
+	if (engine === "redis") return "Redis";
 	return "Unknown";
 }
 

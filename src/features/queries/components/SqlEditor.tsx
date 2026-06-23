@@ -208,7 +208,7 @@ export function SqlEditor({
 		if (!editorInstance || !monacoInstance) return;
 		const model = editorInstance.getModel();
 		if (!model) return;
-		const markers: editor.IMarkerData[] = diagnostics.map((item) => {
+		const markers: editor.IMarkerData[] = (diagnostics ?? []).map((item) => {
 			const line = Math.max(1, item.line ?? 1);
 			const col = Math.max(1, item.column ?? 1);
 			return {

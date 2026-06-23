@@ -139,6 +139,14 @@ pub async fn get_table_properties(
         return Ok(properties);
     }
 
+    if engine == DatabaseEngine::Duckdb {
+        return crate::commands::duckdb::duckdb_get_table_properties(app, state, ctx).await;
+    }
+
+    if engine == DatabaseEngine::Mongo || engine == DatabaseEngine::Redis {
+        return Err("Table properties are not supported for this engine type.".to_string());
+    }
+
     with_pool_client_retry(&app, &state, &connection_id, ctx, |client, input| async move {
         let columns = client.query(
             "select c.table_schema, c.table_name, c.column_name, c.data_type, \
@@ -218,7 +226,7 @@ pub async fn apply_table_properties(
     input: TablePropertiesApplyRequest,
 ) -> Result<(), String> {
     let (connection_id, engine) = resolve_connection_engine(&app, &state, input.connection_id.clone()).await?;
-    if engine != DatabaseEngine::Postgres {
+    if engine != DatabaseEngine::Postgres && engine != DatabaseEngine::Duckdb {
         return Err(format!(
             "Table property editing is not supported for {} connections yet.",
             match engine {
@@ -226,8 +234,14 @@ pub async fn apply_table_properties(
                 DatabaseEngine::Mysql => "MySQL",
                 DatabaseEngine::Sqlite => "SQLite",
                 DatabaseEngine::Mongo => "MongoDB",
+                DatabaseEngine::Duckdb => "DuckDB",
+                DatabaseEngine::Redis => "Redis",
             }
         ));
+    }
+
+    if engine == DatabaseEngine::Duckdb {
+        return crate::commands::duckdb::duckdb_apply_table_properties(app, state, input).await;
     }
 
     with_pool_client_retry(&app, &state, &connection_id, input, |mut client, input| async move {
@@ -434,6 +448,14 @@ pub async fn get_foreign_keys(
         return Ok(edges);
     }
 
+    if engine == DatabaseEngine::Duckdb {
+        return crate::commands::duckdb::duckdb_get_foreign_keys(app, state, Some(connection_id)).await;
+    }
+
+    if engine == DatabaseEngine::Mongo || engine == DatabaseEngine::Redis {
+        return Ok(Vec::new());
+    }
+
     with_pool_client_retry(&app, &state, &connection_id, (), |client, ()| async move {
         let rows = client.query(
             "select src_ns.nspname::text as from_schema, src_cls.relname::text as from_table, \
@@ -537,6 +559,18 @@ pub async fn get_table_indexes(
             });
         }
         return Ok(TableIndexesResult { indexes, truncated });
+    }
+
+    if engine == DatabaseEngine::Duckdb {
+        return crate::commands::duckdb::duckdb_get_table_indexes(app, state, ctx).await;
+    }
+
+    if engine == DatabaseEngine::Mongo {
+        return crate::commands::mongo::mongo_get_table_indexes(&app, &state, &connection_id, &ctx.table_schema, &ctx.table_name).await;
+    }
+
+    if engine == DatabaseEngine::Redis {
+        return Ok(TableIndexesResult { indexes: Vec::new(), truncated: false });
     }
 
     with_pool_client_retry(&app, &state, &connection_id, ctx, |client, input| async move {

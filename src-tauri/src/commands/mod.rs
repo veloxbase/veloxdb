@@ -422,6 +422,12 @@ pub(crate) async fn run_query_mysql_or_sqlite(
         DatabaseEngine::Mongo => {
             return Err("Internal engine routing error (MongoDB uses its own query path).".to_string());
         }
+        DatabaseEngine::Duckdb => {
+            return Err("Internal engine routing error (DuckDB uses its own query path).".to_string());
+        }
+        DatabaseEngine::Redis => {
+            return Err("Internal engine routing error (Redis uses its own command path).".to_string());
+        }
         DatabaseEngine::Postgres => {
             return Err("Internal engine routing error.".to_string());
         }
@@ -922,8 +928,10 @@ mod ddl;
 mod editor_meta;
 mod veloxy;
 mod lint;
-mod mongo;
+pub(crate) mod mongo;
+pub(crate) mod duckdb;
 mod export_cmds;
+pub(crate) mod redis;
 
 // --- Re-exports ---
 
@@ -958,4 +966,10 @@ pub use export_cmds::{
 };
 pub use mongo::{
     mongo_run_query, mongo_get_collections, mongo_get_schema,
+};
+pub use duckdb::{
+    duckdb_run_query, duckdb_get_tables, duckdb_get_schema,
+};
+pub use redis::{
+    redis_run_query, redis_get_keys, redis_get_schema,
 };

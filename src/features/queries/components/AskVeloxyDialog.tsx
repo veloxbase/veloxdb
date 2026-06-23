@@ -30,8 +30,6 @@ import { VeloxyMarkdown } from "@/features/queries/components/VeloxyMarkdown";
 import {
 	type AskVeloxySubmitResult,
 	type ChatMessage,
-	extractTextFromUnknown,
-	looksLikeJsonResponse,
 	messageBodyIsSqlDraft,
 	normalizeAssistantMessage,
 	truncateSuggestion,

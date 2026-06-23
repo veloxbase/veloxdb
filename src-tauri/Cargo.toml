@@ -48,3 +48,5 @@ futures-util = "0.3"
 chrono = "0.4.45"
 mongodb = "3"
 bson = "2"
+duckdb = { version = "1", features = ["bundled"] }
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }

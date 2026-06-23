@@ -76,5 +76,27 @@ pub async fn lint_sql(
         DatabaseEngine::Mongo => {
             Err("MongoDB does not support SQL linting.".to_string())
         }
+        DatabaseEngine::Duckdb => {
+            let conns = state.duckdb_connections.read().await;
+            let conn_mutex = conns
+                .get(&connection_id)
+                .ok_or("DuckDB connection not found.".to_string())?;
+            let conn = conn_mutex.lock().await;
+            let lint_sql = format!("EXPLAIN {}", sql);
+            match conn.prepare(&lint_sql) {
+                Ok(_) => Ok(LintSqlResult { diagnostics: vec![] }),
+                Err(e) => Ok(LintSqlResult {
+                    diagnostics: vec![SqlDiagnostic {
+                        message: e.to_string(),
+                        severity: "error".to_string(),
+                        line: None,
+                        column: None,
+                        end_line: None,
+                        end_column: None,
+                    }],
+                }),
+            }
+        }
+        DatabaseEngine::Redis => Err("Not supported for Redis.".to_string()),
     }
 }

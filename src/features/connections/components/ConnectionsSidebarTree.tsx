@@ -38,6 +38,8 @@ function engineBadge(engine: ConnectionSummary['engine']): string {
   if (engine === 'postgres') return 'PG'
   if (engine === 'mysql') return 'MY'
   if (engine === 'mongo') return 'MG'
+  if (engine === 'duckdb') return 'DK'
+  if (engine === 'redis') return 'RD'
   return 'SQ'
 }
 

@@ -15,6 +15,7 @@ use tokio_postgres::NoTls;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 use mongodb::{Client as MongoClient, bson::doc};
+use duckdb::Connection as DuckConnection;
 use crate::models::{
     AskVeloxyConversationMessage, AskVeloxyDbContextCache, ConnectionInput, ConnectionSslMode,
     ConnectionSummary, DatabaseEngine, StoredConnection,
@@ -34,6 +35,7 @@ const POOL_CREATE_SECS: u64 = 15;
 const POOL_RECYCLE_SECS: u64 = 15;
 pub const DEFAULT_MYSQL_PORT: u16 = 3306;
 pub const DEFAULT_MONGO_PORT: u16 = 27017;
+pub const DEFAULT_REDIS_PORT: u16 = 6379;
 
 fn deadpool_ssl_mode(mode: ConnectionSslMode) -> DeadpoolSslMode {
     match mode {
@@ -49,6 +51,8 @@ pub struct AppState {
     pub mysql_pools: RwLock<HashMap<String, MySqlPool>>,
     pub sqlite_pools: RwLock<HashMap<String, SqlitePool>>,
     pub mongo_clients: RwLock<HashMap<String, MongoClient>>,
+    pub duckdb_connections: RwLock<HashMap<String, tokio::sync::Mutex<DuckConnection>>>,
+    pub redis_clients: RwLock<HashMap<String, redis::aio::ConnectionManager>>,
     pub active_connection_id: RwLock<Option<String>>,
     pub ssh_tunnels: RwLock<HashMap<String, SshTunnel>>,
     pub ask_veloxy_db_context_cache: RwLock<HashMap<String, AskVeloxyDbContextCache>>,
@@ -357,6 +361,88 @@ pub async fn get_or_create_mongo_client(
     Ok(client)
 }
 
+// ── DuckDB ──────────────────────────────────────────────────────
+
+pub fn build_duckdb_connection(input: &ConnectionInput) -> Result<DuckConnection, String> {
+    let path = input.file_path.as_deref().unwrap_or(":memory:");
+    let conn = if path == ":memory:" || path.is_empty() {
+        duckdb::Connection::open_in_memory()
+            .map_err(|e| format!("DuckDB in-memory connection failed: {}", e))?
+    } else {
+        duckdb::Connection::open(path)
+            .map_err(|e| format!("DuckDB connection to '{}' failed: {}", path, e))?
+    };
+    // Verify the connection works
+    conn.execute_batch("SELECT 1")
+        .map_err(|e| format!("DuckDB verification query failed: {}", e))?;
+    Ok(conn)
+}
+
+pub async fn get_or_create_duckdb_connection(
+    app: &AppHandle,
+    state: &AppState,
+    connection_id: &str,
+) -> Result<(), String> {
+    {
+        let conns = state.duckdb_connections.read().await;
+        if conns.contains_key(connection_id) {
+            return Ok(());
+        }
+    }
+    let stored = load_connection(app, connection_id)?
+        .ok_or_else(|| "Stored connection details were not found.".to_string())?;
+    let conn = build_duckdb_connection(&stored.to_input())?;
+    state.duckdb_connections.write().await.insert(connection_id.to_string(), tokio::sync::Mutex::new(conn));
+    Ok(())
+}
+
+// ── Redis ───────────────────────────────────────────────────────
+
+pub fn build_redis_url(input: &ConnectionInput) -> String {
+    let host = if input.host.is_empty() { "127.0.0.1" } else { &input.host };
+    let port = if input.port == 0 { DEFAULT_REDIS_PORT } else { input.port };
+    if input.user.is_empty() {
+        format!("redis://{}:{}", host, port)
+    } else {
+        format!(
+            "redis://{}:{}@{}:{}",
+            urlencoding::encode(&input.user),
+            urlencoding::encode(&input.password),
+            host,
+            port,
+        )
+    }
+}
+
+pub async fn get_or_create_redis_client(
+    app: &AppHandle,
+    state: &AppState,
+    connection_id: &str,
+) -> Result<redis::aio::ConnectionManager, String> {
+    {
+        let clients = state.redis_clients.read().await;
+        if let Some(client) = clients.get(connection_id) {
+            return Ok(client.clone());
+        }
+    }
+    let stored = load_connection(app, connection_id)?
+        .ok_or_else(|| "Stored connection details were not found.".to_string())?;
+    let url = build_redis_url(&stored.to_input());
+    let client = redis::Client::open(url)
+        .map_err(|e| format!("Redis connection failed: {}", e))?;
+    let conn = redis::aio::ConnectionManager::new(client)
+        .await
+        .map_err(|e| format!("Redis connection failed: {}", e))?;
+    // Verify with PING
+    let mut verify = conn.clone();
+    redis::cmd("PING")
+        .query_async::<_, String>(&mut verify)
+        .await
+        .map_err(|e| format!("Redis ping failed: {}", e))?;
+    state.redis_clients.write().await.insert(connection_id.to_string(), conn.clone());
+    Ok(conn)
+}
+
 /// Heuristic for transport-level failures where discarding the pool and opening
 /// a new TCP session may succeed (sleep/VPN blips, idle disconnects).
 fn is_retryable_connection_error(message: &str) -> bool {
@@ -383,6 +469,8 @@ pub async fn drop_pool(state: &AppState, connection_id: &str) {
     state.mysql_pools.write().await.remove(connection_id);
     state.sqlite_pools.write().await.remove(connection_id);
     state.mongo_clients.write().await.remove(connection_id);
+    state.duckdb_connections.write().await.remove(connection_id);
+    state.redis_clients.write().await.remove(connection_id);
     state
         .ask_veloxy_db_context_cache
         .write()
@@ -622,6 +710,18 @@ pub async fn refresh_connection_pools(
             client.database("admin").run_command(doc! { "ping": 1 }).await
                 .map_err(|e| format!("MongoDB ping failed: {}", e))?;
         }
+        DatabaseEngine::Duckdb => {
+            get_or_create_duckdb_connection(app, state, connection_id).await?;
+            let conns = state.duckdb_connections.read().await;
+            let conn = conns.get(connection_id).ok_or("DuckDB connection not found")?;
+            let conn = conn.lock().await;
+            conn.execute_batch("SELECT 1").map_err(|e| format!("DuckDB ping failed: {}", e))?;
+        }
+        DatabaseEngine::Redis => {
+            let mut client = get_or_create_redis_client(app, state, connection_id).await?;
+            redis::cmd("PING").query_async::<_, String>(&mut client).await
+                .map_err(|e| format!("Redis ping failed: {}", e))?;
+        }
     }
 
     Ok(())
@@ -804,7 +904,7 @@ pub fn require_safe_identifier<'a>(name: &'a str, context: &str) -> Result<&'a s
 
 #[cfg(test)]
 mod tests {
-    use super::{is_safe_identifier, mysql_url, require_safe_identifier};
+    use super::{build_mongo_connection_string, is_safe_identifier, mysql_url, require_safe_identifier};
     use crate::models::{ConnectionInput, ConnectionSslMode, DatabaseEngine};
 
     fn mysql_input(ssl_mode: ConnectionSslMode) -> ConnectionInput {
@@ -824,6 +924,74 @@ mod tests {
         }
     }
 
+    fn postgres_input() -> ConnectionInput {
+        ConnectionInput {
+            id: None,
+            name: "test".to_string(),
+            engine: DatabaseEngine::Postgres,
+            host: "localhost".to_string(),
+            port: 5432,
+            database: "app".to_string(),
+            file_path: None,
+            user: "postgres".to_string(),
+            password: "secret".to_string(),
+            ssl_mode: ConnectionSslMode::Prefer,
+            ssh_config: None,
+            extra_params: None,
+        }
+    }
+
+    fn sqlite_input() -> ConnectionInput {
+        ConnectionInput {
+            id: None,
+            name: "test".to_string(),
+            engine: DatabaseEngine::Sqlite,
+            host: String::new(),
+            port: 0,
+            database: String::new(),
+            file_path: Some("/tmp/test.db".to_string()),
+            user: String::new(),
+            password: String::new(),
+            ssl_mode: ConnectionSslMode::Disable,
+            ssh_config: None,
+            extra_params: None,
+        }
+    }
+
+    fn mongo_input() -> ConnectionInput {
+        ConnectionInput {
+            id: None,
+            name: "test".to_string(),
+            engine: DatabaseEngine::Mongo,
+            host: "localhost".to_string(),
+            port: 27017,
+            database: "admin".to_string(),
+            file_path: None,
+            user: String::new(),
+            password: String::new(),
+            ssl_mode: ConnectionSslMode::Disable,
+            ssh_config: None,
+            extra_params: None,
+        }
+    }
+
+    fn mariadb_input() -> ConnectionInput {
+        ConnectionInput {
+            id: None,
+            name: "test".to_string(),
+            engine: DatabaseEngine::Mysql,
+            host: "localhost".to_string(),
+            port: 3306,
+            database: "app".to_string(),
+            file_path: None,
+            user: "root".to_string(),
+            password: "pw".to_string(),
+            ssl_mode: ConnectionSslMode::Prefer,
+            ssh_config: None,
+            extra_params: None,
+        }
+    }
+
     #[test]
     fn mysql_url_maps_ssl_mode() {
         assert!(mysql_url("localhost", 3306, &mysql_input(ConnectionSslMode::Disable))
@@ -832,6 +1000,77 @@ mod tests {
             .ends_with("?ssl-mode=PREFERRED"));
         assert!(mysql_url("localhost", 3306, &mysql_input(ConnectionSslMode::Require))
             .ends_with("?ssl-mode=REQUIRED"));
+    }
+
+    #[test]
+    fn mariadb_uses_mysql_url_format() {
+        // MariaDB is wire-compatible with MySQL — uses the same URL format
+        let url = mysql_url("localhost", 3306, &mariadb_input());
+        assert!(url.starts_with("mysql://"));
+        assert!(url.contains("root:pw@localhost:3306/app"));
+    }
+
+    #[test]
+    fn mongo_connection_string_no_auth() {
+        let uri = build_mongo_connection_string(&mongo_input());
+        assert_eq!(uri, "mongodb://localhost:27017/admin");
+    }
+
+    #[test]
+    fn mongo_connection_string_with_auth() {
+        let input = ConnectionInput {
+            user: "admin".to_string(),
+            password: "secret".to_string(),
+            ..mongo_input()
+        };
+        let uri = build_mongo_connection_string(&input);
+        assert!(uri.contains("admin:secret@"));
+        assert!(uri.contains("localhost:27017/"));
+    }
+
+    #[test]
+    fn mongo_connection_string_with_custom_port() {
+        let input = ConnectionInput {
+            port: 27018,
+            ..mongo_input()
+        };
+        let uri = build_mongo_connection_string(&input);
+        assert_eq!(uri, "mongodb://localhost:27018/admin");
+    }
+
+    #[test]
+    fn mongo_connection_string_with_extra_params() {
+        use std::collections::HashMap;
+        let mut params = HashMap::new();
+        params.insert("replicaSet".to_string(), "rs0".to_string());
+        params.insert("authSource".to_string(), "admin".to_string());
+        let input = ConnectionInput {
+            extra_params: Some(params),
+            ..mongo_input()
+        };
+        let uri = build_mongo_connection_string(&input);
+        assert!(uri.contains("replicaSet=rs0"));
+        assert!(uri.contains("authSource=admin"));
+    }
+
+    #[test]
+    fn mongo_connection_defaults_to_admin_database() {
+        let input = ConnectionInput {
+            database: String::new(),
+            ..mongo_input()
+        };
+        let uri = build_mongo_connection_string(&input);
+        assert!(uri.ends_with("/admin"));
+    }
+
+    #[test]
+    fn mongo_connection_defaults_to_localhost() {
+        let input = ConnectionInput {
+            host: String::new(),
+            ..mongo_input()
+        };
+        let uri = build_mongo_connection_string(&input);
+        assert!(uri.contains("localhost"));
     }
 
     #[test]

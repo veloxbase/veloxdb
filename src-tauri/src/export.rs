@@ -375,8 +375,31 @@ pub async fn export_results_csv(
             }
         }
         DatabaseEngine::Mongo => {
-            return Err("MongoDB export is not supported.".to_string());
+            let col = sql.split_whitespace().next().unwrap_or("main");
+            return crate::commands::mongo::mongo_export_csv(app, state, &connection_id, &sql, col, &input.output_path).await;
         }
+        DatabaseEngine::Duckdb => {
+            let conns = state.duckdb_connections.read().await;
+            let conn_mutex = conns.get(&connection_id).ok_or("DuckDB connection not found")?;
+            let conn = conn_mutex.lock().await;
+            let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+            let cols: Vec<String> = stmt.column_names().iter().map(|c| c.to_string()).collect();
+            let mut wtr = csv::Writer::from_path(&input.output_path).map_err(|e| e.to_string())?;
+            wtr.write_record(&cols).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map([], |row| {
+                let vals: Vec<String> = cols.iter().enumerate().map(|(i, _)| {
+                    row.get::<_, Option<String>>(i).ok().flatten().unwrap_or_default()
+                }).collect();
+                Ok(vals)
+            }).map_err(|e| e.to_string())?;
+            for row in rows {
+                let vals = row.map_err(|e| e.to_string())?;
+                wtr.write_record(&vals).map_err(|e| e.to_string())?;
+            }
+            wtr.flush().map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+        DatabaseEngine::Redis => return Err("Not supported for Redis.".to_string()),
     };
 
     let content = lines.join("\n") + "\n";
@@ -484,8 +507,32 @@ pub async fn export_results_json(
             result
         }
         DatabaseEngine::Mongo => {
-            return Err("MongoDB JSON export is not supported.".to_string());
+            let col = sql.split_whitespace().next().unwrap_or("main");
+            return crate::commands::mongo::mongo_export_json(app, state, &connection_id, &sql, col, &input.output_path).await;
         }
+        DatabaseEngine::Duckdb => {
+            let conns = state.duckdb_connections.read().await;
+            let conn_mutex = conns.get(&connection_id).ok_or("DuckDB connection not found")?;
+            let conn = conn_mutex.lock().await;
+            let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+            let cols: Vec<String> = stmt.column_names().iter().map(|c| c.to_string()).collect();
+            let mut rows = Vec::new();
+            let results = stmt.query_map([], |row| {
+                let mut map = serde_json::Map::new();
+                for (i, col) in cols.iter().enumerate() {
+                    let val: Option<String> = row.get(i).ok().flatten();
+                    map.insert(col.clone(), serde_json::Value::String(val.unwrap_or_default()));
+                }
+                Ok(serde_json::Value::Object(map))
+            }).map_err(|e| e.to_string())?;
+            for r in results {
+                rows.push(r.map_err(|e| e.to_string())?);
+            }
+            let content = serde_json::to_string_pretty(&rows).map_err(|e| e.to_string())?;
+            fs::write(&input.output_path, content).map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+        DatabaseEngine::Redis => return Err("Not supported for Redis.".to_string()),
     };
 
     let content = format!("[\n{}\n]\n", rows.join(",\n"));

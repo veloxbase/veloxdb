@@ -13,6 +13,7 @@ use crate::pg_error::map_pg_err;
 
 use super::{is_read_only_sql, run_query_mysql_or_sqlite, mysql_get_string, sqlite_get_idx, sqlite_get_name};
 use super::mongo::{mongo_run_query, mongo_get_collections, mongo_get_schema};
+use super::duckdb::{duckdb_run_query, duckdb_get_tables, duckdb_get_schema};
 
 #[tauri::command]
 pub async fn run_query(
@@ -97,6 +98,15 @@ pub async fn run_query(
                 allow_write: input.allow_write,
             }).await
         }
+        DatabaseEngine::Duckdb => {
+            duckdb_run_query(app, state, QueryRequest {
+                connection_id: Some(connection_id),
+                sql: sql.clone(),
+                max_rows: input.max_rows,
+                allow_write: input.allow_write,
+            }).await
+        }
+        DatabaseEngine::Redis => Err("Redis uses its own command path.".to_string()),
     }
 }
 
@@ -175,6 +185,10 @@ pub async fn get_tables(
         DatabaseEngine::Mongo => {
             mongo_get_collections(app, state, Some(connection_id)).await
         }
+        DatabaseEngine::Duckdb => {
+            duckdb_get_tables(app, state, Some(connection_id)).await
+        }
+        DatabaseEngine::Redis => Err("Redis uses its own command path.".to_string()),
     }
 }
 
@@ -250,6 +264,12 @@ pub async fn get_schema(
         }
         DatabaseEngine::Mongo => {
             mongo_get_schema(app, state, input.connection_id, input.table_schema, input.table_name).await
+        }
+        DatabaseEngine::Duckdb => {
+            duckdb_get_schema(app, state, input.connection_id, input.table_schema, input.table_name).await
+        }
+        DatabaseEngine::Redis => {
+            crate::commands::redis::redis_get_schema(app, state, input.connection_id, input.table_schema, input.table_name).await
         }
     }
 }

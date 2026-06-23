@@ -30,7 +30,6 @@ import {
 	type TableKey,
 } from '@/features/model/model-types';
 import { useForeignKeysQuery } from '@/features/model/queries';
-import { useContainerSize } from '@/features/model/use-container-size';
 import { canQueueRelationship } from '@/features/model/relationship-validation';
 import { rgbCssToHex } from '@/lib/contrast-text-for-bg';
 
@@ -64,7 +63,6 @@ export function ModelWorkspace({
 	}, [connectionId]);
 
 	const diagramWrapRef = useRef<HTMLDivElement>(null);
-	const diagramAreaSize = useContainerSize(diagramWrapRef);
 	const hadStoredLayout = boot.snap != null && (boot.snap.onCanvas.length > 0 || Object.keys(boot.snap.positions).length > 0);
 
 	const store = useModelWorkspaceStore();
@@ -450,7 +448,7 @@ export function ModelWorkspace({
 							activeViewId={store.activeViewId} viewsRegistry={store.viewsRegistry}
 							onViewChange={handleDiagramViewChange} onNewView={handleNewDiagramView}
 							onDeleteView={handleDeleteDiagramView}
-							columnDetail={store.columnDetail} onColumnDetailChange={store.setColumnDetail}
+							columnDetail={store.columnDetail} onColumnDetailChange={(v) => store.setColumnDetail(v as 'full' | 'keys' | 'header')}
 							canUndo={store.canUndo} canRedo={store.canRedo} onUndo={store.undo} onRedo={store.redo}
 							snapToGrid={store.snapToGrid} onToggleSnap={() => store.setSnapToGrid(!store.snapToGrid)}
 							selectedKeysCount={store.selectedKeys.length}
@@ -638,17 +636,21 @@ export function ModelWorkspace({
 
 				<TabsContent value="catalog" className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden">
 					<ModelCatalog
-						tables={catalogTablesSorted} onCanvas={store.onCanvas}
-						onAddToCanvas={handleAddToCanvas} onRemoveFromCanvas={handleRemoveFromCanvas}
-						onSelectKey={(k) => k ? requestColumns(k) : undefined}
-						selectedKeys={store.selectedKeys} primaryKey={store.primaryKey}
+						tables={catalogTablesSorted}
+						onCanvasSet={new Set(store.onCanvas)}
+						onDiagramCount={onDiagramCount}
+						selectedKeys={store.selectedKeys}
+						onSelectKey={(k) => { if (k) requestColumns(k); }}
+						onAddToCanvas={handleAddToCanvas}
+						onRemoveFromCanvas={handleRemoveFromCanvas}
+						onRequestColumns={requestColumns}
 					/>
 				</TabsContent>
 			</Tabs>
 
-			<DdlReviewDialog open={ddlOpen} onOpenChange={setDdlOpen} connectionId={connectionId} connectionEngine={connectionEngine} />
-			<CreateTableDialog open={createTableOpen} onOpenChange={setCreateTableOpen} onCreateTable={(ct) => store.setPendingCreateTables((prev) => [...prev, ct])} />
-			<MigrationPreviewDialog open={migrationPreviewOpen} onOpenChange={setMigrationPreviewOpen} onApply={handleApplyEntireModel} isApplying={applyPending} />
+			<DdlReviewDialog open={ddlOpen} onOpenChange={setDdlOpen} connectionId={connectionId} engine={connectionEngine} />
+			<CreateTableDialog open={createTableOpen} onOpenChange={setCreateTableOpen} onCommit={(ct) => store.setPendingCreateTables((prev) => [...prev, ct])} />
+			<MigrationPreviewDialog open={migrationPreviewOpen} onOpenChange={setMigrationPreviewOpen} summary={null} onApply={handleApplyEntireModel} isApplying={applyPending} />
 		</div>
 	);
 }

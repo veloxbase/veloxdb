@@ -2,8 +2,10 @@ use uuid::Uuid;
 use tauri::{AppHandle, State};
 
 use crate::db::{
-    build_mysql_pool, build_mysql_pool_custom, build_mongo_connection_string, build_pool, build_pool_custom, build_sqlite_pool,
-    disconnect_connection, drop_pool, get_or_create_mongo_client, get_or_create_mysql_pool, get_or_create_sqlite_pool,
+    build_duckdb_connection, build_mysql_pool, build_mysql_pool_custom, build_mongo_connection_string,
+    build_pool, build_pool_custom, build_sqlite_pool, disconnect_connection,
+    drop_pool, get_or_create_duckdb_connection, get_or_create_mongo_client,
+    get_or_create_mysql_pool, get_or_create_redis_client, get_or_create_sqlite_pool,
     load_connection, persist_connection_with_password, refresh_connection_pools,
     resolve_connection_engine, with_pool_client_retry, AppState, DEFAULT_MYSQL_PORT,
 };
@@ -97,6 +99,19 @@ pub async fn connect_db(
                 .map_err(|e| format!("MongoDB ping failed: {}", e))?;
             state.mongo_clients.write().await.insert(connection_id.clone(), client);
         }
+        DatabaseEngine::Duckdb => {
+            let conn = build_duckdb_connection(&input)?;
+            state.duckdb_connections.write().await.insert(connection_id.clone(), tokio::sync::Mutex::new(conn));
+        }
+        DatabaseEngine::Redis => {
+            let url = crate::db::build_redis_url(&input);
+            let client = redis::Client::open(url).map_err(|e| format!("Redis connection failed: {}", e))?;
+            let mut conn = redis::aio::ConnectionManager::new(client).await
+                .map_err(|e| format!("Redis connection failed: {}", e))?;
+            redis::cmd("PING").query_async::<_, String>(&mut conn).await
+                .map_err(|e| format!("Redis ping failed: {}", e))?;
+            state.redis_clients.write().await.insert(connection_id.clone(), conn);
+        }
     }
 
     let stored_connection = StoredConnection::from_input(connection_id.clone(), input.clone());
@@ -142,6 +157,14 @@ pub async fn set_active_connection(
             client.database("admin").run_command(doc! { "ping": 1 }).await
                 .map_err(|e| format!("MongoDB ping failed: {}", e))?;
         }
+        DatabaseEngine::Duckdb => {
+            get_or_create_duckdb_connection(&app, &state, &connection_id).await?;
+        }
+        DatabaseEngine::Redis => {
+            let mut client = get_or_create_redis_client(&app, &state, &connection_id).await?;
+            redis::cmd("PING").query_async::<_, String>(&mut client).await
+                .map_err(|e| format!("Redis ping failed: {}", e))?;
+        }
     }
 
     *state.active_connection_id.write().await = Some(connection_id);
@@ -176,6 +199,16 @@ pub async fn ping_connection(
         DatabaseEngine::Mongo => {
             let client = get_or_create_mongo_client(&app, &state, &connection_id).await?;
             client.database("admin").run_command(doc! { "ping": 1 }).await
+                .map_err(|error| error.to_string())?;
+            Ok(())
+        }
+        DatabaseEngine::Duckdb => {
+            get_or_create_duckdb_connection(&app, &state, &connection_id).await?;
+            Ok(())
+        }
+        DatabaseEngine::Redis => {
+            let mut client = get_or_create_redis_client(&app, &state, &connection_id).await?;
+            redis::cmd("PING").query_async::<_, String>(&mut client).await
                 .map_err(|error| error.to_string())?;
             Ok(())
         }
@@ -264,6 +297,8 @@ pub async fn list_databases(
                 .map_err(|e| format!("Failed to list MongoDB databases: {}", e))?;
             Ok(db_names.into_iter().map(|name| DatabaseInfo { name }).collect())
         }
+        DatabaseEngine::Duckdb => Ok(vec![DatabaseInfo { name: "main".to_string() }]),
+        DatabaseEngine::Redis => Ok(vec![DatabaseInfo { name: "0".to_string() }]),
     }
 }
 
@@ -344,6 +379,14 @@ pub async fn switch_database(
             let client = get_or_create_mongo_client(&app, &state, &input.connection_id).await?;
             client.database(&input.database).run_command(doc! { "ping": 1 }).await
                 .map_err(|e| format!("MongoDB ping failed: {}", e))?;
+        }
+        DatabaseEngine::Duckdb => {
+            get_or_create_duckdb_connection(&app, &state, &input.connection_id).await?;
+        }
+        DatabaseEngine::Redis => {
+            let mut client = get_or_create_redis_client(&app, &state, &input.connection_id).await?;
+            redis::cmd("PING").query_async::<_, String>(&mut client).await
+                .map_err(|e| format!("Redis ping failed: {}", e))?;
         }
     }
 

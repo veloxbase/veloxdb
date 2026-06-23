@@ -1,8 +1,8 @@
 use tauri::{AppHandle, State};
 
 use crate::db::{
-    get_or_create_mysql_pool, get_or_create_sqlite_pool, resolve_connection_engine,
-    with_pool_client_retry, AppState,
+    get_or_create_duckdb_connection, get_or_create_mysql_pool, get_or_create_sqlite_pool,
+    resolve_connection_engine, with_pool_client_retry, AppState,
 };
 use crate::models::{DatabaseEngine, DdlBatchRequest, DdlStatementRequest};
 use crate::pg_error::map_pg_err;
@@ -53,6 +53,17 @@ pub async fn execute_ddl_transaction(
         DatabaseEngine::Mongo => {
             Err("MongoDB does not support DDL transactions.".to_string())
         }
+        DatabaseEngine::Duckdb => {
+            get_or_create_duckdb_connection(&app, &state, &connection_id).await?;
+            let conns = state.duckdb_connections.read().await;
+            let conn_mutex = conns.get(&connection_id).ok_or("DuckDB connection not found")?;
+            let conn = conn_mutex.lock().await;
+            for sql in input.statements.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                conn.execute(sql, []).map_err(|e| format!("DuckDB DDL failed: {}", e))?;
+            }
+            Ok(())
+        }
+        DatabaseEngine::Redis => Err("Not supported for Redis.".to_string()),
     }
 }
 
@@ -89,5 +100,14 @@ pub async fn execute_ddl_statement(
         DatabaseEngine::Mongo => {
             Err("MongoDB does not support DDL statements.".to_string())
         }
+        DatabaseEngine::Duckdb => {
+            get_or_create_duckdb_connection(&app, &state, &connection_id).await?;
+            let conns = state.duckdb_connections.read().await;
+            let conn_mutex = conns.get(&connection_id).ok_or("DuckDB connection not found")?;
+            let conn = conn_mutex.lock().await;
+            conn.execute(&sql, []).map_err(|e| format!("DuckDB DDL failed: {}", e))?;
+            Ok(())
+        }
+        DatabaseEngine::Redis => Err("Not supported for Redis.".to_string()),
     }
 }
