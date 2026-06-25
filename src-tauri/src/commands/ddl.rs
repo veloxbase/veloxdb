@@ -32,7 +32,7 @@ pub async fn execute_ddl_transaction(
                 }
                 txn.commit().await.map_err(|error| map_pg_err(error, None))?;
                 Ok(())
-            }).await
+            }).await.map_err(String::from)
         }
         DatabaseEngine::Mysql => {
             let pool = get_or_create_mysql_pool(&app, &state, &connection_id).await?;
@@ -85,7 +85,7 @@ pub async fn execute_ddl_statement(
                 client.execute(sql.as_str(), &[]).await
                     .map_err(|error| map_pg_err(error, Some(sql.as_str())))?;
                 Ok(())
-            }).await
+            }).await.map_err(String::from)
         }
         DatabaseEngine::Mysql => {
             let pool = get_or_create_mysql_pool(&app, &state, &connection_id).await?;

@@ -45,7 +45,7 @@ pub async fn lint_sql(
                     }
                 };
                 Ok(LintSqlResult { diagnostics })
-            }).await
+            }).await.map_err(String::from)
         }
         DatabaseEngine::Mysql => {
             let pool = get_or_create_mysql_pool(&app, &state, &connection_id).await?;

@@ -170,7 +170,7 @@ pub(crate) async fn fetch_query_editor_metadata_for_connection(
             tables, functions,
             truncated_tables, truncated_columns, truncated_functions,
         })
-    }).await
+    }).await.map_err(String::from)
 }
 
 pub(crate) async fn fetch_foreign_keys_for_connection(
@@ -263,7 +263,7 @@ pub(crate) async fn fetch_foreign_keys_for_connection(
             to_table: row.get(4),
             to_column: row.get(5),
         }).collect())
-    }).await
+    }).await.map_err(String::from)
 }
 
 #[tauri::command]
@@ -422,5 +422,5 @@ pub async fn get_query_editor_metadata(
             tables, functions,
             truncated_tables, truncated_columns, truncated_functions,
         })
-    }).await
+    }).await.map_err(String::from)
 }

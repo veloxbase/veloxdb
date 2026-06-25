@@ -300,10 +300,12 @@ pub(crate) fn validate_generated_sql(sql: &str) -> Result<(), String> {
 
 // --- Row mapping ---
 
+pub(crate) type MappedRowsResult = (Vec<String>, Vec<BTreeMap<String, Option<String>>>, usize, bool);
+
 pub(crate) fn map_mysql_rows(
     rows: Vec<MySqlRow>,
     max_query_rows: usize,
-) -> Result<(Vec<String>, Vec<BTreeMap<String, Option<String>>>, usize, bool), String> {
+) -> Result<MappedRowsResult, String> {
     let mut columns: Vec<String> = Vec::new();
     if let Some(first) = rows.first() {
         columns = first.columns().iter().map(|column| column.name().to_string()).collect();
@@ -324,7 +326,7 @@ pub(crate) fn map_mysql_rows(
 pub(crate) fn map_sqlite_rows(
     rows: Vec<SqliteRow>,
     max_query_rows: usize,
-) -> Result<(Vec<String>, Vec<BTreeMap<String, Option<String>>>, usize, bool), String> {
+) -> Result<MappedRowsResult, String> {
     let mut columns: Vec<String> = Vec::new();
     if let Some(first) = rows.first() {
         columns = first.columns().iter().map(|column| column.name().to_string()).collect();
@@ -819,6 +821,7 @@ pub(crate) fn emit_veloxy_stream_chunk(app: &AppHandle, chunk: VeloxyStreamChunk
     let _ = app.emit("veloxy-stream-chunk", chunk);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn stream_openrouter_chat_completion(
     app: &AppHandle,
     client: &reqwest::Client,

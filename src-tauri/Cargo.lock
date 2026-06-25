@@ -7097,6 +7097,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-log",
  "tauri-plugin-store",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-postgres",
  "tokio-postgres-rustls",

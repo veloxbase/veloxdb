@@ -170,7 +170,7 @@ pub async fn get_table_properties(
         ).await.map_err(|error| map_pg_err(error, None))?;
 
         let primary_key_columns: HashSet<String> = primary_keys.into_iter()
-            .filter_map(|row| Some(row.get::<_, String>(0))).collect();
+            .map(|row| row.get::<_, String>(0)).collect();
 
         let unique_constraints = client.query(
             "select tc.constraint_name, kcu.column_name, kcu.ordinal_position \
@@ -216,7 +216,7 @@ pub async fn get_table_properties(
                 is_generated: row.get(8),
             }
         }).collect())
-    }).await
+    }).await.map_err(String::from)
 }
 
 #[tauri::command]
@@ -278,7 +278,7 @@ pub async fn apply_table_properties(
         ).await.map_err(|error| map_pg_err(error, None))?;
 
         let primary_key_columns: HashSet<String> = primary_keys.into_iter()
-            .filter_map(|row| Some(row.get::<_, String>(0))).collect();
+            .map(|row| row.get::<_, String>(0)).collect();
 
         let unique_constraints = client.query(
             "select tc.constraint_name, kcu.column_name, kcu.ordinal_position \
@@ -386,7 +386,7 @@ pub async fn apply_table_properties(
 
         txn.commit().await.map_err(|error| map_pg_err(error, None))?;
         Ok(())
-    }).await
+    }).await.map_err(String::from)
 }
 
 #[tauri::command]
@@ -482,7 +482,7 @@ pub async fn get_foreign_keys(
             from_schema: row.get(0), from_table: row.get(1), from_column: row.get(2),
             to_schema: row.get(3), to_table: row.get(4), to_column: row.get(5),
         }).collect())
-    }).await
+    }).await.map_err(String::from)
 }
 
 #[tauri::command]
@@ -615,5 +615,5 @@ pub async fn get_table_indexes(
             });
         }
         Ok(TableIndexesResult { indexes, truncated })
-    }).await
+    }).await.map_err(String::from)
 }

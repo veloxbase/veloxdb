@@ -72,7 +72,7 @@ impl SshConfig {
             && !self.host.is_empty()
             && !self.user.is_empty()
             && (self.auth_method != SshAuthMethod::Password
-                || self.password.as_ref().map_or(false, |p| !p.is_empty()))
+                || self.password.as_ref().is_some_and(|p| !p.is_empty()))
     }
 }
 

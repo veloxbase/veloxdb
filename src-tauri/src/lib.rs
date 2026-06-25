@@ -1,10 +1,12 @@
 mod commands;
 mod credentials;
-mod db;
+pub mod db;
+pub mod engines;
+pub mod error;
 mod export;
-mod models;
+pub mod models;
 mod pg_error;
-mod sql_split;
+pub mod sql_split;
 mod ssh_tunnel;
 
 use commands::{

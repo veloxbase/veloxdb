@@ -427,9 +427,9 @@ pub async fn mongo_get_table_indexes(
             });
         let keys_doc = idx.keys.clone();
         let keys: Vec<String> = keys_doc.iter()
-            .filter_map(|(k, v)| {
+            .map(|(k, v)| {
                 let dir = match v.as_i32() { Some(1) => "asc", Some(-1) => "desc", _ => "?" };
-                Some(format!("{}({})", k, dir))
+                format!("{}({})", k, dir)
             })
             .collect();
         indexes.push(IndexInfo {
@@ -488,7 +488,7 @@ mod tests {
     #[test]
     fn parse_json_with_boolean() {
         let result = parse_mongo_filter(r#"{"verified": true}"#).unwrap();
-        assert_eq!(result.get_bool("verified").unwrap(), true);
+        assert!(result.get_bool("verified").unwrap());
     }
 
     #[test]
@@ -565,6 +565,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn bson_double_display() {
         let value = Bson::Double(3.14);
         assert_eq!(bson_to_display_string(&value).unwrap(), "3.14");

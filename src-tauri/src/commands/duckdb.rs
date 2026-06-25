@@ -409,7 +409,7 @@ pub async fn duckdb_get_table_properties(
 
     let mut unique_columns: HashSet<String> = HashSet::new();
     let mut composite_unique_columns: HashSet<String> = HashSet::new();
-    for (_name, cols) in &unique_by_name {
+    for cols in unique_by_name.values() {
         for c in cols { unique_columns.insert(c.clone()); }
         if cols.len() > 1 { for c in cols { composite_unique_columns.insert(c.clone()); } }
     }
