@@ -401,17 +401,17 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                             : 'border-border bg-background hover:border-primary/30 hover:bg-muted/20',
                         )}>
                           <div className="flex h-10 items-center justify-center">
-                            <span className={cn(
-                              'text-2xl font-black tracking-tighter',
-                              selected ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground/60',
-                            )}>
-                            {option.value === 'postgres' && 'PG'}
-                            {option.value === 'mysql' && 'MY'}
-                            {option.value === 'sqlite' && 'SQ'}
-                            {option.value === 'mongo' && 'MG'}
-                            {option.value === 'duckdb' && 'DK'}
-                            {option.value === 'redis' && 'RD'}
-                            </span>
+                            {option.value === 'postgres' && <img src="/postgresql.svg" alt="PG" className="h-8 w-auto" />}
+                            {option.value === 'mysql' && (
+                              <>
+                                <img src="/mysql-wordmark-dark.svg" alt="MySQL" className="h-8 w-auto dark:hidden" />
+                                <img src="/mysql-wordmark-light.svg" alt="MySQL" className="hidden h-8 w-auto dark:block" />
+                              </>
+                            )}
+                            {option.value === 'sqlite' && <img src="/sqlite.svg" alt="SQLite" className="h-8 w-auto" />}
+                            {option.value === 'mongo' && <img src="/mongodb-icon-light.svg" alt="MongoDB" className="h-8 w-auto" />}
+                            {option.value === 'duckdb' && <img src="/DuckDB_icon-darkmode.svg" alt="DuckDB" className="h-8 w-auto" />}
+                            {option.value === 'redis' && <img src="/redis.svg" alt="Redis" className="h-8 w-auto" />}
                           </div>
                           <span className="text-[11px] font-medium text-foreground leading-tight">{option.label}</span>
                         </div>

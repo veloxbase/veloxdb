@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "VeloxDB",
-    "tagline": "PostgreSQL, unleashed on your desktop."
+    "tagline": "Databases, unleashed on your desktop."
   },
   "workspace": {
     "query": "Query",
@@ -629,9 +629,9 @@
     "welcome": "Welcome to VeloxDB",
     "welcomeDesc": "A fast, memory-efficient desktop client for PostgreSQL.",
     "welcomeKicker": "Fast · Secure · Local-first",
-    "welcomeTitle": "SQL databases, unleashed on your desktop",
+    "welcomeTitle": "Databases, unleashed on your desktop",
     "welcomeBody": "Built for builders who live in SQL. VeloxDB keeps you in flow—snappy queries, crisp results, a workspace that feels premium. Your data stays between you and your database: private by design, secure by default, no extra cloud hop just to run a SELECT.",
-    "enginesKicker": "PostgreSQL · MySQL · SQLite",
+    "enginesKicker": "6 Database Engines",
     "enginesTitle": "One app, three engines",
     "enginesBody": "Connect to the database you already run. PostgreSQL is the safest default for production workloads. MySQL and MariaDB work alongside it. SQLite is there for local files, prototypes, and edge cases—same editor, same sidebar, same shortcuts.",
     "enginesHighlight1": "Saved connection profiles with SSL and SSH tunnels",

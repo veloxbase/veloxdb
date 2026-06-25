@@ -8,7 +8,7 @@ import {
 	TextHIcon,
 	XIcon,
 } from "@phosphor-icons/react";
-import type { UseMutationResult } from "@tanstack/react-query";
+import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import {
 	forwardRef,
 	type ReactNode,
@@ -28,6 +28,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DatabaseEngine, TableInfo } from "@/data/types";
+import { queryKeys } from "@/data/query-keys";
 import { QueryHistoryPanel } from "@/features/queries/components/QueryHistoryPanel";
 import { ResultsGrid } from "@/features/queries/components/ResultsGrid";
 import { SqlEditor } from "@/features/queries/components/SqlEditor";
@@ -502,6 +503,7 @@ export const QueryWorkspace = forwardRef<
 	ref,
 ) {
 	const { t } = useTranslation()
+	const queryClient = useQueryClient()
 	const [state, dispatch] = useReducer(
 		queryWorkspaceReducer,
 		undefined,
@@ -538,6 +540,13 @@ export const QueryWorkspace = forwardRef<
 					`Query executed`,
 					`${result.rowCount} row${result.rowCount !== 1 ? "s" : ""} affected in ${result.executionMs} ms`,
 				);
+				// Auto-refresh sidebar table list after DDL/DML
+				if (variables.connectionId) {
+					void queryClient.invalidateQueries({ queryKey: queryKeys.tables(variables.connectionId) })
+					void queryClient.invalidateQueries({ queryKey: queryKeys.foreignKeys(variables.connectionId) })
+					void queryClient.invalidateQueries({ queryKey: queryKeys.schema(variables.connectionId, null) })
+					void queryClient.invalidateQueries({ queryKey: ['tableIndexes'] })
+				}
 			} else {
 				notifySuccess(
 					`Query returned ${result.rowCount} row${result.rowCount !== 1 ? "s" : ""}`,
