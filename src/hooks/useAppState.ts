@@ -41,7 +41,7 @@ import { isInsertFormColumn } from "@/features/queries/result-edits";
 import { quoteIdent } from "@/lib/sql-ident";
 import { notifyError, notifySuccess } from "@/lib/error-notifier";
 import { loadOpenRouterApiKey } from "@/lib/openrouter-credentials";
-import { useSettings, resolveTheme } from "@/lib/settings";
+import { useSettings, resolveTheme, themeClassName, THEME_CLASSES } from "@/lib/settings";
 
 import type { QueryWorkspaceHandle } from "@/features/queries/components/QueryWorkspace";
 
@@ -143,13 +143,34 @@ export function useAppState(
 	const veloxyBaseUrl = useSettings((s) => s.veloxyBaseUrl);
 	const autoReconnect = useSettings((s) => s.autoReconnect);
 
-	const themeSetting = useSettings((s) => s.theme);
-	const isDark = useMemo(() => resolveTheme(themeSetting) === "dark", [themeSetting]);
-	const fontSize = useSettings((s) => s.fontSize);
+  const themeSetting = useSettings((s) => s.theme);
+  const isDark = useMemo(() => resolveTheme(themeSetting) === "dark", [themeSetting]);
+  const fontSize = useSettings((s) => s.fontSize);
 
-	useEffect(() => {
-		document.documentElement.classList.toggle("dark", isDark);
-	}, [isDark]);
+  useEffect(() => {
+    const root = document.documentElement;
+    // Remove all theme classes, then apply the active one
+    root.classList.remove(...THEME_CLASSES);
+
+    // Resolve 'system' to a concrete light/dark before picking the CSS class
+    const resolved = themeSetting === 'system'
+      ? (resolveTheme(themeSetting) === 'dark' ? 'dark' : 'light')
+      : themeSetting;
+    const cls = themeClassName(resolved);
+    if (cls) root.classList.add(cls);
+
+    // Listen for OS preference changes when in system mode
+    if (themeSetting === 'system') {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const onChange = () => {
+        root.classList.remove(...THEME_CLASSES);
+        const c = mq.matches ? 'dark' : null;
+        if (c) root.classList.add(c);
+      };
+      mq.addEventListener('change', onChange);
+      return () => mq.removeEventListener('change', onChange);
+    }
+  }, [themeSetting]);
 
 	useEffect(() => {
 		const sizes = { sm: 12, md: 14, lg: 16 };

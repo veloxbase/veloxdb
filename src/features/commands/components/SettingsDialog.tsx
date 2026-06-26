@@ -22,7 +22,7 @@ import { Input } from '@/components/ui/input'
 import { saveOpenRouterApiKey } from '@/lib/openrouter-credentials'
 import { fetchOpenRouterModels, OPENROUTER_POPULAR_MODELS, type OpenRouterModelOption } from '@/lib/openrouter-models'
 import { cn } from '@/lib/utils'
-import { useSettings, type AppTheme, type FontSize, type NullDisplay } from '@/lib/settings'
+import { useSettings, type AppTheme, type FontSize, type NullDisplay, themeLabels } from '@/lib/settings'
 import pkg from '../../../../package.json'
 
 const GITHUB_REPO = 'abeni16/veloxdb'
@@ -161,8 +161,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   opts={[{ v: 'en', l: 'English' }, { v: 'zh', l: '中文' }]} />
               </Field>
               <Field label={t("settings.theme")} desc={t("settings.themeDesc")}>
-                <Select value={settings.theme} onChange={(v) => useSettings.setState({ theme: v as AppTheme })}
-                  opts={[{ v: 'system', l: t("settings.system") }, { v: 'light', l: t("settings.light") }, { v: 'dark', l: t("settings.dark") }]} />
+                <ThemeSelect value={settings.theme} onChange={(v) => useSettings.setState({ theme: v as AppTheme })} />
               </Field>
               <Field label={t("settings.fontSize")} desc={t("settings.fontSizeDesc")}>
                 <Select value={settings.fontSize} onChange={(v) => useSettings.setState({ fontSize: v as FontSize })}
@@ -401,6 +400,22 @@ function Field({ label, desc, children }: { label: string; desc?: string; childr
 
 function Select({ value, onChange, opts }: { value: string; onChange: (v: string) => void; opts: { v: string; l: string }[] }) {
   return <select value={value} onChange={(e) => onChange(e.target.value)} className="h-8 w-[140px] rounded-md border border-input bg-background px-2.5 text-xs shadow-sm transition-colors focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring">{opts.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}</select>
+}
+
+const THEME_ORDER: AppTheme[] = ['system', 'light', 'dark', 'sepia', 'ocean', 'forest', 'rose', 'slate', 'amber']
+
+function ThemeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-8 w-[140px] rounded-md border border-input bg-background px-2.5 text-xs shadow-sm transition-colors focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+    >
+      {THEME_ORDER.map((theme) => (
+        <option key={theme} value={theme}>{themeLabels[theme]}</option>
+      ))}
+    </select>
+  )
 }
 
 function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
