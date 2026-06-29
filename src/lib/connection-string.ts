@@ -135,13 +135,17 @@ export function buildConnectionString(fields: {
   database: string
   filePath?: string
   sslMode: ConnectionSslMode
+  srvEnabled?: boolean
   extraParams?: Record<string, string>
 }): string {
   if (fields.engine === 'mongo') {
     const encodedUser = fields.user ? encodeURIComponent(fields.user) : ''
     const encodedPassword = fields.password ? `:${encodeURIComponent(fields.password)}` : ''
     const auth = encodedUser ? `${encodedUser}${encodedPassword}@` : ''
-    let uri = `mongodb://${auth}${fields.host || 'localhost'}:${fields.port || 27017}/${encodeURIComponent(fields.database || 'admin')}`
+    const scheme = fields.srvEnabled ? 'mongodb+srv' : 'mongodb'
+    let uri = fields.srvEnabled
+      ? `${scheme}://${auth}${fields.host || 'localhost'}/${encodeURIComponent(fields.database || 'admin')}`
+      : `${scheme}://${auth}${fields.host || 'localhost'}:${fields.port || 27017}/${encodeURIComponent(fields.database || 'admin')}`
     if (fields.extraParams && Object.keys(fields.extraParams).length > 0) {
       const params = new URLSearchParams(fields.extraParams).toString()
       uri += `?${params}`

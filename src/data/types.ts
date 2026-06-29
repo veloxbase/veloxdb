@@ -26,6 +26,7 @@ export type ConnectionInput = {
   user: string
   password: string
   sslMode: ConnectionSslMode
+  srvEnabled?: boolean
   sshConfig?: SshConfig | null
   extraParams?: Record<string, string> | null
 }

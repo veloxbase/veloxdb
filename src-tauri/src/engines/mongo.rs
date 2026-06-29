@@ -142,21 +142,31 @@ impl DatabaseEngineOps for MongoEngine {
             .map_err(|e| VeloxError::Query(format!("MongoDB cursor error: {}", e)))?;
 
         let mut field_counts: BTreeMap<String, usize> = BTreeMap::new();
+        let mut field_types: BTreeMap<String, &'static str> = BTreeMap::new();
         while let Ok(true) = cursor.advance().await {
             let doc = cursor.deserialize_current()
                 .map_err(|e| VeloxError::Query(format!("MongoDB cursor error: {}", e)))?;
-            for key in doc.keys() {
-                *field_counts.entry(key.clone()).or_default() += 1;
+            for (key, value) in &doc {
+                let entry = field_counts.entry(key.clone()).or_default();
+                *entry += 1;
+                // Track the first non-null BSON type seen for each field
+                let btype = infer_bson_type(value);
+                if btype != "null" {
+                    field_types.entry(key.clone()).or_insert(btype);
+                }
             }
         }
 
         let total = field_counts.values().max().copied().unwrap_or(1).max(1);
-        Ok(field_counts.into_iter().map(|(name, count)| ColumnInfo {
-            table_schema: database.to_string(),
-            table_name: collection.to_string(),
-            column_name: name,
-            data_type: format!("field ({}% present)", count * 100 / total),
-            is_nullable: true,
+        Ok(field_counts.into_iter().map(|(name, count)| {
+            let btype = field_types.get(&name).copied().unwrap_or("unknown");
+            ColumnInfo {
+                table_schema: database.to_string(),
+                table_name: collection.to_string(),
+                column_name: name,
+                data_type: format!("{} ({}% present)", btype, count * 100 / total),
+                is_nullable: count < total,
+            }
         }).collect())
     }
 
@@ -170,6 +180,25 @@ impl DatabaseEngineOps for MongoEngine {
         let db_names = client.list_database_names().await
             .map_err(|e| VeloxError::Query(format!("Failed to list MongoDB databases: {}", e)))?;
         Ok(db_names.into_iter().map(|name| DatabaseInfo { name }).collect())
+    }
+}
+
+fn infer_bson_type(value: &mongodb::bson::Bson) -> &'static str {
+    use mongodb::bson::Bson;
+    match value {
+        Bson::String(_) => "string",
+        Bson::Int32(_) | Bson::Int64(_) => "integer",
+        Bson::Double(_) => "double",
+        Bson::Boolean(_) => "boolean",
+        Bson::ObjectId(_) => "objectId",
+        Bson::DateTime(_) => "date",
+        Bson::Array(_) => "array",
+        Bson::Document(_) => "object",
+        Bson::Null => "null",
+        Bson::Binary(_) => "binary",
+        Bson::RegularExpression(_) => "regex",
+        Bson::Decimal128(_) => "decimal",
+        _ => "unknown",
     }
 }
 

@@ -54,26 +54,59 @@ impl DatabaseEngineOps for RedisEngine {
 
     async fn get_tables(
         &self,
-        _app: &AppHandle,
-        _state: &AppState,
-        _connection_id: &str,
+        app: &AppHandle,
+        state: &AppState,
+        connection_id: &str,
     ) -> Result<Vec<TableInfo>, VeloxError> {
-        Err(VeloxError::Validation(
-            "Redis uses its own command path.".to_string(),
-        ))
+        let mut client = get_or_create_redis_client(app, state, connection_id).await?;
+        let keys: Vec<String> = redis::cmd("KEYS").arg("*").query_async(&mut client).await
+            .map_err(|e| VeloxError::Query(format!("Redis KEYS failed: {}", e)))?;
+        Ok(keys.into_iter().map(|k| TableInfo {
+            schema: "0".to_string(),
+            name: k.clone(),
+            preview_query: format!("GET {}", k),
+        }).collect())
     }
 
     async fn get_schema(
         &self,
-        _app: &AppHandle,
-        _state: &AppState,
-        _connection_id: &str,
+        app: &AppHandle,
+        state: &AppState,
+        connection_id: &str,
         _table_schema: &str,
-        _table_name: &str,
+        table_name: &str,
     ) -> Result<Vec<ColumnInfo>, VeloxError> {
-        Err(VeloxError::Validation(
-            "Redis uses its own command path.".to_string(),
-        ))
+        let mut client = get_or_create_redis_client(app, state, connection_id).await?;
+
+        let key_type: String = redis::cmd("TYPE").arg(table_name).query_async(&mut client)
+            .await.map_err(|e| VeloxError::Query(format!("Redis TYPE failed: {}", e)))?;
+
+        match key_type.as_str() {
+            "string" => Ok(vec![ColumnInfo {
+                table_schema: "0".to_string(), table_name: table_name.to_string(),
+                column_name: "value".to_string(), data_type: "string".to_string(), is_nullable: true,
+            }]),
+            "hash" => {
+                let fields: Vec<String> = redis::cmd("HKEYS").arg(table_name).query_async(&mut client)
+                    .await.map_err(|e| VeloxError::Query(format!("Redis HKEYS failed: {}", e)))?;
+                Ok(fields.into_iter().map(|f| ColumnInfo {
+                    table_schema: "0".to_string(), table_name: table_name.to_string(),
+                    column_name: f, data_type: "string".to_string(), is_nullable: true,
+                }).collect())
+            }
+            "list" => Ok(vec![
+                ColumnInfo { table_schema: "0".to_string(), table_name: table_name.to_string(), column_name: "index".to_string(), data_type: "integer".to_string(), is_nullable: false },
+                ColumnInfo { table_schema: "0".to_string(), table_name: table_name.to_string(), column_name: "value".to_string(), data_type: "string".to_string(), is_nullable: true },
+            ]),
+            "set" => Ok(vec![ColumnInfo {
+                table_schema: "0".to_string(), table_name: table_name.to_string(),
+                column_name: "member".to_string(), data_type: "string".to_string(), is_nullable: false,
+            }]),
+            _ => Ok(vec![ColumnInfo {
+                table_schema: "0".to_string(), table_name: table_name.to_string(),
+                column_name: "value".to_string(), data_type: key_type, is_nullable: true,
+            }]),
+        }
     }
 
     async fn list_databases(

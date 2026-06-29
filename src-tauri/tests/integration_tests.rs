@@ -38,6 +38,7 @@ fn sqlite_input_memory() -> ConnectionInput {
         file_path: Some(":memory:".into()),
         user: String::new(),
         password: String::new(),
+            srv_enabled: false,
         ssl_mode: ConnectionSslMode::Disable,
         ssh_config: None,
         extra_params: None,
@@ -55,6 +56,7 @@ fn duckdb_input_memory() -> ConnectionInput {
         file_path: Some(":memory:".into()),
         user: String::new(),
         password: String::new(),
+            srv_enabled: false,
         ssl_mode: ConnectionSslMode::Disable,
         ssh_config: None,
         extra_params: None,
@@ -72,6 +74,7 @@ fn mysql_input_default() -> ConnectionInput {
         file_path: None,
         user: "root".into(),
         password: "secret".into(),
+            srv_enabled: false,
         ssl_mode: ConnectionSslMode::Prefer,
         ssh_config: None,
         extra_params: None,
@@ -89,6 +92,7 @@ fn postgres_input_default() -> ConnectionInput {
         file_path: None,
         user: "postgres".into(),
         password: "secret".into(),
+            srv_enabled: false,
         ssl_mode: ConnectionSslMode::Prefer,
         ssh_config: None,
         extra_params: None,
@@ -106,6 +110,7 @@ fn mongo_input_default() -> ConnectionInput {
         file_path: None,
         user: "admin".into(),
         password: "secret".into(),
+            srv_enabled: false,
         ssl_mode: ConnectionSslMode::Disable,
         ssh_config: None,
         extra_params: None,
@@ -123,6 +128,7 @@ fn redis_input_default() -> ConnectionInput {
         file_path: None,
         user: String::new(),
         password: String::new(),
+            srv_enabled: false,
         ssl_mode: ConnectionSslMode::Disable,
         ssh_config: None,
         extra_params: None,
@@ -415,6 +421,7 @@ fn duckdb_type_preservation() {
 #[test]
 fn postgres_build_pool_creates_lazy_pool() {
     let input = ConnectionInput {
+            srv_enabled: false,
         ssl_mode: ConnectionSslMode::Disable,
         ..postgres_input_default()
     };
@@ -428,6 +435,7 @@ fn postgres_build_pool_creates_lazy_pool() {
 #[test]
 fn postgres_build_pool_prefer_ssl() {
     let input = ConnectionInput {
+            srv_enabled: false,
         ssl_mode: ConnectionSslMode::Prefer,
         ..postgres_input_default()
     };
@@ -439,6 +447,7 @@ fn postgres_build_pool_prefer_ssl() {
 #[test]
 fn postgres_build_pool_require_ssl() {
     let input = ConnectionInput {
+            srv_enabled: false,
         ssl_mode: ConnectionSslMode::Require,
         ..postgres_input_default()
     };
@@ -451,6 +460,7 @@ fn postgres_build_pool_require_ssl() {
 fn postgres_tls_connector_is_cached() {
     // Verify the OnceLock TLS connector works repeatedly
     let input = ConnectionInput {
+            srv_enabled: false,
         ssl_mode: ConnectionSslMode::Prefer,
         ..postgres_input_default()
     };
@@ -477,6 +487,7 @@ fn mysql_url_includes_ssl_mode() {
 #[test]
 fn mysql_url_disable_ssl() {
     let input = ConnectionInput {
+            srv_enabled: false,
         ssl_mode: ConnectionSslMode::Disable,
         ..mysql_input_default()
     };
@@ -487,6 +498,7 @@ fn mysql_url_disable_ssl() {
 #[test]
 fn mysql_url_require_ssl() {
     let input = ConnectionInput {
+            srv_enabled: false,
         ssl_mode: ConnectionSslMode::Require,
         ..mysql_input_default()
     };

@@ -130,11 +130,13 @@ impl DatabaseEngineOps for PostgresEngine {
     ) -> Result<Vec<TableInfo>, VeloxError> {
         with_pool_client_retry(app, state, connection_id, (), |client, ()| async move {
             let rows = client.query(
-                "select table_schema, table_name \
-                 from information_schema.tables \
-                 where table_type = 'BASE TABLE' \
-                   and table_schema not in ('pg_catalog', 'information_schema') \
-                 order by table_schema, table_name",
+                "select t.table_schema, t.table_name \
+                 from information_schema.tables t \
+                 join pg_catalog.pg_class c on c.oid = (quote_ident(t.table_schema) || '.' || quote_ident(t.table_name))::regclass \
+                 where t.table_type = 'BASE TABLE' \
+                   and t.table_schema not in ('pg_catalog', 'information_schema') \
+                   and c.relispartition = false \
+                 order by t.table_schema, t.table_name",
                 &[],
             ).await.map_err(|error| map_pg_err(error, None))?;
 

@@ -56,6 +56,7 @@ const connectionSchema = z.object({
   user: z.string(),
   password: z.string(),
   sslMode: z.enum(['disable', 'prefer', 'require'] as const),
+  srv: z.boolean().optional(),
   sshEnabled: z.boolean(),
   sshHost: z.string().optional(),
   sshPort: z.coerce.number().int().min(1).max(65535).optional(),
@@ -177,6 +178,7 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
     user: 'postgres',
     password: '',
     sslMode: 'prefer' as const,
+    srv: false,
     sshEnabled: false,
     sshHost: '',
     sshPort: 22,
@@ -321,6 +323,7 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
       user: values.engine === 'sqlite' ? '' : values.user,
       password: values.engine === 'sqlite' ? '' : values.password,
       sslMode: isSqlEngine ? values.sslMode : 'disable',
+      srvEnabled: values.engine === 'mongo' ? (values.srv ?? false) : false,
       extraParams: isSqlEngine && Object.keys(extraParams).length > 0 ? extraParams : null,
       sshConfig: values.engine !== 'sqlite' && values.sshEnabled ? {
         enabled: true,
@@ -509,20 +512,15 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                         <option value="disable">{t("connection.disable")}</option>
                       </select>
                     </Field>
+                  ) : engine === 'mongo' ? (
+                    <Field label="Use SRV (Atlas)" inputId="veloxdb-mongo-srv">
+                      <label className="flex items-center gap-2 cursor-pointer pt-2">
+                        <input id="veloxdb-mongo-srv" type="checkbox" {...form.register('srv')} className="h-4 w-4 rounded" />
+                        <span className="text-xs text-muted-foreground">SRV connection</span>
+                      </label>
+                    </Field>
                   ) : <div />}
                 </div>
-              )}
-
-              {/* SSL mode — only for PG and MySQL */}
-              {showSsl && (
-                <Field label={t("connection.sslMode")} inputId="veloxdb-ssl-mode" error={form.formState.errors.sslMode?.message}>
-                  <select id="veloxdb-ssl-mode" {...form.register('sslMode')}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-                    <option value="prefer">{t("connection.prefer")} ({t("connection.default")})</option>
-                    <option value="require">{t("connection.require")}</option>
-                    <option value="disable">{t("connection.disable")}</option>
-                  </select>
-                </Field>
               )}
 
               {/* SSH toggle — not for SQLite */}

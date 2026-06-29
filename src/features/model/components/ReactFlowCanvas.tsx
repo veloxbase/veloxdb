@@ -27,6 +27,7 @@ import type {
   DiagramExportHandle,
   DiagramSurfaceProps,
 } from '@/features/model/components/diagram-surface-types'
+import type { DatabaseEngine } from '@/data/types'
 import { diagramGroupWorldBounds } from '@/features/model/diagram-geometry/group-bounds'
 import { readDiagramPalette } from '@/features/model/diagram-theme'
 import type { TableKey } from '@/features/model/model-types'
@@ -40,6 +41,7 @@ type TableNodeData = {
   selected: boolean
   columns: DiagramSurfaceProps['columnsByKey'][TableKey]
   headerFill?: string
+  engine?: DatabaseEngine
   columnDetail: NonNullable<DiagramSurfaceProps['columnDetail']>
   onSelect: (key: TableKey, shiftKey: boolean) => void
   onRequestColumns: (key: TableKey) => void
@@ -107,6 +109,24 @@ const TableFlowNode = memo(({ data }: { data: TableNodeData }) => {
     setInlineError(null)
   }, [data, draftName, draftType, editingSource, rows])
 
+  const schemaLabel = useMemo(() => {
+    if (!data.engine) return null
+    if (data.engine === 'mongo') return 'Inferred Schema'
+    if (data.engine === 'redis') return 'Inferred Structure'
+    return null
+  }, [data.engine])
+
+  const mongoAvgCoverage = useMemo(() => {
+    if (data.engine !== 'mongo' || !data.columns?.length) return null
+    let sum = 0
+    let count = 0
+    for (const col of data.columns) {
+      const m = col.dataType.match(/(\d+)%/)
+      if (m) { sum += Number(m[1]); count++ }
+    }
+    return count > 0 ? Math.round(sum / count) : null
+  }, [data.columns, data.engine])
+
   return (
     <button
       type="button"
@@ -138,6 +158,11 @@ const TableFlowNode = memo(({ data }: { data: TableNodeData }) => {
       }}
     >
       <div className="rounded-t-md px-2 py-2 text-xs font-semibold" style={{ backgroundColor: headerFill, color: headerText }}>
+        {schemaLabel ? (
+          <span className="mb-0.5 block text-[9px] font-medium uppercase tracking-[0.1em] opacity-55">
+            {schemaLabel}{mongoAvgCoverage != null ? ` (avg ${mongoAvgCoverage}%)` : ''}
+          </span>
+        ) : null}
         {data.name} ({data.schema})
       </div>
       {(
@@ -296,6 +321,7 @@ export function ReactFlowCanvas({
   diagramGroups = [],
   exportRef,
   viewportControlRef,
+  connectionEngine,
 }: DiagramSurfaceProps) {
   const { t } = useTranslation()
   const wrapperRef = useRef<HTMLDivElement>(null)
@@ -336,14 +362,15 @@ export function ReactFlowCanvas({
         type: 'tableNode',
         position: pos,
         draggable: true,
-        data: {
-          key: t.key,
-          schema: t.schema,
-          name: t.name,
-          selected: selectedKeys.has(t.key),
-          columns: columnsByKey[t.key] ?? null,
-          headerFill: headerColors[t.key],
-          columnDetail,
+          data: {
+            key: t.key,
+            schema: t.schema,
+            name: t.name,
+            selected: selectedKeys.has(t.key),
+            columns: columnsByKey[t.key] ?? null,
+            headerFill: headerColors[t.key],
+            engine: connectionEngine,
+            columnDetail,
           onSelect: onTableSelect,
           onRequestColumns,
           onQuickEditColumn,
@@ -351,7 +378,7 @@ export function ReactFlowCanvas({
         },
       }
     })
-  }, [tableDisplays, positions, columnsByKey, headerColors, columnDetail, editedColumnNamesByKey, onQuickEditColumn, onRequestColumns, onTableSelect, selectedKeys])
+  }, [tableDisplays, positions, columnsByKey, headerColors, columnDetail, editedColumnNamesByKey, onQuickEditColumn, onRequestColumns, onTableSelect, selectedKeys, connectionEngine])
 
   const groupNodes = useMemo<Node<GroupNodeData>[]>(() => {
     if (!diagramGroups.length) return []

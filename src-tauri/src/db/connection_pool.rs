@@ -310,18 +310,34 @@ pub async fn build_sqlite_pool(input: &ConnectionInput) -> Result<SqlitePool, Ve
 // ── MongoDB ─────────────────────────────────────────────────────
 
 pub fn build_mongo_connection_string(input: &ConnectionInput) -> String {
+    let scheme = if input.srv_enabled { "mongodb+srv" } else { "mongodb" };
     let host = if input.host.is_empty() { "localhost" } else { &input.host };
     let port = if input.port == 0 { DEFAULT_MONGO_PORT } else { input.port };
     let mut uri = if input.user.is_empty() {
-        format!("mongodb://{}:{}/", host, port)
+        if input.srv_enabled {
+            format!("{}://{}/", scheme, host)
+        } else {
+            format!("{}://{}:{}/", scheme, host, port)
+        }
     } else {
-        format!(
-            "mongodb://{}:{}@{}:{}/",
-            urlencoding::encode(&input.user),
-            urlencoding::encode(&input.password),
-            host,
-            port,
-        )
+        if input.srv_enabled {
+            format!(
+                "{}://{}:{}@{}/",
+                scheme,
+                urlencoding::encode(&input.user),
+                urlencoding::encode(&input.password),
+                host,
+            )
+        } else {
+            format!(
+                "{}://{}:{}@{}:{}/",
+                scheme,
+                urlencoding::encode(&input.user),
+                urlencoding::encode(&input.password),
+                host,
+                port,
+            )
+        }
     };
     let database = if input.database.is_empty() { "admin" } else { &input.database };
     uri.push_str(database);
@@ -829,6 +845,7 @@ mod tests {
             file_path: None,
             user: "root".to_string(),
             password: "pw".to_string(),
+            srv_enabled: false,
             ssl_mode,
             ssh_config: None,
             extra_params: None,
@@ -847,6 +864,7 @@ mod tests {
             file_path: None,
             user: "postgres".to_string(),
             password: "secret".to_string(),
+            srv_enabled: false,
             ssl_mode: ConnectionSslMode::Prefer,
             ssh_config: None,
             extra_params: None,
@@ -865,6 +883,7 @@ mod tests {
             file_path: Some("/tmp/test.db".to_string()),
             user: String::new(),
             password: String::new(),
+            srv_enabled: false,
             ssl_mode: ConnectionSslMode::Disable,
             ssh_config: None,
             extra_params: None,
@@ -882,6 +901,7 @@ mod tests {
             file_path: None,
             user: String::new(),
             password: String::new(),
+            srv_enabled: false,
             ssl_mode: ConnectionSslMode::Disable,
             ssh_config: None,
             extra_params: None,
@@ -899,6 +919,7 @@ mod tests {
             file_path: None,
             user: "root".to_string(),
             password: "pw".to_string(),
+            srv_enabled: false,
             ssl_mode: ConnectionSslMode::Prefer,
             ssh_config: None,
             extra_params: None,

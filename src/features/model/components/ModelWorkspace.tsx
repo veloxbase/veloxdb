@@ -472,6 +472,7 @@ export function ModelWorkspace({
 							<div ref={diagramWrapRef} className="min-h-0 min-w-0 flex-1 overflow-hidden contain-[layout_paint]">
 								<DiagramSurfaceAdapter
 									isDark={isDark}
+									connectionEngine={connectionEngine}
 									initialViewport={store.viewport}
 									onViewportSave={(v) => store.setViewport(v)}
 									tableDisplays={tableDisplays}

@@ -3,7 +3,7 @@ import type { MutableRefObject } from 'react'
 import type { PendingModelForeignKey } from '@/features/model/apply-entire-model'
 import type { ColumnDetailLevel, DiagramGroup, TableKey, ViewportState } from '@/features/model/model-types'
 import type { DiagramTool } from '@/features/model/use-diagram-interaction'
-import type { ColumnInfo, ForeignKeyEdge } from '@/data/types'
+import type { ColumnInfo, DatabaseEngine, ForeignKeyEdge } from '@/data/types'
 import type { RelationshipInput } from '@/features/model/relationship-validation'
 
 export type TableDisplay = {
@@ -27,6 +27,7 @@ export type DiagramEdgeSelection = {
 
 export type DiagramSurfaceProps = {
   isDark: boolean
+  connectionEngine?: DatabaseEngine
   initialViewport: ViewportState
   onViewportSave: (v: ViewportState) => void
   tableDisplays: TableDisplay[]
