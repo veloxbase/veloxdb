@@ -187,8 +187,8 @@ export function VeloxApp() {
 							<Tabs value={mainWorkspace}
 								onValueChange={(value) => setMainWorkspace(value as "query" | "model")} className="shrink-0">
 								<TabsList variant="line" className="h-8">
-									<TabsTrigger value="query" className="px-2.5 text-xs">{t("workspace.query")}</TabsTrigger>
-									<TabsTrigger value="model" className="px-2.5 text-xs"
+									<TabsTrigger value="query" className="text-xs">{t("workspace.query")}</TabsTrigger>
+									<TabsTrigger value="model" className="text-xs"
 										disabled={Boolean(connection && connection.engine !== "postgres")}>
 										{t("workspace.model")}
 									</TabsTrigger>
