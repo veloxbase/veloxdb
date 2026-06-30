@@ -44,6 +44,22 @@ function normalizeUrl(raw: string): string {
  */
 export function parseConnectionString(raw: string): ParsedConnectionString | null {
   const trimmed = raw.trim()
+
+  // MongoDB URIs
+  if (trimmed.startsWith('mongodb://') || trimmed.startsWith('mongodb+srv://')) {
+    const url = new URL(trimmed)
+    return {
+      engine: 'mongo',
+      host: decodeURIComponent(url.hostname || 'localhost'),
+      port: url.port ? Number(url.port) : 27017,
+      database: decodeURIComponent(url.pathname.replace(/^\//, '') || 'admin'),
+      user: decodeURIComponent(url.username || ''),
+      password: decodeURIComponent(url.password || ''),
+      sslMode: trimmed.startsWith('mongodb+srv') ? 'require' : 'prefer',
+      extraParams: Object.fromEntries(new URLSearchParams(url.search)),
+    }
+  }
+
   if (trimmed.startsWith('sqlite://')) {
     const path = trimmed.replace(/^sqlite:\/\//, '')
     return {
@@ -56,6 +72,20 @@ export function parseConnectionString(raw: string): ParsedConnectionString | nul
       password: '',
       sslMode: 'disable',
       extraParams: {},
+    }
+  }
+
+  if (trimmed.startsWith('redis://') || trimmed.startsWith('rediss://')) {
+    const url = new URL(trimmed)
+    return {
+      engine: 'redis',
+      host: decodeURIComponent(url.hostname || '127.0.0.1'),
+      port: url.port ? Number(url.port) : 6379,
+      database: decodeURIComponent(url.pathname.replace(/^\//, '') || '0'),
+      user: decodeURIComponent(url.username || ''),
+      password: decodeURIComponent(url.password || ''),
+      sslMode: trimmed.startsWith('rediss://') ? 'require' : 'disable',
+      extraParams: Object.fromEntries(new URLSearchParams(url.search)),
     }
   }
 
@@ -119,8 +149,31 @@ export function buildConnectionString(fields: {
   database: string
   filePath?: string
   sslMode: ConnectionSslMode
+  srvEnabled?: boolean
   extraParams?: Record<string, string>
 }): string {
+  if (fields.engine === 'mongo') {
+    const encodedUser = fields.user ? encodeURIComponent(fields.user) : ''
+    const encodedPassword = fields.password ? `:${encodeURIComponent(fields.password)}` : ''
+    const auth = encodedUser ? `${encodedUser}${encodedPassword}@` : ''
+    const scheme = fields.srvEnabled ? 'mongodb+srv' : 'mongodb'
+    let uri = fields.srvEnabled
+      ? `${scheme}://${auth}${fields.host || 'localhost'}/${encodeURIComponent(fields.database || 'admin')}`
+      : `${scheme}://${auth}${fields.host || 'localhost'}:${fields.port || 27017}/${encodeURIComponent(fields.database || 'admin')}`
+    if (fields.extraParams && Object.keys(fields.extraParams).length > 0) {
+      const params = new URLSearchParams(fields.extraParams).toString()
+      uri += `?${params}`
+    }
+    return uri
+  }
+
+  if (fields.engine === 'redis') {
+    const encodedUser = fields.user ? encodeURIComponent(fields.user) : ''
+    const encodedPassword = fields.password ? `:${encodeURIComponent(fields.password)}` : ''
+    const auth = encodedUser ? `${encodedUser}${encodedPassword}@` : ''
+    return `redis://${auth}${fields.host || '127.0.0.1'}:${fields.port || 6379}/${encodeURIComponent(fields.database || '0')}`
+  }
+
   if (fields.engine === 'sqlite') {
     const path = fields.filePath || fields.database || ':memory:'
     return `sqlite://${path}`

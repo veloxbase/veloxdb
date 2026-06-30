@@ -28,4 +28,22 @@ describe("isReadOnlySql", () => {
 		expect(isReadOnlySql("SELECT 1; DELETE FROM t")).toBe(false);
 		expect(isReadOnlySql("")).toBe(false);
 	});
+
+	it("treats all MongoDB queries as read-only", () => {
+		expect(isReadOnlySql("db.users.find({})", "mongo")).toBe(true);
+		expect(isReadOnlySql('{"status": "active"}', "mongo")).toBe(true);
+		expect(isReadOnlySql("", "mongo")).toBe(true);
+		expect(isReadOnlySql("DELETE FROM t", "mongo")).toBe(true);
+	});
+
+	it("still blocks writes for non-mongo engines", () => {
+		expect(isReadOnlySql("DELETE FROM t", "postgres")).toBe(false);
+		expect(isReadOnlySql("UPDATE t SET a = 1", "mysql")).toBe(false);
+		expect(isReadOnlySql("DELETE FROM t", "sqlite")).toBe(false);
+	});
+
+	it("engine parameter is optional (backward compat)", () => {
+		expect(isReadOnlySql("SELECT 1")).toBe(true);
+		expect(isReadOnlySql("DELETE FROM t")).toBe(false);
+	});
 });

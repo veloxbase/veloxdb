@@ -19,6 +19,8 @@ fn default_connection_ssl_mode() -> ConnectionSslMode {
     ConnectionSslMode::Prefer
 }
 
+fn is_false(v: &bool) -> bool { !*v }
+
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum DatabaseEngine {
@@ -26,6 +28,9 @@ pub enum DatabaseEngine {
     Postgres,
     Mysql,
     Sqlite,
+    Mongo,
+    Duckdb,
+    Redis,
 }
 
 fn default_database_engine() -> DatabaseEngine {
@@ -69,7 +74,7 @@ impl SshConfig {
             && !self.host.is_empty()
             && !self.user.is_empty()
             && (self.auth_method != SshAuthMethod::Password
-                || self.password.as_ref().map_or(false, |p| !p.is_empty()))
+                || self.password.as_ref().is_some_and(|p| !p.is_empty()))
     }
 }
 
@@ -89,6 +94,8 @@ pub struct ConnectionInput {
     pub password: String,
     #[serde(default = "default_connection_ssl_mode")]
     pub ssl_mode: ConnectionSslMode,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub srv_enabled: bool,
     #[serde(default)]
     pub ssh_config: Option<SshConfig>,
     #[serde(default)]
@@ -113,6 +120,8 @@ pub struct StoredConnection {
     pub connected_at: String,
     #[serde(default = "default_connection_ssl_mode")]
     pub ssl_mode: ConnectionSslMode,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub srv_enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh_config: Option<SshConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -491,6 +500,7 @@ impl StoredConnection {
             password: None,
             connected_at: timestamp_string(),
             ssl_mode: input.ssl_mode,
+            srv_enabled: input.srv_enabled,
             ssh_config: input.ssh_config,
             extra_params: input.extra_params,
         }
@@ -526,6 +536,7 @@ impl StoredConnection {
             user: self.user.clone(),
             password: self.password.clone().unwrap_or_default(),
             ssl_mode: self.ssl_mode,
+            srv_enabled: self.srv_enabled,
             ssh_config: self.ssh_config.clone(),
             extra_params: self.extra_params.clone(),
         }

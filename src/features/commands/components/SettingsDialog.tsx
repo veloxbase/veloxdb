@@ -22,7 +22,8 @@ import { Input } from '@/components/ui/input'
 import { saveOpenRouterApiKey } from '@/lib/openrouter-credentials'
 import { fetchOpenRouterModels, OPENROUTER_POPULAR_MODELS, type OpenRouterModelOption } from '@/lib/openrouter-models'
 import { cn } from '@/lib/utils'
-import { useSettings, type AppTheme, type FontSize, type NullDisplay } from '@/lib/settings'
+import { useSettings, type AppTheme, type FontSize, type NullDisplay, themeLabels } from '@/lib/settings'
+import { useUpdateCheck } from '@/hooks/useUpdateCheck'
 import pkg from '../../../../package.json'
 
 const GITHUB_REPO = 'abeni16/veloxdb'
@@ -74,25 +75,13 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     input.click()
   }, [])
 
-  const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'up-to-date' | 'available' | 'error'>('idle')
-  const [latestVersion, setLatestVersion] = useState<string | null>(null)
   const [modelOptions, setModelOptions] = useState<OpenRouterModelOption[]>(OPENROUTER_POPULAR_MODELS)
   const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [modelsError, setModelsError] = useState<string | null>(null)
 
-  const checkForUpdates = useCallback(async () => {
-    setUpdateStatus('checking')
-    try {
-      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const release = await res.json() as { tag_name: string }
-      const latest = release.tag_name.replace(/^v/, '')
-      setLatestVersion(latest)
-      setUpdateStatus(latest === pkg.version ? 'up-to-date' : 'available')
-    } catch {
-      setUpdateStatus('error')
-    }
-  }, [])
+  const { data: updateInfo, isLoading: isCheckingUpdates, isError: updateCheckFailed, refetch: checkForUpdates } = useUpdateCheck(
+    { enabled: open },
+  )
 
   const refreshOpenRouterModels = useCallback(async () => {
     setModelsStatus('loading')
@@ -161,8 +150,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   opts={[{ v: 'en', l: 'English' }, { v: 'zh', l: '中文' }]} />
               </Field>
               <Field label={t("settings.theme")} desc={t("settings.themeDesc")}>
-                <Select value={settings.theme} onChange={(v) => useSettings.setState({ theme: v as AppTheme })}
-                  opts={[{ v: 'system', l: t("settings.system") }, { v: 'light', l: t("settings.light") }, { v: 'dark', l: t("settings.dark") }]} />
+                <ThemeSelect value={settings.theme} onChange={(v) => useSettings.setState({ theme: v as AppTheme })} />
               </Field>
               <Field label={t("settings.fontSize")} desc={t("settings.fontSizeDesc")}>
                 <Select value={settings.fontSize} onChange={(v) => useSettings.setState({ fontSize: v as FontSize })}
@@ -359,26 +347,26 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                     variant="outline"
                     size="sm"
                     className="h-8 text-xs"
-                    onClick={checkForUpdates}
-                    disabled={updateStatus === 'checking'}
+                    onClick={() => checkForUpdates()}
+                    disabled={isCheckingUpdates}
                   >
-                    {updateStatus === 'checking' ? t("settings.checking") : t("settings.checkNow")}
+                    {isCheckingUpdates ? t("settings.checking") : t("settings.checkNow")}
                   </Button>
-                  {updateStatus === 'up-to-date' && (
+                  {updateInfo && !updateInfo.hasUpdate && (
                     <span className="text-xs text-emerald-600">{t("settings.upToDate")}</span>
                   )}
-                  {updateStatus === 'available' && latestVersion && (
+                  {updateInfo?.hasUpdate && updateInfo.latestVersion && (
                     <a
-                      href={`https://github.com/${GITHUB_REPO}/releases/tag/${latestVersion}`}
+                      href={updateInfo.downloadUrl || `https://github.com/${GITHUB_REPO}/releases/tag/v${updateInfo.latestVersion}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs text-amber-500 hover:underline"
                     >
-                      {t("settings.available", { version: latestVersion })}
+                      {t("settings.available", { version: updateInfo.latestVersion })}
                       <ArrowSquareOutIcon className="size-3" />
                     </a>
                   )}
-                  {updateStatus === 'error' && (
+                  {updateCheckFailed && (
                     <span className="text-xs text-destructive">{t("settings.failedToCheck")}</span>
                   )}
                 </div>
@@ -401,6 +389,22 @@ function Field({ label, desc, children }: { label: string; desc?: string; childr
 
 function Select({ value, onChange, opts }: { value: string; onChange: (v: string) => void; opts: { v: string; l: string }[] }) {
   return <select value={value} onChange={(e) => onChange(e.target.value)} className="h-8 w-[140px] rounded-md border border-input bg-background px-2.5 text-xs shadow-sm transition-colors focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring">{opts.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}</select>
+}
+
+const THEME_ORDER: AppTheme[] = ['system', 'light', 'dark', 'sepia', 'ocean', 'forest', 'rose', 'slate', 'amber']
+
+function ThemeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-8 w-[140px] rounded-md border border-input bg-background px-2.5 text-xs shadow-sm transition-colors focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+    >
+      {THEME_ORDER.map((theme) => (
+        <option key={theme} value={theme}>{themeLabels[theme]}</option>
+      ))}
+    </select>
+  )
 }
 
 function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {

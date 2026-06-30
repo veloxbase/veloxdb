@@ -19,6 +19,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type { ColumnProperties, QueryResult, TableInfo } from "@/data/types";
+import { ResultEditInput, InsertRowInput } from "@/features/queries/components/ResultsCellEditor";
 import { ResultsToolbar } from "@/features/queries/components/ResultsToolbar";
 import { useInsertRowMutation } from "@/features/queries/queries";
 import {
@@ -79,72 +80,6 @@ function toEditableValue(value: string | null | undefined) {
 
 function normalizeColumnId(columnId: string) {
 	return columnId.toLowerCase();
-}
-
-function ResultEditInput({
-	defaultValue,
-	onBlurCommit,
-	onEscape,
-}: {
-	defaultValue: string;
-	onBlurCommit: (raw: string) => void;
-	onEscape: () => void;
-}) {
-	const inputRef = useRef<HTMLInputElement>(null);
-	const skipBlurCommitRef = useRef(false);
-
-	useLayoutEffect(() => {
-		const element = inputRef.current;
-		if (!element) {
-			return;
-		}
-		element.focus();
-		element.select();
-	}, []);
-
-	return (
-		<input
-			ref={inputRef}
-			className="h-6 w-full min-w-0 border border-border bg-background px-1 text-xs outline-none focus:border-ring"
-			defaultValue={defaultValue}
-			onBlur={(event) => {
-				if (skipBlurCommitRef.current) {
-					skipBlurCommitRef.current = false;
-					return;
-				}
-				onBlurCommit(event.target.value);
-			}}
-			onKeyDown={(event) => {
-				if (event.key === "Enter") {
-					event.currentTarget.blur();
-				}
-				if (event.key === "Escape") {
-					skipBlurCommitRef.current = true;
-					onEscape();
-				}
-			}}
-		/>
-	);
-}
-
-function InsertRowInput({
-	value,
-	onChange,
-	placeholder,
-}: {
-	value: string;
-	onChange: (next: string) => void;
-	placeholder: string;
-}) {
-	return (
-		<input
-			className="h-6 w-full min-w-0 border border-border bg-background px-1 text-xs outline-none focus:border-ring"
-			value={value}
-			onChange={(event) => onChange(event.target.value)}
-			placeholder={placeholder}
-			autoComplete="off"
-		/>
-	);
 }
 
 function renderLoadingSkeleton() {

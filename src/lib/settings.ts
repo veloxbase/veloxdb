@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type AppTheme = 'system' | 'light' | 'dark'
+export type AppTheme = 'system' | 'light' | 'dark' | 'sepia' | 'ocean' | 'forest' | 'rose' | 'slate' | 'amber'
 export type FontSize = 'sm' | 'md' | 'lg'
 export type NullDisplay = 'null' | 'NULL' | 'dash' | 'empty'
 
@@ -56,8 +56,36 @@ export function resolveTheme(theme: AppTheme): 'light' | 'dark' {
   if (theme === 'system') {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   }
-  return theme
+  if (theme === 'light' || theme === 'sepia') return 'light'
+  return 'dark'
 }
+
+export function themeClassName(theme: AppTheme): string | null {
+  switch (theme) {
+    case 'dark':   return 'dark'
+    case 'sepia':  return 'theme-sepia'
+    case 'ocean':  return 'theme-ocean'
+    case 'forest': return 'theme-forest'
+    case 'rose':   return 'theme-rose'
+    case 'slate':  return 'theme-slate'
+    case 'amber':  return 'theme-amber'
+    default:       return null
+  }
+}
+
+export const themeLabels: Record<AppTheme, string> = {
+  system: 'System',
+  light:  'Light',
+  dark:   'Dark',
+  sepia:  'Sepia',
+  ocean:  'Ocean',
+  forest: 'Forest',
+  rose:   'Rose',
+  slate:  'Slate',
+  amber:  'Amber',
+}
+
+export const THEME_CLASSES = ['dark', 'theme-sepia', 'theme-ocean', 'theme-forest', 'theme-rose', 'theme-slate', 'theme-amber'] as const
 
 export const fontSizeClasses: Record<FontSize, string> = {
   sm: 'text-[12px]',

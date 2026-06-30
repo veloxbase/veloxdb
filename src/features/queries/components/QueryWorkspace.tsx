@@ -4,11 +4,10 @@ import {
 	PlayIcon,
 	PlugIcon,
 	PlusIcon,
-	RobotIcon,
 	TextHIcon,
 	XIcon,
 } from "@phosphor-icons/react";
-import type { UseMutationResult } from "@tanstack/react-query";
+import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import {
 	forwardRef,
 	type ReactNode,
@@ -28,6 +27,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DatabaseEngine, TableInfo } from "@/data/types";
+import { queryKeys } from "@/data/query-keys";
 import { QueryHistoryPanel } from "@/features/queries/components/QueryHistoryPanel";
 import { ResultsGrid } from "@/features/queries/components/ResultsGrid";
 import { SqlEditor } from "@/features/queries/components/SqlEditor";
@@ -98,6 +98,7 @@ export type QueryWorkspaceHandle = {
 	setActiveTabConnection: (connectionId: string | null) => void;
 	/** Clear a removed saved connection from all tabs so IPC targets stay valid. */
 	detachDeletedConnection: (connectionId: string) => void;
+	toggleAskVeloxy: () => void;
 };
 
 type QueryWorkspaceProps = {
@@ -272,6 +273,7 @@ function QueryPane({
 							onChange={onSqlChange}
 							onRun={onRun}
 							onRunStatement={onRunStatement}
+							language={connectionEngine === "mongo" ? "json" : connectionEngine === "redis" ? "plaintext" : "sql"}
 							metadata={editorMetadata}
 							diagnostics={lintDiagnostics}
 						/>
@@ -501,6 +503,7 @@ export const QueryWorkspace = forwardRef<
 	ref,
 ) {
 	const { t } = useTranslation()
+	const queryClient = useQueryClient()
 	const [state, dispatch] = useReducer(
 		queryWorkspaceReducer,
 		undefined,
@@ -537,6 +540,13 @@ export const QueryWorkspace = forwardRef<
 					`Query executed`,
 					`${result.rowCount} row${result.rowCount !== 1 ? "s" : ""} affected in ${result.executionMs} ms`,
 				);
+				// Auto-refresh sidebar table list after DDL/DML
+				if (variables.connectionId) {
+					void queryClient.invalidateQueries({ queryKey: queryKeys.tables(variables.connectionId) })
+					void queryClient.invalidateQueries({ queryKey: queryKeys.foreignKeys(variables.connectionId) })
+					void queryClient.invalidateQueries({ queryKey: queryKeys.schema(variables.connectionId, null) })
+					void queryClient.invalidateQueries({ queryKey: ['tableIndexes'] })
+				}
 			} else {
 				notifySuccess(
 					`Query returned ${result.rowCount} row${result.rowCount !== 1 ? "s" : ""}`,
@@ -688,7 +698,7 @@ export const QueryWorkspace = forwardRef<
 		if (lintTimerRef.current != null) {
 			window.clearTimeout(lintTimerRef.current);
 		}
-		if (!targetConnectionId || sql.trim().length === 0) {
+		if (!targetConnectionId || sql.trim().length === 0 || connectionEngine === "mongo") {
 			lintReset();
 			return;
 		}
@@ -758,7 +768,7 @@ export const QueryWorkspace = forwardRef<
 				onRequestConnection();
 				return;
 			}
-			const allowWrite = !isReadOnlySql(trimmed);
+			const allowWrite = !isReadOnlySql(trimmed, connectionEngine ?? undefined);
 			if (allowWrite && !window.confirm(t("editor.confirmWrite"))) {
 				return;
 			}
@@ -884,6 +894,7 @@ export const QueryWorkspace = forwardRef<
 				const tabId = getFocusedTabId(stateRef.current);
 				return Boolean(stateRef.current.tabs[tabId]?.lastExecutedSql?.trim());
 			},
+			toggleAskVeloxy: () => setIsAskVeloxyOpen((prev) => !prev),
 		}),
 		[runForTab, connectionId, onRequestConnection, runQueryMutation],
 	);
@@ -1119,18 +1130,6 @@ export const QueryWorkspace = forwardRef<
 						title={t("editor.runQueryBtn")}
 						>
 							<PlayIcon weight="fill" />
-						</Button>
-						<Button
-							variant={askVeloxyOpen ? "default" : "outline"}
-							size="sm"
-							onClick={() => setIsAskVeloxyOpen((prev) => !prev)}
-							disabled={!connectionId}
-						aria-label={t("veloxy.askVeloxy")}
-						title={t("veloxy.askVeloxy")}
-							className="gap-1.5"
-						>
-							<RobotIcon className="size-4" />
-							{t("veloxy.askVeloxy")}
 						</Button>
 					</div>
 				</div>
