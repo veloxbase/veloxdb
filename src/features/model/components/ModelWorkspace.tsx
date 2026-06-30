@@ -504,6 +504,7 @@ export function ModelWorkspace({
 									diagramGroups={store.diagramGroups}
 								/>
 							</div>
+						{inspectorTable && (
 							<ModelInspector
 								connectionId={connectionId}
 								table={inspectorTable}
@@ -631,7 +632,8 @@ export function ModelWorkspace({
 									]);
 								}}
 							/>
-						</div>
+						)}
+					</div>
 					</div>
 				</TabsContent>
 
