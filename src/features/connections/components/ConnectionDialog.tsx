@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, type ReactNode } from 'react'
+import { useMemo, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -19,32 +19,54 @@ import {
 import type { ConnectionInput, DatabaseEngine } from '@/data/types'
 import { cn } from '@/lib/utils'
 import { parseConnectionString, buildConnectionString } from '@/lib/connection-string'
+import { ENGINE_FORM_CONFIG, type EngineFormConfig } from './engine-form-config'
 
 type InputMode = 'string' | 'fields'
 type SshAuthMethodForm = 'keyfile' | 'password'
-type EngineOption = {
-  value: DatabaseEngine
+
+const engineOptions: { value: DatabaseEngine; label: string }[] = [
+  { value: 'postgres', label: 'PostgreSQL' },
+  { value: 'mysql',    label: 'MySQL' },
+  { value: 'sqlite',   label: 'SQLite' },
+  { value: 'mongo',    label: 'MongoDB' },
+  { value: 'duckdb',   label: 'DuckDB' },
+  { value: 'redis',    label: 'Redis' },
+]
+
+// ── Database Flavors ────────────────────────────────────────────
+
+type DatabaseFlavor = {
+  key: string
   label: string
-  hint: string
-  experimental: boolean
+  engine: DatabaseEngine
+  defaultHost: string
   defaultPort: number
   defaultDatabase: string
   defaultUser: string
-  requiresAuth: boolean
+  defaultSsl: 'disable' | 'prefer' | 'require'
+  description: string
 }
 
-const ENGINE_DEFAULTS: Record<DatabaseEngine, Omit<EngineOption, 'value' | 'label'>> = {
-  postgres: { hint: 'Recommended for production', experimental: false, defaultPort: 5432, defaultDatabase: 'postgres', defaultUser: 'postgres', requiresAuth: true },
-  mysql: { hint: 'Experimental support', experimental: true, defaultPort: 3306, defaultDatabase: '', defaultUser: 'root', requiresAuth: true },
-  sqlite: { hint: 'Experimental support', experimental: true, defaultPort: 0, defaultDatabase: '', defaultUser: '', requiresAuth: false },
-  mongo: { hint: 'Experimental support', experimental: true, defaultPort: 27017, defaultDatabase: 'admin', defaultUser: '', requiresAuth: false },
-  duckdb: { hint: 'Embedded OLAP', experimental: true, defaultPort: 0, defaultDatabase: '', defaultUser: '', requiresAuth: false },
-  redis: { hint: 'Key-value store', experimental: true, defaultPort: 6379, defaultDatabase: '', defaultUser: '', requiresAuth: false },
+const DATABASE_FLAVORS: DatabaseFlavor[] = [
+  { key: 'postgres',    label: 'PostgreSQL',  engine: 'postgres', defaultHost: '127.0.0.1',                                       defaultPort: 5432, defaultDatabase: 'postgres',           defaultUser: 'postgres',       defaultSsl: 'prefer',  description: 'Local or self-hosted PostgreSQL' },
+  { key: 'supabase',    label: 'Supabase',    engine: 'postgres', defaultHost: 'db.xxxxx.supabase.co',                             defaultPort: 5432, defaultDatabase: 'postgres',           defaultUser: 'postgres',       defaultSsl: 'require', description: 'Hosted PostgreSQL with real-time, auth, storage' },
+  { key: 'neon',        label: 'Neon',        engine: 'postgres', defaultHost: 'ep-xxxxx.us-east-1.aws.neon.tech',                defaultPort: 5432, defaultDatabase: 'neondb',             defaultUser: 'neondb_owner',   defaultSsl: 'require', description: 'Serverless PostgreSQL with branching' },
+  { key: 'cockroachdb', label: 'CockroachDB', engine: 'postgres', defaultHost: '127.0.0.1',                                       defaultPort: 26257,defaultDatabase: 'defaultdb',          defaultUser: 'root',           defaultSsl: 'require', description: 'Distributed SQL, PostgreSQL-compatible' },
+  { key: 'timescaledb', label: 'TimescaleDB', engine: 'postgres', defaultHost: '127.0.0.1',                                       defaultPort: 5432, defaultDatabase: 'postgres',           defaultUser: 'postgres',       defaultSsl: 'prefer',  description: 'Time-series PostgreSQL extension' },
+  { key: 'yugabytedb',  label: 'YugabyteDB',  engine: 'postgres', defaultHost: '127.0.0.1',                                       defaultPort: 5433, defaultDatabase: 'yugabyte',           defaultUser: 'yugabyte',       defaultSsl: 'prefer',  description: 'Distributed PostgreSQL-compatible' },
+  { key: 'mysql',       label: 'MySQL',       engine: 'mysql',    defaultHost: '127.0.0.1',                                       defaultPort: 3306, defaultDatabase: '',                   defaultUser: 'root',           defaultSsl: 'prefer',  description: 'Local or self-hosted MySQL' },
+  { key: 'mariadb',     label: 'MariaDB',     engine: 'mysql',    defaultHost: '127.0.0.1',                                       defaultPort: 3306, defaultDatabase: '',                   defaultUser: 'root',           defaultSsl: 'prefer',  description: 'Community fork of MySQL' },
+  { key: 'planetscale', label: 'PlanetScale', engine: 'mysql',    defaultHost: 'aws.connect.psdb.cloud',                           defaultPort: 3306, defaultDatabase: '',                   defaultUser: 'root',           defaultSsl: 'require', description: 'Serverless MySQL platform' },
+  { key: 'tidb',        label: 'TiDB',        engine: 'mysql',    defaultHost: '127.0.0.1',                                       defaultPort: 4000, defaultDatabase: 'test',               defaultUser: 'root',           defaultSsl: 'prefer',  description: 'Distributed MySQL-compatible (HTAP)' },
+  { key: 'aurora',      label: 'Aurora MySQL',engine: 'mysql',    defaultHost: 'xxxxx.cluster-xxx.us-east-1.rds.amazonaws.com',    defaultPort: 3306, defaultDatabase: '',                   defaultUser: 'admin',          defaultSsl: 'require', description: 'AWS MySQL-compatible cloud database' },
+]
+
+const FLAVORS_BY_ENGINE: Record<string, DatabaseFlavor[]> = {}
+for (const f of DATABASE_FLAVORS) {
+  (FLAVORS_BY_ENGINE[f.engine] ??= []).push(f)
 }
 
-const engineOptions: EngineOption[] = (Object.entries(ENGINE_DEFAULTS) as [DatabaseEngine, typeof ENGINE_DEFAULTS['postgres']][]).map(
-  ([value, defaults]) => ({ value, label: value === 'postgres' ? 'PostgreSQL' : value === 'mysql' ? 'MySQL' : value === 'sqlite' ? 'SQLite' : value === 'mongo' ? 'MongoDB' : value === 'duckdb' ? 'DuckDB' : 'Redis', ...defaults })
-)
+// ── Zod schema ──────────────────────────────────────────────────
 
 const connectionSchema = z.object({
   name: z.string().min(2, 'Enter a connection name.'),
@@ -66,49 +88,33 @@ const connectionSchema = z.object({
   sshPrivateKeyPath: z.string().optional(),
   sshPassphrase: z.string().optional(),
 }).superRefine((values, ctx) => {
-    if (values.engine === 'sqlite' || values.engine === 'duckdb') {
-      if (!values.filePath || values.filePath.trim().length === 0) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'File path is required.', path: ['filePath'] })
-      }
-      return
-    }
+  const cfg = ENGINE_FORM_CONFIG[values.engine]
 
-  if (values.engine === 'mongo') {
-    if (!values.host || values.host.trim().length === 0) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Host is required.', path: ['host'] })
+  if (cfg.showFilePicker) {
+    if (!values.filePath || values.filePath.trim().length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'File path is required.', path: ['filePath'] })
     }
-    if (!values.database || values.database.trim().length === 0) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Auth database is required.', path: ['database'] })
-    }
-    // Password and user are optional for MongoDB
     return
   }
 
-  // PostgreSQL and MySQL
-  if (!values.host || values.host.trim().length === 0) {
+  if (cfg.fields.host.label && (!values.host || values.host.trim().length === 0)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Host is required.', path: ['host'] })
   }
-  if (!values.database || values.database.trim().length === 0) {
+  if (cfg.fields.database.label && (!values.database || values.database.trim().length === 0)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Database is required.', path: ['database'] })
   }
-  if (!values.user || values.user.trim().length === 0) {
+  if (cfg.requireUser && (!values.user || values.user.trim().length === 0)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'User is required.', path: ['user'] })
   }
-  if (!values.password || values.password.trim().length === 0) {
+  if (cfg.requirePassword && (!values.password || values.password.trim().length === 0)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Password is required.', path: ['password'] })
   }
 
   if (!values.sshEnabled) return
-  if (!values.sshHost || values.sshHost.trim().length === 0) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'SSH host is required.', path: ['sshHost'] })
-  }
-  if (!values.sshUser || values.sshUser.trim().length === 0) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'SSH user is required.', path: ['sshUser'] })
-  }
-  if (values.sshAuthMethod === 'password') {
-    if (!values.sshPassword || values.sshPassword.trim().length === 0) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'SSH password is required.', path: ['sshPassword'] })
-    }
+  if (!values.sshHost?.trim()) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'SSH host is required.', path: ['sshHost'] })
+  if (!values.sshUser?.trim()) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'SSH user is required.', path: ['sshUser'] })
+  if (values.sshAuthMethod === 'password' && !values.sshPassword?.trim()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'SSH password is required.', path: ['sshPassword'] })
   }
 })
 
@@ -119,39 +125,7 @@ type ConnectionDialogProps = {
   isPending?: boolean
 }
 
-// ── Database Flavors ────────────────────────────────────────────
-
-type DatabaseFlavor = {
-  key: string
-  label: string
-  engine: DatabaseEngine
-  defaultHost: string
-  defaultPort: number
-  defaultDatabase: string
-  defaultUser: string
-  defaultSsl: 'disable' | 'prefer' | 'require'
-  description: string
-}
-
-const DATABASE_FLAVORS: DatabaseFlavor[] = [
-  // PostgreSQL wire-compatible
-  { key: 'postgres', label: 'PostgreSQL', engine: 'postgres', defaultHost: '127.0.0.1', defaultPort: 5432, defaultDatabase: 'postgres', defaultUser: 'postgres', defaultSsl: 'prefer', description: 'Local or self-hosted PostgreSQL' },
-  { key: 'supabase', label: 'Supabase', engine: 'postgres', defaultHost: 'db.xxxxx.supabase.co', defaultPort: 5432, defaultDatabase: 'postgres', defaultUser: 'postgres', defaultSsl: 'require', description: 'Hosted PostgreSQL with real-time, auth, storage' },
-  { key: 'neon', label: 'Neon', engine: 'postgres', defaultHost: 'ep-xxxxx.us-east-1.aws.neon.tech', defaultPort: 5432, defaultDatabase: 'neondb', defaultUser: 'neondb_owner', defaultSsl: 'require', description: 'Serverless PostgreSQL with branching' },
-  { key: 'cockroachdb', label: 'CockroachDB', engine: 'postgres', defaultHost: '127.0.0.1', defaultPort: 26257, defaultDatabase: 'defaultdb', defaultUser: 'root', defaultSsl: 'require', description: 'Distributed SQL, PostgreSQL-compatible' },
-  { key: 'timescaledb', label: 'TimescaleDB', engine: 'postgres', defaultHost: '127.0.0.1', defaultPort: 5432, defaultDatabase: 'postgres', defaultUser: 'postgres', defaultSsl: 'prefer', description: 'Time-series PostgreSQL extension' },
-  { key: 'yugabytedb', label: 'YugabyteDB', engine: 'postgres', defaultHost: '127.0.0.1', defaultPort: 5433, defaultDatabase: 'yugabyte', defaultUser: 'yugabyte', defaultSsl: 'prefer', description: 'Distributed PostgreSQL-compatible' },
-  // MySQL wire-compatible
-  { key: 'mysql', label: 'MySQL', engine: 'mysql', defaultHost: '127.0.0.1', defaultPort: 3306, defaultDatabase: '', defaultUser: 'root', defaultSsl: 'prefer', description: 'Local or self-hosted MySQL' },
-  { key: 'mariadb', label: 'MariaDB', engine: 'mysql', defaultHost: '127.0.0.1', defaultPort: 3306, defaultDatabase: '', defaultUser: 'root', defaultSsl: 'prefer', description: 'Community fork of MySQL' },
-  { key: 'planetscale', label: 'PlanetScale', engine: 'mysql', defaultHost: 'aws.connect.psdb.cloud', defaultPort: 3306, defaultDatabase: '', defaultUser: 'root', defaultSsl: 'require', description: 'Serverless MySQL platform' },
-  { key: 'tidb', label: 'TiDB', engine: 'mysql', defaultHost: '127.0.0.1', defaultPort: 4000, defaultDatabase: 'test', defaultUser: 'root', defaultSsl: 'prefer', description: 'Distributed MySQL-compatible (HTAP)' },
-  { key: 'aurora', label: 'Aurora MySQL', engine: 'mysql', defaultHost: 'xxxxx.cluster-xxx.us-east-1.rds.amazonaws.com', defaultPort: 3306, defaultDatabase: '', defaultUser: 'admin', defaultSsl: 'require', description: 'AWS MySQL-compatible cloud database' },
-]
-
-function flavorsForEngine(engine: DatabaseEngine): DatabaseFlavor[] {
-  return DATABASE_FLAVORS.filter((f) => f.engine === engine)
-}
+// ── Field helper ─────────────────────────────────────────────────
 
 function Field({ label, error, inputId, children }: { label: string; error?: string; inputId: string; children: ReactNode }) {
   return (
@@ -194,51 +168,49 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
   const sshAuthMethod = useWatch({ control: form.control, name: 'sshAuthMethod' })
   const engine = useWatch({ control: form.control, name: 'engine' })
 
-  const engineInfo = ENGINE_DEFAULTS[engine]
+  const cfg: EngineFormConfig = ENGINE_FORM_CONFIG[engine]
 
-  // Auto-populate defaults when engine changes
-  useEffect(() => {
-    form.setValue('port', engineInfo.defaultPort)
-    form.setValue('database', engineInfo.defaultDatabase)
-    form.setValue('user', engineInfo.defaultUser)
-    if (engine === 'sqlite') {
+  // ── Engine change handler (synchronous, no useEffect) ──────
+
+  const handleEngineChange = useCallback((next: DatabaseEngine) => {
+    const c = ENGINE_FORM_CONFIG[next]
+    form.setValue('engine', next)
+    form.setValue('port', c.defaultPort)
+    form.setValue('database', c.defaultDatabase)
+    form.setValue('user', c.defaultUser)
+    form.setValue('sslMode', c.defaultSsl)
+    if (c.showFilePicker) {
       form.setValue('host', '')
       form.setValue('password', '')
+    } else {
+      form.setValue('host', '127.0.0.1')
     }
-  }, [engine, form, engineInfo.defaultPort, engineInfo.defaultDatabase, engineInfo.defaultUser])
+    if (!c.requirePassword) form.setValue('password', '')
+    if (!c.requireUser) form.setValue('user', '')
+  }, [form])
+
+  // ── Flavor ─────────────────────────────────────────────────
 
   const [flavor, setFlavor] = useState<string>('postgres')
 
-  // When flavor changes, auto-populate defaults
-  useEffect(() => {
-    const f = DATABASE_FLAVORS.find((d) => d.key === flavor)
+  const handleFlavorChange = useCallback((key: string) => {
+    setFlavor(key)
+    const f = DATABASE_FLAVORS.find((d) => d.key === key)
     if (!f) return
     form.setValue('host', f.defaultHost)
     form.setValue('port', f.defaultPort)
     form.setValue('database', f.defaultDatabase)
     form.setValue('user', f.defaultUser)
     form.setValue('sslMode', f.defaultSsl)
-  }, [flavor, form])
+  }, [form])
 
-  // Reset flavor when engine changes
-  useEffect(() => {
-    setFlavor(engine)
-  }, [engine])
+  useEffect(() => { setFlavor(engine) }, [engine])
+
+  // ── Connection string mode ─────────────────────────────────
 
   const [inputMode, setInputMode] = useState<InputMode>('fields')
   const [connString, setConnString] = useState('')
   const [connStringError, setConnStringError] = useState<string | null>(null)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [advancedConnectTimeout, setAdvancedConnectTimeout] = useState('')
-  const [advancedAppName, setAdvancedAppName] = useState('')
-  const [advancedOptions, setAdvancedOptions] = useState('')
-  const [advancedKeepalives, setAdvancedKeepalives] = useState(true)
-  const [advancedKeepalivesIdle, setAdvancedKeepalivesIdle] = useState('')
-  const [advancedSslRootCert, setAdvancedSslRootCert] = useState('')
-  const [advancedSslCert, setAdvancedSslCert] = useState('')
-  const [advancedSslKey, setAdvancedSslKey] = useState('')
-  const [customParams, setCustomParams] = useState<CustomParam[]>([])
-  const [nextCustomId, setNextCustomId] = useState(1)
 
   const handleConnStringChange = (value: string) => {
     setConnString(value)
@@ -246,6 +218,7 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
     const parsed = parseConnectionString(value)
     if (!parsed) { setConnStringError(t("connection.invalidConnectionString")); return }
     setConnStringError(null)
+    form.setValue('engine', parsed.engine)
     form.setValue('host', parsed.host)
     form.setValue('port', parsed.port)
     form.setValue('database', parsed.database)
@@ -253,7 +226,6 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
     form.setValue('user', parsed.user)
     form.setValue('password', parsed.password)
     form.setValue('sslMode', parsed.sslMode)
-    form.setValue('engine', parsed.engine)
     const extra = { ...parsed.extraParams }
     if ('connect_timeout' in extra) { setAdvancedConnectTimeout(extra['connect_timeout']); delete extra['connect_timeout'] }
     if ('application_name' in extra) { setAdvancedAppName(extra['application_name']); delete extra['application_name'] }
@@ -283,6 +255,7 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
         database: fields.database || '',
         filePath: fields.filePath || '',
         sslMode: fields.sslMode || 'prefer',
+        srvEnabled: fields.srv ?? false,
         extraParams: collectExtraParams(),
       })
       setConnString(cs)
@@ -290,6 +263,20 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
     }
     setInputMode(mode)
   }
+
+  // ── Advanced / custom params ────────────────────────────────
+
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [advancedConnectTimeout, setAdvancedConnectTimeout] = useState('')
+  const [advancedAppName, setAdvancedAppName] = useState('')
+  const [advancedOptions, setAdvancedOptions] = useState('')
+  const [advancedKeepalives, setAdvancedKeepalives] = useState(true)
+  const [advancedKeepalivesIdle, setAdvancedKeepalivesIdle] = useState('')
+  const [advancedSslRootCert, setAdvancedSslRootCert] = useState('')
+  const [advancedSslCert, setAdvancedSslCert] = useState('')
+  const [advancedSslKey, setAdvancedSslKey] = useState('')
+  const [customParams, setCustomParams] = useState<CustomParam[]>([])
+  const [nextCustomId, setNextCustomId] = useState(1)
 
   const collectExtraParams = (): Record<string, string> => {
     const extra: Record<string, string> = {}
@@ -310,22 +297,30 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
     if (typeof selected === 'string') setter(selected)
   }
 
+  const addCustomParam = () => { setCustomParams((prev) => [...prev, { id: nextCustomId, key: '', value: '' }]); setNextCustomId((id) => id + 1) }
+  const removeCustomParam = (id: number) => { setCustomParams((prev) => prev.filter((p) => p.id !== id)) }
+  const updateCustomParam = (id: number, field: 'key' | 'value', val: string) => {
+    setCustomParams((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: val } : p)))
+  }
+
+  // ── Submit ──────────────────────────────────────────────────
+
   const handleSubmit = form.handleSubmit((values) => {
     const extraParams = collectExtraParams()
     const isSqlEngine = values.engine === 'postgres' || values.engine === 'mysql'
     const input: ConnectionInput = {
       name: values.name,
       engine: values.engine,
-      host: values.engine === 'sqlite' ? '' : values.host,
-      port: values.engine === 'sqlite' ? 1 : values.port,
-      database: values.engine === 'sqlite' ? (values.filePath || ':memory:') : values.database,
+      host: cfg.showFilePicker ? '' : values.host,
+      port: cfg.showFilePicker ? 1 : values.port,
+      database: cfg.showFilePicker ? (values.filePath || ':memory:') : values.database,
       filePath: values.filePath || null,
-      user: values.engine === 'sqlite' ? '' : values.user,
-      password: values.engine === 'sqlite' ? '' : values.password,
+      user: cfg.showFilePicker ? '' : values.user,
+      password: cfg.showFilePicker ? '' : values.password,
       sslMode: isSqlEngine ? values.sslMode : 'disable',
       srvEnabled: values.engine === 'mongo' ? (values.srv ?? false) : false,
       extraParams: isSqlEngine && Object.keys(extraParams).length > 0 ? extraParams : null,
-      sshConfig: values.engine !== 'sqlite' && values.sshEnabled ? {
+      sshConfig: !cfg.showFilePicker && values.sshEnabled ? {
         enabled: true,
         host: values.sshHost ?? '',
         port: values.sshPort ?? 22,
@@ -339,14 +334,8 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
     void onSubmit(input)
   })
 
-  const addCustomParam = () => { setCustomParams((prev) => [...prev, { id: nextCustomId, key: '', value: '' }]); setNextCustomId((id) => id + 1) }
-  const removeCustomParam = (id: number) => { setCustomParams((prev) => prev.filter((p) => p.id !== id)) }
-  const updateCustomParam = (id: number, field: 'key' | 'value', val: string) => {
-    setCustomParams((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: val } : p)))
-  }
-
-  const showHostPort = engine !== 'sqlite' && engine !== 'duckdb'
-  const showSsl = engine === 'postgres' || engine === 'mysql'
+  const showHostPort = !cfg.showFilePicker
+  const showSecondCol = cfg.showSsl || cfg.showSrv
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -358,7 +347,8 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
 
         <form className="flex flex-col max-h-[75vh]" onSubmit={handleSubmit}>
           <div className="overflow-y-auto space-y-5 px-6 py-4">
-            {/* Mode toggle: connection string vs fields */}
+
+            {/* Mode toggle */}
             <div className="flex rounded-lg border border-border/60 bg-muted/40 p-0.5">
               {(['string', 'fields'] as const).map((mode) => (
                 <button key={mode} type="button" onClick={() => handleModeToggle(mode)}
@@ -388,6 +378,7 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
 
             {/* Fields mode */}
             <div className={cn('space-y-5', inputMode === 'string' && 'hidden')}>
+
               {/* Engine selector */}
               <div>
                 <span className="block text-left text-xs font-medium text-muted-foreground mb-3">{t("connection.databaseEngine")}</span>
@@ -396,7 +387,9 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                     const selected = engine === option.value
                     return (
                       <label key={option.value} className="cursor-pointer">
-                        <input type="radio" value={option.value} className="sr-only" {...form.register('engine')} />
+                        <input type="radio" value={option.value} className="sr-only"
+                          checked={selected}
+                          onChange={() => handleEngineChange(option.value)} />
                         <div className={cn(
                           'flex flex-col items-center justify-center gap-1.5 rounded-lg border px-4 py-3 transition-all select-none min-w-[100px]',
                           selected
@@ -424,16 +417,16 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                 </div>
               </div>
 
-              {/* Flavor selector — for PG and MySQL wire-compatible databases */}
-              {(engine === 'postgres' || engine === 'mysql') && (
+              {/* Flavor selector */}
+              {cfg.showFlavors && (
                 <div>
                   <span className="block text-left text-xs font-medium text-muted-foreground mb-2">Provider</span>
                   <select
                     value={flavor}
-                    onChange={(e) => setFlavor(e.target.value)}
+                    onChange={(e) => handleFlavorChange(e.target.value)}
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   >
-                    {flavorsForEngine(engine).map((f) => (
+                    {(FLAVORS_BY_ENGINE[engine] ?? []).map((f) => (
                       <option key={f.key} value={f.key}>{f.label}</option>
                     ))}
                   </select>
@@ -448,62 +441,50 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                 <Input id="veloxdb-connection-name" {...form.register('name')} placeholder={t("connection.connectionNamePlaceholder")} />
               </Field>
 
-              {/* SQLite / DuckDB file path */}
-              {engine === 'sqlite' && (
-                <Field label={t("connection.databaseFile")} inputId="veloxdb-sqlite-path" error={form.formState.errors.filePath?.message}>
+              {/* File picker (SQLite, DuckDB) */}
+              {cfg.showFilePicker && (
+                <Field label={engine === 'duckdb' ? 'Database File' : t("connection.databaseFile")}
+                  inputId="veloxdb-file-path" error={form.formState.errors.filePath?.message}>
                   <InputGroup>
-                    <InputGroupInput id="veloxdb-sqlite-path" {...form.register('filePath')} placeholder="/path/to/database.db" />
+                    <InputGroupInput id="veloxdb-file-path" {...form.register('filePath')}
+                      placeholder={engine === 'duckdb' ? ':memory: or /path/to/database.duckdb' : '/path/to/database.db'} />
                     <InputGroupAddon align="inline-end">
-                      <InputGroupButton size="icon-xs" title={t("connection.browse")} onClick={() => pickFile((p) => form.setValue('filePath', p), [{ name: 'SQLite', extensions: ['db', 'sqlite', 'sqlite3'] }])}>
+                      <InputGroupButton size="icon-xs" title={t("connection.browse")}
+                        onClick={() => pickFile((p) => form.setValue('filePath', p),
+                          [{ name: engine === 'duckdb' ? 'DuckDB' : 'SQLite', extensions: engine === 'duckdb' ? ['duckdb', 'db'] : ['db', 'sqlite', 'sqlite3'] }])}>
                         <FolderOpenIcon />
                       </InputGroupButton>
                     </InputGroupAddon>
                   </InputGroup>
-                </Field>
-              )}
-              {engine === 'duckdb' && (
-                <Field label="Database File" inputId="veloxdb-duckdb-path" error={form.formState.errors.filePath?.message}>
-                  <InputGroup>
-                    <InputGroupInput id="veloxdb-duckdb-path" {...form.register('filePath')} placeholder=":memory: or /path/to/database.duckdb" />
-                    <InputGroupAddon align="inline-end">
-                      <InputGroupButton size="icon-xs" title={t("connection.browse")} onClick={() => pickFile((p) => form.setValue('filePath', p), [{ name: 'DuckDB', extensions: ['duckdb', 'db'] }])}>
-                        <FolderOpenIcon />
-                      </InputGroupButton>
-                    </InputGroupAddon>
-                  </InputGroup>
-                  <p className="text-[10px] text-muted-foreground/70 mt-1">Leave empty or use ":memory:" for in-memory database</p>
+                  {engine === 'duckdb' && <p className="text-[10px] text-muted-foreground/70 mt-1">Leave empty or use ":memory:" for in-memory database</p>}
                 </Field>
               )}
 
-              {/* Network fields — hidden for SQLite */}
+              {/* Network fields */}
               {showHostPort && (
                 <div className="grid gap-4 sm:grid-cols-4">
-                  <Field label={engine === 'mongo' ? 'Host' : t("connection.host")} inputId="veloxdb-host" error={form.formState.errors.host?.message}>
-                    <Input id="veloxdb-host" {...form.register('host')} placeholder={engine === 'mongo' ? 'localhost' : '127.0.0.1'} />
+                  <Field label={cfg.fields.host.label} inputId="veloxdb-host" error={form.formState.errors.host?.message}>
+                    <Input id="veloxdb-host" {...form.register('host')} placeholder={cfg.fields.host.placeholder} />
                   </Field>
-                  <Field label={t("connection.port")} inputId="veloxdb-port" error={form.formState.errors.port?.message}>
-                    <Input id="veloxdb-port" {...form.register('port', { valueAsNumber: true })} inputMode="numeric" placeholder={String(engineInfo.defaultPort)} />
+                  <Field label={cfg.fields.port.label} inputId="veloxdb-port" error={form.formState.errors.port?.message}>
+                    <Input id="veloxdb-port" {...form.register('port', { valueAsNumber: true })} inputMode="numeric" placeholder={String(cfg.defaultPort)} />
                   </Field>
-                  <Field label={engine === 'mongo' ? 'Auth DB' : t("connection.database")} inputId="veloxdb-database"
-                    error={form.formState.errors.database?.message}>
-                    <Input id="veloxdb-database" {...form.register('database')}
-                      placeholder={engine === 'mongo' ? 'admin' : engine === 'postgres' ? 'postgres' : 'database'} />
+                  <Field label={cfg.fields.database.label} inputId="veloxdb-database" error={form.formState.errors.database?.message}>
+                    <Input id="veloxdb-database" {...form.register('database')} placeholder={cfg.fields.database.placeholder} />
                   </Field>
-                  <Field label={t("connection.user")} inputId="veloxdb-user" error={form.formState.errors.user?.message}>
-                    <Input id="veloxdb-user" {...form.register('user')}
-                      placeholder={engine === 'mongo' ? '(optional)' : engine === 'mysql' ? 'root' : 'postgres'} />
+                  <Field label={cfg.fields.user.label} inputId="veloxdb-user" error={form.formState.errors.user?.message}>
+                    <Input id="veloxdb-user" {...form.register('user')} placeholder={cfg.fields.user.placeholder} />
                   </Field>
                 </div>
               )}
 
-              {/* Password + SSL — only for non-SQLite */}
+              {/* Password + SSL / SRV */}
               {showHostPort && (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label={t("connection.password")} inputId="veloxdb-password" error={form.formState.errors.password?.message}>
-                    <Input id="veloxdb-password" {...form.register('password')} type="password"
-                      placeholder={engine === 'mongo' ? '(optional)' : t("connection.passwordPlaceholder")} />
+                <div className={cn('grid gap-4', showSecondCol ? 'sm:grid-cols-2' : '')}>
+                  <Field label={cfg.fields.password.label} inputId="veloxdb-password" error={form.formState.errors.password?.message}>
+                    <Input id="veloxdb-password" {...form.register('password')} type="password" placeholder={cfg.fields.password.placeholder} />
                   </Field>
-                  {showSsl ? (
+                  {cfg.showSsl && (
                     <Field label={t("connection.sslMode")} inputId="veloxdb-ssl-mode" error={form.formState.errors.sslMode?.message}>
                       <select id="veloxdb-ssl-mode" {...form.register('sslMode')}
                         className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
@@ -512,23 +493,23 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                         <option value="disable">{t("connection.disable")}</option>
                       </select>
                     </Field>
-                  ) : engine === 'mongo' ? (
+                  )}
+                  {cfg.showSrv && (
                     <Field label="Use SRV (Atlas)" inputId="veloxdb-mongo-srv">
                       <label className="flex items-center gap-2 cursor-pointer pt-2">
                         <input id="veloxdb-mongo-srv" type="checkbox" {...form.register('srv')} className="h-4 w-4 rounded" />
                         <span className="text-xs text-muted-foreground">SRV connection</span>
                       </label>
                     </Field>
-                  ) : <div />}
+                  )}
                 </div>
               )}
 
-              {/* SSH toggle — not for SQLite */}
-              {engine !== 'sqlite' && (
+              {/* SSH toggle */}
+              {cfg.showSsh && (
                 <div className="border-t border-border pt-4">
                   <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input type="checkbox" {...form.register('sshEnabled')}
-                      className="h-4 w-4 rounded border-input accent-emerald-500" />
+                    <input type="checkbox" {...form.register('sshEnabled')} className="h-4 w-4 rounded border-input accent-emerald-500" />
                     <span className="text-sm font-medium text-foreground">{t("connection.sshTunnel")}</span>
                   </label>
 
@@ -545,7 +526,6 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                       <Field label={t("connection.sshUser")} inputId="veloxdb-ssh-user" error={form.formState.errors.sshUser?.message}>
                         <Input id="veloxdb-ssh-user" {...form.register('sshUser')} placeholder="root" />
                       </Field>
-
                       <div>
                         <span className="text-xs text-muted-foreground mb-1.5 block">{t("connection.authMethod")}</span>
                         <div className="flex gap-2">
@@ -562,7 +542,6 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                           ))}
                         </div>
                       </div>
-
                       {sshAuthMethod === 'password' && (
                         <Field label={t("connection.sshPassword")} inputId="veloxdb-ssh-password" error={form.formState.errors.sshPassword?.message}>
                           <Input id="veloxdb-ssh-password" {...form.register('sshPassword')} type="password" placeholder={t("connection.sshPasswordPlaceholder")} />
@@ -583,8 +562,8 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                 </div>
               )}
 
-              {/* Advanced — PostgreSQL only */}
-              {engine === 'postgres' && (
+              {/* Advanced (Postgres only) */}
+              {cfg.showAdvanced && (
                 <div className="border-t border-border pt-4">
                   <button type="button" onClick={() => setAdvancedOpen((o) => !o)}
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 -mx-2 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors">

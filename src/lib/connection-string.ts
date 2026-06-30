@@ -75,6 +75,20 @@ export function parseConnectionString(raw: string): ParsedConnectionString | nul
     }
   }
 
+  if (trimmed.startsWith('redis://') || trimmed.startsWith('rediss://')) {
+    const url = new URL(trimmed)
+    return {
+      engine: 'redis',
+      host: decodeURIComponent(url.hostname || '127.0.0.1'),
+      port: url.port ? Number(url.port) : 6379,
+      database: decodeURIComponent(url.pathname.replace(/^\//, '') || '0'),
+      user: decodeURIComponent(url.username || ''),
+      password: decodeURIComponent(url.password || ''),
+      sslMode: trimmed.startsWith('rediss://') ? 'require' : 'disable',
+      extraParams: Object.fromEntries(new URLSearchParams(url.search)),
+    }
+  }
+
   const normalized = normalizeUrl(raw)
   if (!normalized.includes('://')) {
     // Require explicit scheme to avoid silently coercing non-Postgres input.
@@ -151,6 +165,13 @@ export function buildConnectionString(fields: {
       uri += `?${params}`
     }
     return uri
+  }
+
+  if (fields.engine === 'redis') {
+    const encodedUser = fields.user ? encodeURIComponent(fields.user) : ''
+    const encodedPassword = fields.password ? `:${encodeURIComponent(fields.password)}` : ''
+    const auth = encodedUser ? `${encodedUser}${encodedPassword}@` : ''
+    return `redis://${auth}${fields.host || '127.0.0.1'}:${fields.port || 6379}/${encodeURIComponent(fields.database || '0')}`
   }
 
   if (fields.engine === 'sqlite') {
