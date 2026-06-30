@@ -23,6 +23,7 @@ import { saveOpenRouterApiKey } from '@/lib/openrouter-credentials'
 import { fetchOpenRouterModels, OPENROUTER_POPULAR_MODELS, type OpenRouterModelOption } from '@/lib/openrouter-models'
 import { cn } from '@/lib/utils'
 import { useSettings, type AppTheme, type FontSize, type NullDisplay, themeLabels } from '@/lib/settings'
+import { useUpdateCheck } from '@/hooks/useUpdateCheck'
 import pkg from '../../../../package.json'
 
 const GITHUB_REPO = 'abeni16/veloxdb'
@@ -74,25 +75,13 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     input.click()
   }, [])
 
-  const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'up-to-date' | 'available' | 'error'>('idle')
-  const [latestVersion, setLatestVersion] = useState<string | null>(null)
   const [modelOptions, setModelOptions] = useState<OpenRouterModelOption[]>(OPENROUTER_POPULAR_MODELS)
   const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [modelsError, setModelsError] = useState<string | null>(null)
 
-  const checkForUpdates = useCallback(async () => {
-    setUpdateStatus('checking')
-    try {
-      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const release = await res.json() as { tag_name: string }
-      const latest = release.tag_name.replace(/^v/, '')
-      setLatestVersion(latest)
-      setUpdateStatus(latest === pkg.version ? 'up-to-date' : 'available')
-    } catch {
-      setUpdateStatus('error')
-    }
-  }, [])
+  const { data: updateInfo, isLoading: isCheckingUpdates, isError: updateCheckFailed, refetch: checkForUpdates } = useUpdateCheck(
+    { enabled: open },
+  )
 
   const refreshOpenRouterModels = useCallback(async () => {
     setModelsStatus('loading')
@@ -358,26 +347,26 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                     variant="outline"
                     size="sm"
                     className="h-8 text-xs"
-                    onClick={checkForUpdates}
-                    disabled={updateStatus === 'checking'}
+                    onClick={() => checkForUpdates()}
+                    disabled={isCheckingUpdates}
                   >
-                    {updateStatus === 'checking' ? t("settings.checking") : t("settings.checkNow")}
+                    {isCheckingUpdates ? t("settings.checking") : t("settings.checkNow")}
                   </Button>
-                  {updateStatus === 'up-to-date' && (
+                  {updateInfo && !updateInfo.hasUpdate && (
                     <span className="text-xs text-emerald-600">{t("settings.upToDate")}</span>
                   )}
-                  {updateStatus === 'available' && latestVersion && (
+                  {updateInfo?.hasUpdate && updateInfo.latestVersion && (
                     <a
-                      href={`https://github.com/${GITHUB_REPO}/releases/tag/${latestVersion}`}
+                      href={updateInfo.downloadUrl || `https://github.com/${GITHUB_REPO}/releases/tag/v${updateInfo.latestVersion}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs text-amber-500 hover:underline"
                     >
-                      {t("settings.available", { version: latestVersion })}
+                      {t("settings.available", { version: updateInfo.latestVersion })}
                       <ArrowSquareOutIcon className="size-3" />
                     </a>
                   )}
-                  {updateStatus === 'error' && (
+                  {updateCheckFailed && (
                     <span className="text-xs text-destructive">{t("settings.failedToCheck")}</span>
                   )}
                 </div>

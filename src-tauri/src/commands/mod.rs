@@ -935,6 +935,7 @@ pub(crate) mod mongo;
 pub(crate) mod duckdb;
 mod export_cmds;
 pub(crate) mod redis;
+mod updater;
 
 // --- Re-exports ---
 
@@ -975,4 +976,7 @@ pub use duckdb::{
 };
 pub use redis::{
     redis_run_query, redis_get_keys, redis_get_schema,
+};
+pub use updater::{
+    check_for_updates,
 };

@@ -7089,6 +7089,7 @@ dependencies = [
  "resvg",
  "rustls",
  "rustls-pemfile",
+ "semver",
  "serde",
  "serde_json",
  "sqlx",

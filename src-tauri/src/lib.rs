@@ -10,7 +10,8 @@ pub mod sql_split;
 mod ssh_tunnel;
 
 use commands::{
-  apply_table_properties, cancel_veloxy_request, chat_with_db, clear_veloxy_conversation, connect_db, delete_connection,
+  apply_table_properties, cancel_veloxy_request, chat_with_db, check_for_updates, clear_veloxy_conversation,
+  connect_db, delete_connection,
   delete_openrouter_api_key, disconnect_db, duckdb_get_schema, duckdb_get_tables, duckdb_run_query,
   execute_ddl_statement, execute_ddl_transaction, export_diagram_png,
   export_results_csv_command, export_results_json_command, generate_sql_from_nl, get_foreign_keys,
@@ -52,6 +53,7 @@ pub fn run() {
       }
     })
     .invoke_handler(tauri::generate_handler![
+      check_for_updates,
       connect_db,
       disconnect_db,
       rename_connection,
