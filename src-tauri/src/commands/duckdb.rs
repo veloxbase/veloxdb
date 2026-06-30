@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use tauri::{AppHandle, State};
 
-use crate::db::{get_or_create_duckdb_connection, resolve_connection_engine, AppState, MAX_QUERY_ROWS};
+use crate::db::{get_or_create_duckdb_connection, quote_identifier, resolve_connection_engine, AppState, MAX_QUERY_ROWS};
 use crate::models::{ColumnInfo, ColumnProperties, ForeignKeyEdge, IndexInfo, QueryRequest, QueryResult, SchemaRequest, TableIndexesResult, TableInfo, TablePropertiesApplyRequest};
 
 /// Execute a SQL query against a DuckDB connection.
@@ -48,7 +48,10 @@ pub async fn duckdb_run_query(
         // Build a wrapper query that casts all columns to VARCHAR for safe string extraction
         let cast_cols: Vec<String> = columns
             .iter()
-            .map(|c| format!("CAST(\"{}\" AS VARCHAR) as \"{}\"", c, c))
+            .map(|c| {
+                let quoted = quote_identifier(c);
+                format!("CAST(\"{quoted}\" AS VARCHAR) as \"{quoted}\"")
+            })
             .collect();
         let wrapper_sql = format!("SELECT {} FROM ({})", cast_cols.join(", "), sql);
 
@@ -142,7 +145,10 @@ pub async fn duckdb_get_tables(
             Ok(TableInfo {
                 schema: "main".to_string(),
                 name: name.clone(),
-                preview_query: format!("SELECT * FROM \"{}\" LIMIT 100;", name),
+                preview_query: format!(
+                    "SELECT * FROM \"{}\" LIMIT 100;",
+                    quote_identifier(&name)
+                ),
             })
         })
         .map_err(|e| format!("DuckDB table listing failed: {}", e))?
@@ -469,13 +475,17 @@ pub async fn duckdb_apply_table_properties(
         .filter_map(|r| r.ok())
         .collect();
 
-    let qualified_table = format!("\"{}\".\"{}\"", table_schema, table_name);
+    let qualified_table = format!(
+        "\"{}\".\"{}\"",
+        quote_identifier(table_schema),
+        quote_identifier(table_name)
+    );
 
     for update in &input.columns {
         let current = current_nullable.get(&update.column_name)
             .ok_or_else(|| format!("Unknown column: {}", update.column_name))?;
         if *current == update.is_nullable { continue; }
-        let qualified_col = format!("\"{}\"", update.column_name);
+        let qualified_col = format!("\"{}\"", quote_identifier(&update.column_name));
         if update.is_nullable {
             conn.execute(
                 &format!("ALTER TABLE {} ALTER {} DROP NOT NULL", qualified_table, qualified_col),
@@ -492,11 +502,16 @@ pub async fn duckdb_apply_table_properties(
     // Unique constraints
     for update in &input.columns {
         if !update.is_unique { continue; }
-        let qualified_col = format!("\"{}\"", update.column_name);
+        let qualified_col = format!("\"{}\"", quote_identifier(&update.column_name));
         let constraint_name = format!("veloxdb_unq_{}", update.column_name);
         // Add if not exists — best-effort (DuckDB may error on duplicate, which is fine)
         conn.execute(
-            &format!("ALTER TABLE {} ADD CONSTRAINT \"{}\" UNIQUE ({})", qualified_table, constraint_name, qualified_col),
+            &format!(
+                "ALTER TABLE {} ADD CONSTRAINT \"{}\" UNIQUE ({})",
+                qualified_table,
+                quote_identifier(&constraint_name),
+                qualified_col
+            ),
             [],
         ).ok(); // Ignore if constraint already exists
     }
