@@ -4,7 +4,6 @@ import {
 	PlayIcon,
 	PlugIcon,
 	PlusIcon,
-	RobotIcon,
 	TextHIcon,
 	XIcon,
 } from "@phosphor-icons/react";
@@ -99,6 +98,7 @@ export type QueryWorkspaceHandle = {
 	setActiveTabConnection: (connectionId: string | null) => void;
 	/** Clear a removed saved connection from all tabs so IPC targets stay valid. */
 	detachDeletedConnection: (connectionId: string) => void;
+	toggleAskVeloxy: () => void;
 };
 
 type QueryWorkspaceProps = {
@@ -894,6 +894,7 @@ export const QueryWorkspace = forwardRef<
 				const tabId = getFocusedTabId(stateRef.current);
 				return Boolean(stateRef.current.tabs[tabId]?.lastExecutedSql?.trim());
 			},
+			toggleAskVeloxy: () => setIsAskVeloxyOpen((prev) => !prev),
 		}),
 		[runForTab, connectionId, onRequestConnection, runQueryMutation],
 	);
@@ -1129,18 +1130,6 @@ export const QueryWorkspace = forwardRef<
 						title={t("editor.runQueryBtn")}
 						>
 							<PlayIcon weight="fill" />
-						</Button>
-						<Button
-							variant={askVeloxyOpen ? "default" : "outline"}
-							size="sm"
-							onClick={() => setIsAskVeloxyOpen((prev) => !prev)}
-							disabled={!connectionId}
-						aria-label={t("veloxy.askVeloxy")}
-						title={t("veloxy.askVeloxy")}
-							className="gap-1.5"
-						>
-							<RobotIcon className="size-4" />
-							{t("veloxy.askVeloxy")}
 						</Button>
 					</div>
 				</div>

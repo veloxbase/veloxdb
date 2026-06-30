@@ -1,4 +1,4 @@
-import { GearIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
+import { GearIcon, RobotIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import {
 	type CSSProperties,
 	type PointerEvent as ReactPointerEvent,
@@ -202,11 +202,21 @@ export function VeloxApp() {
 							</div>
 						</div>
 						<div className="flex shrink-0 items-center gap-2">
-							<Button variant="outline" size="sm" onClick={() => setCommandPaletteOpen(true)}>
-								<SidebarSimpleIcon />{t("sidebar.palette")}
+							<Button variant="outline" size="icon-sm" onClick={() => setCommandPaletteOpen(true)} title={t("sidebar.palette")}>
+								<SidebarSimpleIcon />
 							</Button>
-							<Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
-								<GearIcon />{t("sidebar.settings")}
+							<Button variant="outline" size="icon-sm" onClick={() => setSettingsOpen(true)} title={t("sidebar.settings")}>
+								<GearIcon />
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => queryWorkspaceRef.current?.toggleAskVeloxy()}
+								disabled={!connection}
+								title={t("veloxy.askVeloxy")}
+							>
+								<RobotIcon className="size-4" />
+								{t("veloxy.askVeloxy")}
 							</Button>
 						</div>
 					</div>
