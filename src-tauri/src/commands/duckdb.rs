@@ -86,8 +86,8 @@ pub async fn duckdb_run_query(
 
         Ok(QueryResult {
             columns,
+            row_count: rows.len(),
             rows,
-            row_count: total.min(max_rows),
             execution_ms: started_at.elapsed().as_millis(),
             truncated: total > max_rows,
             command_tag: None,

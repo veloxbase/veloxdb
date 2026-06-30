@@ -75,6 +75,16 @@ fn extract_braced_json(input: &str) -> Option<String> {
     }
 }
 
+/// Extract the collection name from MongoDB shell syntax like `db.users` or `db.getSiblingDB('x').users`.
+fn extract_shell_collection_name(prefix: &str) -> String {
+    prefix
+        .split('.')
+        .last()
+        .unwrap_or(prefix)
+        .trim()
+        .to_string()
+}
+
 fn normalize_to_document(raw: &str) -> Result<Document, String> {
     // Try parsing as BSON
     if let Ok(doc) = serde_json::from_str::<Document>(raw) {
@@ -146,7 +156,7 @@ pub async fn mongo_run_query(
 
     // Determine the collection name — try extracting from shell syntax
     let (collection_name, filter) = if let Some(dot_find) = raw.find(".find(") {
-        let collection = raw[..dot_find].trim().to_string();
+        let collection = extract_shell_collection_name(raw[..dot_find].trim());
         let filter = parse_mongo_filter(&raw)?;
         (collection, filter)
     } else if raw.starts_with('{') {
@@ -502,6 +512,24 @@ mod tests {
         let result = parse_mongo_filter(r#"{"age": {"$gt": 18}}"#).unwrap();
         let age = result.get_document("age").unwrap();
         assert_eq!(age.get_i32("$gt").unwrap(), 18);
+    }
+
+    #[test]
+    fn extract_shell_collection_name_from_db_prefix() {
+        assert_eq!(extract_shell_collection_name("db.users"), "users");
+    }
+
+    #[test]
+    fn extract_shell_collection_name_without_db_prefix() {
+        assert_eq!(extract_shell_collection_name("users"), "users");
+    }
+
+    #[test]
+    fn extract_shell_collection_name_from_nested_path() {
+        assert_eq!(
+            extract_shell_collection_name("db.getSiblingDB('other').orders"),
+            "orders"
+        );
     }
 
     #[test]
