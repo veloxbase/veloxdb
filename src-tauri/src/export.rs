@@ -9,7 +9,7 @@ use sqlx::sqlite::SqliteRow;
 use tokio_postgres::SimpleQueryMessage;
 
 use crate::db::{
-    get_or_create_mysql_pool, get_or_create_sqlite_pool, resolve_connection_engine,
+    get_or_create_mysql_pool, get_or_create_sqlite_pool, load_connection, resolve_connection_engine,
     with_pool_client_retry, AppState,
 };
 use crate::models::DatabaseEngine;
@@ -375,8 +375,19 @@ pub async fn export_results_csv(
             }
         }
         DatabaseEngine::Mongo => {
-            let col = sql.split_whitespace().next().unwrap_or("main");
-            return crate::commands::mongo::mongo_export_csv(app, state, &connection_id, &sql, col, &input.output_path).await;
+            let stored = load_connection(app, &connection_id)?
+                .ok_or_else(|| "Stored connection details were not found.".to_string())?;
+            let (database, collection) =
+                crate::commands::mongo::resolve_mongo_export_target(&sql, &stored.database)?;
+            return crate::commands::mongo::mongo_export_csv(
+                app,
+                state,
+                &connection_id,
+                &database,
+                &collection,
+                &input.output_path,
+            )
+            .await;
         }
         DatabaseEngine::Duckdb => {
             let conns = state.duckdb_connections.read().await;
@@ -507,8 +518,19 @@ pub async fn export_results_json(
             result
         }
         DatabaseEngine::Mongo => {
-            let col = sql.split_whitespace().next().unwrap_or("main");
-            return crate::commands::mongo::mongo_export_json(app, state, &connection_id, &sql, col, &input.output_path).await;
+            let stored = load_connection(app, &connection_id)?
+                .ok_or_else(|| "Stored connection details were not found.".to_string())?;
+            let (database, collection) =
+                crate::commands::mongo::resolve_mongo_export_target(&sql, &stored.database)?;
+            return crate::commands::mongo::mongo_export_json(
+                app,
+                state,
+                &connection_id,
+                &database,
+                &collection,
+                &input.output_path,
+            )
+            .await;
         }
         DatabaseEngine::Duckdb => {
             let conns = state.duckdb_connections.read().await;

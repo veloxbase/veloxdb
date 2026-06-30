@@ -85,6 +85,57 @@ fn extract_shell_collection_name(prefix: &str) -> String {
         .to_string()
 }
 
+/// Resolve `(database, collection)` for export from a MongoDB query string.
+pub fn resolve_mongo_export_target(
+    query: &str,
+    default_database: &str,
+) -> Result<(String, String), String> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Err("No MongoDB query to export.".to_string());
+    }
+
+    // Shell syntax: db.collection.find(...)
+    if let Some(dot_find) = trimmed.find(".find(") {
+        let collection = extract_shell_collection_name(trimmed[..dot_find].trim());
+        if collection.is_empty() {
+            return Err("Could not determine MongoDB collection from query.".to_string());
+        }
+        return Ok((default_database.to_string(), collection));
+    }
+
+    // database.collection (no shell find)
+    if let Some(dot) = trimmed.find('.') {
+        let prefix = trimmed[..dot].trim();
+        let suffix = trimmed[dot + 1..].trim();
+        let collection = suffix
+            .split(|c: char| c.is_whitespace() || c == '(')
+            .next()
+            .unwrap_or(suffix)
+            .trim();
+        if prefix == "db" {
+            if collection.is_empty() {
+                return Err("Could not determine MongoDB collection from query.".to_string());
+            }
+            return Ok((default_database.to_string(), collection.to_string()));
+        }
+        if !prefix.is_empty() && !collection.is_empty() {
+            return Ok((prefix.to_string(), collection.to_string()));
+        }
+    }
+
+    // Bare collection name
+    let collection = trimmed
+        .split(|c: char| c.is_whitespace() || c == '(')
+        .next()
+        .unwrap_or(trimmed)
+        .trim();
+    if collection.is_empty() {
+        return Err("Could not determine MongoDB collection from query.".to_string());
+    }
+    Ok((default_database.to_string(), collection.to_string()))
+}
+
 fn normalize_to_document(raw: &str) -> Result<Document, String> {
     // Try parsing as BSON
     if let Ok(doc) = serde_json::from_str::<Document>(raw) {
@@ -530,6 +581,28 @@ mod tests {
             extract_shell_collection_name("db.getSiblingDB('other').orders"),
             "orders"
         );
+    }
+
+    #[test]
+    fn resolve_mongo_export_target_from_shell_syntax() {
+        let (db, coll) =
+            resolve_mongo_export_target(r#"db.users.find({"status": "active"})"#, "mydb").unwrap();
+        assert_eq!(db, "mydb");
+        assert_eq!(coll, "users");
+    }
+
+    #[test]
+    fn resolve_mongo_export_target_from_database_collection() {
+        let (db, coll) = resolve_mongo_export_target("analytics.orders", "mydb").unwrap();
+        assert_eq!(db, "analytics");
+        assert_eq!(coll, "orders");
+    }
+
+    #[test]
+    fn resolve_mongo_export_target_from_bare_collection() {
+        let (db, coll) = resolve_mongo_export_target("users", "mydb").unwrap();
+        assert_eq!(db, "mydb");
+        assert_eq!(coll, "users");
     }
 
     #[test]
