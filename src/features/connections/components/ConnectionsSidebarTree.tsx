@@ -61,6 +61,11 @@ export function resolveExpandedDatabaseName(
       return dbList[0].name
     }
   }
+  if (connection.engine === 'sqlite' || connection.engine === 'duckdb') {
+    if (dbList.length > 0) {
+      return dbList[0].name
+    }
+  }
   return saved
 }
 
