@@ -1,8 +1,8 @@
 use tauri::AppHandle;
 
 use crate::db::{
-    build_sqlite_pool, get_or_create_sqlite_pool, quote_identifier,
-    require_safe_identifier, AppState,
+    build_sqlite_pool, get_or_create_sqlite_pool, is_safe_identifier,
+    quote_identifier, require_safe_identifier, AppState,
 };
 use crate::error::VeloxError;
 use crate::models::{ColumnInfo, ConnectionInput, DatabaseInfo, QueryResult, TableInfo};
@@ -76,7 +76,10 @@ impl DatabaseEngineOps for SqliteEngine {
         for row in rows {
             let name: String = sqlite_get_idx(&row, 0, "name", "get_tables")
                 .map_err(VeloxError::from)?;
-            require_safe_identifier(&name, "table name")?;
+            if !is_safe_identifier(&name) {
+                log::warn!("Skipping table with unsafe identifier: {:?}", name);
+                continue;
+            }
             tables.push(TableInfo {
                 schema: "main".to_string(),
                 preview_query: format!("select * from \"{}\" limit 100;", quote_identifier(&name)),

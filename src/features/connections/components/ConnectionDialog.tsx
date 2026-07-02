@@ -72,7 +72,7 @@ const connectionSchema = z.object({
   name: z.string().min(2, 'Enter a connection name.'),
   engine: z.enum(['postgres', 'mysql', 'sqlite', 'mongo', 'duckdb', 'redis'] as const),
   host: z.string(),
-  port: z.coerce.number().int().min(1).max(65535),
+  port: z.coerce.number().int().min(0).max(65535),
   database: z.string(),
   filePath: z.string().optional(),
   user: z.string(),
