@@ -201,7 +201,7 @@ pub async fn switch_database(
         DatabaseEngine::Mongo => {
             let client = get_or_create_mongo_client(&app, &state, &input.connection_id).await?;
             client.database(&input.database).run_command(doc! { "ping": 1 }).await
-                .map_err(|e| format!("MongoDB ping failed: {}", e))?;
+                .map_err(|e| VeloxError::Connection(format!("MongoDB ping failed: {}", e)))?;
         }
         DatabaseEngine::Duckdb => {
             get_or_create_duckdb_connection(&app, &state, &input.connection_id).await?;
@@ -209,7 +209,7 @@ pub async fn switch_database(
         DatabaseEngine::Redis => {
             let mut client = get_or_create_redis_client(&app, &state, &input.connection_id).await?;
             redis::cmd("PING").query_async::<_, String>(&mut client).await
-                .map_err(|e| format!("Redis ping failed: {}", e))?;
+                .map_err(|e| VeloxError::Connection(format!("Redis ping failed: {}", e)))?;
         }
     }
 
