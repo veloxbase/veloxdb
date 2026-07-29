@@ -1116,7 +1116,7 @@ export function ResultsGrid({
 											}`}
 											style={{
 												height: `${virtualRow.size}px`,
-												transform: `translateY(${virtualRow.start}px)`,
+												top: `${virtualRow.start}px`,
 												width: `${Math.max(totalGridWidthPx, 0)}px`,
 											}}
 										>
