@@ -6,6 +6,10 @@ import { useTranslation } from "react-i18next";
 
 import type { QueryEditorMetadata, SqlDiagnostic } from "@/data/types";
 
+const EDITOR_FONT_FAMILY = "JetBrains Mono";
+const EDITOR_FONT_SIZE = 13;
+const EDITOR_FONT_LOAD_TIMEOUT_MS = 2_000;
+
 type SqlEditorProps = {
 	value: string;
 	isDark: boolean;
@@ -201,8 +205,35 @@ export function SqlEditor({
 	const [editorInstance, setEditorInstance] =
 		useState<editor.IStandaloneCodeEditor | null>(null);
 	const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
+	const [isEditorFontReady, setIsEditorFontReady] = useState(
+		() => typeof document === "undefined" || !document.fonts,
+	);
 	const providerRef = useRef<IDisposable | null>(null);
 	const markersOwner = "veloxdb-sql-lint";
+
+	useEffect(() => {
+		if (typeof document === "undefined" || !document.fonts) return;
+
+		let isActive = true;
+		const finishLoading = () => {
+			if (!isActive) return;
+			window.clearTimeout(timeoutId);
+			setIsEditorFontReady(true);
+		};
+		const timeoutId = window.setTimeout(
+			finishLoading,
+			EDITOR_FONT_LOAD_TIMEOUT_MS,
+		);
+
+		void document.fonts
+			.load(`${EDITOR_FONT_SIZE}px "${EDITOR_FONT_FAMILY}"`)
+			.then(finishLoading, finishLoading);
+
+		return () => {
+			isActive = false;
+			window.clearTimeout(timeoutId);
+		};
+	}, []);
 
 	useEffect(() => {
 		if (!editorInstance || !monacoInstance) return;
@@ -280,6 +311,25 @@ export function SqlEditor({
 	};
 
 	useEffect(() => {
+		if (!editorInstance || !monacoInstance || !document.fonts) return;
+
+		let isActive = true;
+		const synchronizeFontMetrics = () => {
+			if (!isActive) return;
+			monacoInstance.editor.remeasureFonts();
+			editorInstance.layout();
+		};
+
+		document.fonts.addEventListener("loadingdone", synchronizeFontMetrics);
+		void document.fonts.ready.then(synchronizeFontMetrics);
+
+		return () => {
+			isActive = false;
+			document.fonts.removeEventListener("loadingdone", synchronizeFontMetrics);
+		};
+	}, [editorInstance, monacoInstance]);
+
+	useEffect(() => {
 		providerRef.current?.dispose();
 		if (!editorInstance || !monacoInstance) return;
 		providerRef.current = monacoInstance.languages.registerCompletionItemProvider("sql", {
@@ -302,6 +352,10 @@ export function SqlEditor({
 		return () => providerRef.current?.dispose();
 	}, [metadata, editorInstance, monacoInstance]);
 
+	if (!isEditorFontReady) {
+		return <div className="h-full w-full bg-background" aria-hidden />;
+	}
+
 	return (
 		<Editor
 			height="100%"
@@ -314,8 +368,8 @@ export function SqlEditor({
 			options={{
 				automaticLayout: true,
 				minimap: { enabled: false },
-				fontFamily: "JetBrains Mono Variable, monospace",
-				fontSize: 13,
+				fontFamily: `"${EDITOR_FONT_FAMILY}", monospace`,
+				fontSize: EDITOR_FONT_SIZE,
 				padding: { top: 16, bottom: 16 },
 				lineNumbersMinChars: 3,
 				scrollBeyondLastLine: false,
