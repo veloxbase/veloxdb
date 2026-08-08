@@ -6,14 +6,15 @@
 </p>
 
 <p align="center">
-  <strong>PostgreSQL, unleashed on your desktop.</strong>
+  <strong>Databases, unleashed on your desktop.</strong>
 </p>
 
 <p align="center">
   <a href="https://veloxdb.dev"><strong>Official Website</strong></a> ·
   <a href="#features">Features</a> ·
+  <a href="#supported-databases">Databases</a> ·
   <a href="#installation">Installation</a> ·
-  <a href="#development">Development</a> ·
+  <a href="#architecture">Architecture</a> ·
   <a href="https://github.com/abeni16/veloxdb/releases">Releases</a>
 </p>
 
@@ -25,7 +26,7 @@
 
 ---
 
-**VeloxDB** is a **fast, memory-efficient, developer-focused** desktop client for PostgreSQL. Connect directly to your databases — no cloud, no middleware, no telemetry. Built with performance and productivity at its core.
+**VeloxDB** is a **fast, memory-efficient, developer-focused** desktop client for **PostgreSQL, MySQL, SQLite, DuckDB, MongoDB, and Redis**. Connect directly to your databases — no cloud, no middleware, no telemetry. Built with performance and productivity at its core.
 
 Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 
@@ -33,46 +34,61 @@ Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 
 ## Why VeloxDB?
 
-- **Fast** — Native desktop app with Rust-backed connection pooling. Zero latency from cloud proxies.
-- **Memory-efficient** — Virtual scrolling for large result sets. Only loads what you see, so million-row queries stay snappy.
-- **Developer-focused** — Monaco editor (the engine behind VS Code), real-time SQL linting, autocomplete from your schema, keyboard-first design, and a command palette for everything.
+- **Multi-Engine Support** — One unified client for relational SQL (PostgreSQL, MySQL, SQLite, DuckDB), document stores (MongoDB), and key-value caches (Redis).
+- **Fast** — Native desktop application powered by Rust and Tauri 2. Direct database connections with zero latency from cloud proxies.
+- **Memory-Efficient** — Virtual scrolling for massive result sets. Only loads what's visible on screen so million-row queries stay fast and responsive.
+- **Developer-Focused** — Monaco editor (the engine behind VS Code), schema-aware autocomplete, multi-tab workspace, keyboard-first design, command palette, and visual ER modeling.
+
+---
+
+## Supported Databases
+
+| Engine | Type | Driver / Connection | Supported Features |
+|--------|------|-------------------|-------------------|
+| **PostgreSQL** | Relational | Native `tokio-postgres`, `deadpool-postgres` | Full SQL workspace, ER Diagrams, EXPLAIN ANALYZE, SSL/TLS, SSH Tunnel, Keychain |
+| **MySQL** | Relational | `sqlx` (MySQL driver) | SQL workspace, ER Diagrams, SSL/TLS, SSH Tunnel, Keychain |
+| **SQLite** | Embedded SQL | `sqlx` (SQLite driver) | File picker, SQL workspace, ER Diagrams, Keychain |
+| **DuckDB** | Analytical SQL | `duckdb` (bundled native driver) | File picker, analytical SQL workspace, query execution, Keychain |
+| **MongoDB** | Document | `mongodb` (native Rust driver) | Document querying, SRV connection string support, SSH Tunnel, Keychain |
+| **Redis** | Key-Value / In-Memory | `redis` (tokio async driver) | DB index selection, command execution, Keychain |
 
 ---
 
 ## Features
 
-### SQL Query Workspace
-- **Monaco-powered editor** with SQL syntax highlighting, autocomplete (table/column/function inference), and configurable fonts
-- **Multi-tab editing** — each tab targets its own connection
-- **Real-time linting** — syntax validated against your actual PostgreSQL server as you type
-- **Query history** with favorites, search, and per-connection filtering
-- **Results grid** with virtual scrolling, inline cell editing, and row insertion/deletion
-- **EXPLAIN ANALYZE** — run and view query plans inline
-- **Export** results to CSV or JSON
-- **SQL formatting** — pretty-print with one keystroke
+### Multi-Tab SQL & Query Workspace
+- **Monaco-Powered Editor** — Syntax highlighting, schema-aware autocomplete (table/column/function inference), and configurable font settings (JetBrains Mono built-in).
+- **Multi-Tab Workspace** — Open multiple query tabs, each independently attached to any connected database engine.
+- **Real-Time Linting** — Syntax validated live against your database server as you type.
+- **Query History & Favorites** — Per-connection query history with full-text search, filtering, and starred snippets.
+- **Virtual Results Grid** — Instant rendering of large result sets via virtual scrolling, inline cell editing, row insertion, and row deletion.
+- **EXPLAIN ANALYZE** — Run and view query execution plans inline with visual node breakdowns.
+- **Export Capabilities** — Export query results to CSV, JSON, PDF, or SVG.
+- **SQL Formatting** — One-keystroke SQL pretty-printing powered by `sql-formatter`.
 
-### Visual ER Diagram (Model)
-- **Interactive canvas** to introspect, design, and evolve your schema visually
-- **Auto-layout** — grid, topological, and Dagre-based algorithms
-- **Drag-and-drop** tables from the catalog onto the canvas
-- **Create relationships** by connecting columns between tables
-- **Inline editing** — rename tables, change data types, add/drop columns right on the diagram
-- **Index, trigger, rule, and RLS policy** management from the property inspector
-- **Undo/Redo** — every change is reversible
-- **Migration preview** — review generated DDL before applying to the database
-- **Export** diagrams as PNG or PDF
+### Visual ER Diagram (Model Workspace)
+- **Interactive Canvas** — Introspect, design, and evolve schemas visually with ReactFlow 12.
+- **Auto-Layout** — Grid, topological, and Dagre-based graph layout algorithms.
+- **Drag-and-Drop** — Drag tables directly from the schema catalog onto the diagram canvas.
+- **Visual Relationships** — Connect table columns visually to define foreign key relationships.
+- **Inline Schema Editing** — Rename tables, alter data types, and add/drop columns directly on the diagram.
+- **Advanced Metadata Inspector** — Manage indexes, triggers, rules, and RLS (Row-Level Security) policies.
+- **Migration Preview & DDL Export** — Review generated DDL scripts before executing changes against your database.
+- **Export Diagrams** — Save visual diagrams as high-resolution PNG or PDF files.
 
-### Connection Management
-- **Multiple profiles** with host, port, database, user, and SSL settings
-- **SSH tunnel support** — connect through a bastion/jump host with key or password auth
-- **Credentials stored securely** in the OS keychain (macOS Keychain, Windows Credential Manager, Linux `secret-service`)
-- **Health pings** — auto-detect connection drops and reconnect
+### Connection Management & Security
+- **Multi-Engine Profiles** — Configure profiles for PostgreSQL, MySQL, SQLite, DuckDB, MongoDB, and Redis.
+- **SSH Tunneling** — Connect through bastion/jump hosts with public key or password authentication.
+- **SSL/TLS Modes** — Configure SSL requirements (Disable, Prefer, Require) with custom CA certificates.
+- **OS Keychain Integration** — Credentials stored securely in native operating system keychains (macOS Keychain, Windows Credential Manager, Linux Secret Service via `secret-service`).
+- **Connection Health & Auto-Reconnect** — Background pings automatically detect drops and transparently reconnect.
 
 ### Developer Experience
-- **Command palette** (`Cmd+P` / `Ctrl+P`) — search and invoke any action
-- **Keyboard shortcuts** for everything — run query, format SQL, toggle sidebar, switch tabs
-- **Light and dark themes** with system-follow
-- **Persistent workspace** — your tabs, queries, and diagram positions survive restarts
+- **Command Palette** (`Cmd+P` / `Ctrl+P`) — Search and execute any command or navigate workspace views instantly.
+- **Keyboard-First Design** — Configurable shortcuts for running queries, formatting SQL, toggling sidebars, and switching tabs.
+- **Themes & Styling** — Sleek dark and light modes with automatic OS system preference matching.
+- **Internationalization (i18n)** — Built-in localization support via `i18next`.
+- **Persistent Workspace State** — Restores open tabs, query drafts, active connections, and diagram layouts on launch.
 
 ---
 
@@ -80,49 +96,53 @@ Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 
 ### Download (macOS, Windows, Linux)
 
-Download the latest release from the **[Releases page](https://github.com/abeni16/veloxdb/releases)**.
+Download pre-built installers for the latest release (**v0.3.1**) on the **[Releases Page](https://github.com/abeni16/veloxdb/releases)**.
 
-**macOS (Apple Silicon):** [Download DMG](https://github.com/abeni16/veloxdb/releases/download/v0.1.0-beta.3/veloxdb_0.1.0-beta.3_aarch64.dmg)
+| Platform | Package | Download Link |
+|----------|---------|---------------|
+| **macOS** | `.dmg` / `.app` | [Download macOS Release](https://github.com/abeni16/veloxdb/releases) |
+| **Linux** | `.AppImage` / `.deb` | [Download Linux Release](https://github.com/abeni16/veloxdb/releases) |
+| **Windows** | `.msi` / `.exe` | [Download Windows Release](https://github.com/abeni16/veloxdb/releases) |
 
-| Platform | Package |
-|----------|---------|
-| macOS | `.dmg` (Apple Silicon) |
-| Linux | `.AppImage` / `.deb` |
-| Windows | `.msi` / `.exe` |
-
-> **macOS note:** VeloxDB is not notarized yet. After installing, run this command to remove the quarantine flag:
+> **macOS Note:** If macOS shows a quarantine warning when opening the app, run the following command to lift the quarantine flag:
 > ```bash
 > xattr -cr /Applications/veloxdb.app
 > ```
 
-### From Source
+---
 
-#### Prerequisites
-- **Node.js 20+** with **pnpm**
-- **Rust** (install via [rustup](https://rustup.rs))
-- **PostgreSQL** (local or remote)
-- **sshpass** (macOS: `brew install sshpass`, Linux: `apt install sshpass`) — only needed for SSH password auth
+## Building From Source
 
-#### Quick Start
+### Prerequisites
+- **Node.js 20+** and **pnpm 10+**
+- **Rust 1.77+** (install via [rustup](https://rustup.rs))
+- **PostgreSQL / MySQL / SQLite / MongoDB / Redis** (local or remote instance for testing)
+- **sshpass** *(optional)* — required only for SSH tunneling with password authentication (`brew install sshpass` on macOS, `apt install sshpass` on Linux)
+
+### Quick Start
+
 ```bash
-# Clone the repo
+# 1. Clone the repository
 git clone https://github.com/abeni16/veloxdb.git
 cd veloxdb
 
-# Install frontend dependencies
+# 2. Install dependencies
 pnpm install
 
-# Start full desktop app (Tauri + React)
+# 3. Launch full desktop application (Tauri + React + Rust)
 pnpm tauri
 
-# Or run frontend-only in browser (no backend)
+# 4. Or run frontend-only preview in browser (mock/web repository)
 pnpm dev
 ```
 
-#### Local Development Database
+### Local Development Database (Docker)
+
+Spin up a local PostgreSQL test instance using Docker Compose:
+
 ```bash
 docker compose -f docker-compose.pg.yml up -d
-# Connection: localhost:15432, user=velox, password=velox, db=veloxdb
+# Connection: host=localhost, port=15432, user=velox, password=velox, db=veloxdb
 ```
 
 ---
@@ -130,39 +150,45 @@ docker compose -f docker-compose.pg.yml up -d
 ## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│              React Frontend             │
-│  Monaco Editor · ReactFlow · Zustand    │
-│       TanStack Query · Tailwind         │
-├─────────────────────────────────────────┤
-│          Tauri IPC Bridge               │
-├─────────────────────────────────────────┤
-│           Rust Backend                  │
-│  tokio-postgres · deadpool · SSH tunnel │
-│  OS Keychain · Connection Pooling       │
-├─────────────────────────────────────────┤
-│           PostgreSQL                    │
-└─────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│                     React 19 Frontend                  │
+│   Monaco Editor · ReactFlow 12 · Zustand 5 · i18next   │
+│       TanStack Query v5 · Tailwind CSS v4 · Radix      │
+├────────────────────────────────────────────────────────┤
+│                    Tauri 2 IPC Bridge                  │
+├────────────────────────────────────────────────────────┤
+│                      Rust Backend                      │
+│   ┌───────────────┬─────────────┬───────────┬──────┐   │
+│   │ tokio-postgres│    sqlx     │   duckdb  │mongo │   │
+│   │   (Postgres)  │(MySQL/SQLite│ (DuckDB)  │(Mongo│   │
+│   └───────────────┴─────────────┴───────────┴──────┘   │
+│       deadpool-postgres · redis-rs · SSH Tunnel        │
+│       OS Keychain (keyring) · Connection Pooling       │
+├────────────────────────────────────────────────────────┤
+│           Target Databases (Local / Cloud / SSH)       │
+└────────────────────────────────────────────────────────┘
 ```
 
-- **Local-first** — data flows directly from the app to your database. Nothing is routed through a web service.
-- **Repository pattern** — frontend data access is abstracted behind a `VeloxDbRepository` interface, making the transport layer swappable.
-- **Connection pooling** — `deadpool-postgres` manages concurrent query sessions efficiently.
+- **Local-First Architecture** — Direct connection between the desktop client and your database. Zero telemetry, zero web proxy routing.
+- **Repository Pattern** — Frontend data access is abstracted behind a clean transport layer (`VeloxDbRepository`), enabling seamless operation in both native desktop (Tauri IPC) and browser preview environments.
+- **Extensible Engine Drivers** — Rust backend employs specialized engine modules under `src-tauri/src/engines/` (`postgres`, `mysql`, `sqlite`, `duckdb`, `mongo`, `redis`) for high-performance, type-safe database communication.
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| **UI** | React 19, TypeScript, Tailwind CSS, shadcn/ui, Radix UI |
-| **Editor** | Monaco Editor 0.55 |
-| **Diagram** | ReactFlow 12, Dagre |
-| **State** | Zustand, TanStack Query |
-| **Desktop** | Tauri 2 |
-| **Backend** | Rust, tokio-postgres, deadpool, rustls |
-| **Build** | Vite 8, pnpm |
-| **Tests** | Vitest |
+| Layer | Technologies & Libraries |
+|-------|--------------------------|
+| **UI Framework** | React 19, TypeScript, Tailwind CSS v4, shadcn/ui, Radix UI, Phosphor Icons |
+| **Code Editor** | Monaco Editor 0.55 (`@monaco-editor/react`) |
+| **Diagram Engine** | ReactFlow 12 (`@xyflow/react`), Dagre graph layout |
+| **State Management** | Zustand 5, TanStack Query v5 |
+| **Data Grid & Virtualization** | TanStack Virtual 3, TanStack Table 8 |
+| **Desktop Framework** | Tauri 2 |
+| **Backend & Drivers** | Rust, `tokio-postgres`, `sqlx`, `duckdb`, `mongodb`, `redis`, `deadpool-postgres`, `rustls` |
+| **Build & Bundler** | Vite 8, pnpm 10 |
+| **Internationalization** | i18next, react-i18next |
+| **Testing** | Vitest |
 
 ---
 
@@ -210,5 +236,6 @@ Contributions are welcome! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for:
 ---
 
 <p align="center">
-  <sub>Built with Rust and TypeScript. No cloud. No tracking. Just PostgreSQL on your desktop.</sub>
+  <sub>Built with Rust and TypeScript. No cloud. No tracking. Just fast database tooling on your desktop.</sub>
 </p>
+
