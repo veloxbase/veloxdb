@@ -194,11 +194,11 @@ docker compose -f docker-compose.pg.yml up -d
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=abeni16%2Fveloxdb&type=date&legend=top-left">
+<a href="https://star-history.dera.page/#veloxbase/veloxdb&type=date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=abeni16/veloxdb&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=abeni16/veloxdb&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=abeni16/veloxdb&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=veloxbase/veloxdb&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=veloxbase/veloxdb&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=veloxbase/veloxdb&type=date&legend=top-left" />
  </picture>
 </a>
 
