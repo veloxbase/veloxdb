@@ -32,6 +32,8 @@ Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 
 ---
 
+<video src="[https://raw.githubusercontent.com/username/repo/main/videos/demo.mp4](https://cdn.veloxdb.dev/veloxdb.mp4)" controls width="100%"></video>
+
 ## Why VeloxDB?
 
 - **Multi-Engine Support** — One unified client for relational SQL (PostgreSQL, MySQL, SQLite, DuckDB), document stores (MongoDB), and key-value caches (Redis).
