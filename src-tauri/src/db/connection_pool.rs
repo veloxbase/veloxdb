@@ -460,23 +460,26 @@ pub async fn get_or_create_redis_client(
 }
 
 pub async fn drop_pool(state: &AppState, connection_id: &str) {
-    state.pools.write().await.remove(connection_id);
-    state.mysql_pools.write().await.remove(connection_id);
-    state.sqlite_pools.write().await.remove(connection_id);
-    state.mongo_clients.write().await.remove(connection_id);
-    state.duckdb_connections.write().await.remove(connection_id);
-    state.redis_clients.write().await.remove(connection_id);
-    state
-        .ask_veloxy_db_context_cache
-        .write()
-        .await
-        .retain(|cache_key, _| !cache_key.starts_with(&format!("{}::", connection_id)));
-    state
-        .ask_veloxy_conversations
-        .write()
-        .await
-        .retain(|conversation_key, _| !conversation_key.starts_with(&format!("{}::", connection_id)));
-    if let Some(mut tunnel) = state.ssh_tunnels.write().await.remove(connection_id) {
+    let mut pools_write = state.pools.write().await;
+    let mut mysql_pools_write = state.mysql_pools.write().await;
+    let mut sqlite_pools_write = state.sqlite_pools.write().await;
+    let mut mongo_clients_write = state.mongo_clients.write().await;
+    let mut duckdb_connections_write = state.duckdb_connections.write().await;
+    let mut redis_clients_write = state.redis_clients.write().await;
+    let mut cache_write = state.ask_veloxy_db_context_cache.write().await;
+    let mut conversations_write = state.ask_veloxy_conversations.write().await;
+    let mut tunnels_write = state.ssh_tunnels.write().await;
+
+    pools_write.remove(connection_id);
+    mysql_pools_write.remove(connection_id);
+    sqlite_pools_write.remove(connection_id);
+    mongo_clients_write.remove(connection_id);
+    duckdb_connections_write.remove(connection_id);
+    redis_clients_write.remove(connection_id);
+    cache_write.retain(|cache_key, _| !cache_key.starts_with(&format!("{}::", connection_id)));
+    conversations_write.retain(|conversation_key, _| !conversation_key.starts_with(&format!("{}::", connection_id)));
+    if let Some(mut tunnel) = tunnels_write.remove(connection_id) {
+        drop(tunnels_write);
         tunnel.close().await;
     }
 }
@@ -657,19 +660,19 @@ pub async fn refresh_connection_pools(
         DatabaseEngine::Mongo => {
             let client = get_or_create_mongo_client(app, state, connection_id).await?;
             client.database("admin").run_command(doc! { "ping": 1 }).await
-                .map_err(|e| format!("MongoDB ping failed: {}", e))?;
+                .map_err(|e| VeloxError::Connection(format!("MongoDB ping failed: {}", e)))?;
         }
         DatabaseEngine::Duckdb => {
             get_or_create_duckdb_connection(app, state, connection_id).await?;
             let conns = state.duckdb_connections.read().await;
             let conn = conns.get(connection_id).ok_or(VeloxError::Connection("DuckDB connection not found".to_string()))?;
             let conn = conn.lock().await;
-            conn.execute_batch("SELECT 1").map_err(|e| format!("DuckDB ping failed: {}", e))?;
+            conn.execute_batch("SELECT 1").map_err(|e| VeloxError::Connection(format!("DuckDB ping failed: {}", e)))?;
         }
         DatabaseEngine::Redis => {
             let mut client = get_or_create_redis_client(app, state, connection_id).await?;
             redis::cmd("PING").query_async::<_, String>(&mut client).await
-                .map_err(|e| format!("Redis ping failed: {}", e))?;
+                .map_err(|e| VeloxError::Connection(format!("Redis ping failed: {}", e)))?;
         }
     }
 
