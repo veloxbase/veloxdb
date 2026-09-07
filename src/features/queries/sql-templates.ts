@@ -9,6 +9,9 @@ export function qualifiedTableName(table: TableInfo, engine: DatabaseEngine = 'p
 
 export function buildSelectAllSql(table: TableInfo, limit = 200, engine: DatabaseEngine = 'postgres'): string {
   const q = qualifiedTableName(table, engine)
+  if (engine === 'mssql' || engine === 'azuresql') {
+    return `SELECT TOP ${limit} *\nFROM ${q};`
+  }
   return `SELECT *\nFROM ${q}\nLIMIT ${limit};`
 }
 
@@ -55,6 +58,9 @@ export function buildRenameTableSql(
   engine: DatabaseEngine = 'postgres',
 ): string {
   const q = qualifiedTableName(table, engine)
+  if (engine === 'mssql' || engine === 'azuresql') {
+    return `EXEC sp_rename '${table.schema}.${table.name}', '${nextTableName}';`
+  }
   return `ALTER TABLE ${q}\nRENAME TO ${quoteIdent(nextTableName, engine)};`
 }
 

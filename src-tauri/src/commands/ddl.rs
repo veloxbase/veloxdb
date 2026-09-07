@@ -4,6 +4,7 @@ use crate::db::{
     get_or_create_duckdb_connection, get_or_create_mysql_pool, get_or_create_sqlite_pool,
     resolve_connection_engine, with_pool_client_retry, AppState,
 };
+use crate::engines::DatabaseEngineOps;
 use crate::models::{DatabaseEngine, DdlBatchRequest, DdlStatementRequest};
 use crate::pg_error::map_pg_err;
 
@@ -64,6 +65,22 @@ pub async fn execute_ddl_transaction(
             Ok(())
         }
         DatabaseEngine::Redis => Err("Not supported for Redis.".to_string()),
+        DatabaseEngine::Clickhouse
+        | DatabaseEngine::Libsql
+        | DatabaseEngine::Turso
+        | DatabaseEngine::Scylladb
+        | DatabaseEngine::Cassandra
+        | DatabaseEngine::Mssql
+        | DatabaseEngine::Azuresql => {
+            let engine_ops = crate::engines::get_engine(engine);
+            for sql in input.statements.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                engine_ops
+                    .run_query(&app, &state, &connection_id, sql, 1)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -109,5 +126,19 @@ pub async fn execute_ddl_statement(
             Ok(())
         }
         DatabaseEngine::Redis => Err("Not supported for Redis.".to_string()),
+        DatabaseEngine::Clickhouse
+        | DatabaseEngine::Libsql
+        | DatabaseEngine::Turso
+        | DatabaseEngine::Scylladb
+        | DatabaseEngine::Cassandra
+        | DatabaseEngine::Mssql
+        | DatabaseEngine::Azuresql => {
+            crate::engines::get_engine(engine)
+                .run_query(&app, &state, &connection_id, &sql, 1)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(())
+        }
     }
 }
+

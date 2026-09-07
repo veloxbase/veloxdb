@@ -129,18 +129,22 @@ impl DatabaseEngineOps for DuckdbEngine {
         let conn = conn_mutex.lock().await;
 
         let mut stmt = conn.prepare(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema='main' ORDER BY table_name"
+            "SELECT table_name, table_type FROM information_schema.tables WHERE table_schema='main' ORDER BY table_name"
         ).map_err(|e| VeloxError::Query(e.to_string()))?;
 
-        let names: Vec<String> = stmt.query_map([], |row| row.get(0))
+        let items: Vec<(String, String)> = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
             .map_err(|e| VeloxError::Query(e.to_string()))?
             .filter_map(|r| r.ok())
             .collect();
 
-        Ok(names.into_iter().map(|name| TableInfo {
-            schema: "main".to_string(),
-            name: name.clone(),
-            preview_query: format!("SELECT * FROM \"{}\" LIMIT 100;", name),
+        Ok(items.into_iter().map(|(name, table_type)| {
+            let kind = if table_type == "VIEW" { "view" } else { "table" };
+            TableInfo {
+                schema: "main".to_string(),
+                name: name.clone(),
+                preview_query: format!("SELECT * FROM \"{}\" LIMIT 100;", name),
+                kind: Some(kind.to_string()),
+            }
         }).collect())
     }
 

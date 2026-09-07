@@ -75,6 +75,82 @@ export function parseConnectionString(raw: string): ParsedConnectionString | nul
     }
   }
 
+  if (trimmed.startsWith('duckdb://')) {
+    const path = trimmed.replace(/^duckdb:\/\//, '')
+    return {
+      engine: 'duckdb',
+      host: '',
+      port: 0,
+      database: path || ':memory:',
+      filePath: path || ':memory:',
+      user: '',
+      password: '',
+      sslMode: 'disable',
+      extraParams: {},
+    }
+  }
+
+  if (trimmed.startsWith('clickhouse://') || trimmed.startsWith('clickhouses://')) {
+    const isSecure = trimmed.startsWith('clickhouses://')
+    const url = new URL(trimmed)
+    return {
+      engine: 'clickhouse',
+      host: decodeURIComponent(url.hostname || 'localhost'),
+      port: url.port ? Number(url.port) : (isSecure ? 8443 : 8123),
+      database: decodeURIComponent(url.pathname.replace(/^\//, '') || 'default'),
+      user: decodeURIComponent(url.username || 'default'),
+      password: decodeURIComponent(url.password || ''),
+      sslMode: isSecure ? 'require' : 'prefer',
+      extraParams: Object.fromEntries(new URLSearchParams(url.search)),
+    }
+  }
+
+  if (trimmed.startsWith('libsql://') || trimmed.startsWith('turso://')) {
+    const isTurso = trimmed.startsWith('turso://') || trimmed.includes('.turso.io')
+    const url = new URL(trimmed)
+    const searchParams = Object.fromEntries(new URLSearchParams(url.search))
+    return {
+      engine: isTurso ? 'turso' : 'libsql',
+      host: decodeURIComponent(url.hostname || ''),
+      port: url.port ? Number(url.port) : 443,
+      database: decodeURIComponent(url.pathname.replace(/^\//, '') || ''),
+      user: decodeURIComponent(url.username || ''),
+      password: decodeURIComponent(url.password || searchParams.authToken || ''),
+      sslMode: 'require',
+      extraParams: searchParams,
+    }
+  }
+
+  if (trimmed.startsWith('cassandra://') || trimmed.startsWith('scylladb://') || trimmed.startsWith('cql://')) {
+    const isScylla = trimmed.startsWith('scylladb://')
+    const url = new URL(trimmed)
+    return {
+      engine: isScylla ? 'scylladb' : 'cassandra',
+      host: decodeURIComponent(url.hostname || '127.0.0.1'),
+      port: url.port ? Number(url.port) : 9042,
+      database: decodeURIComponent(url.pathname.replace(/^\//, '') || ''),
+      user: decodeURIComponent(url.username || ''),
+      password: decodeURIComponent(url.password || ''),
+      sslMode: 'prefer',
+      extraParams: Object.fromEntries(new URLSearchParams(url.search)),
+    }
+  }
+
+  if (trimmed.startsWith('mssql://') || trimmed.startsWith('sqlserver://') || trimmed.startsWith('azuresql://')) {
+    const isAzure = trimmed.startsWith('azuresql://') || trimmed.includes('.database.windows.net')
+    const url = new URL(trimmed)
+    return {
+      engine: isAzure ? 'azuresql' : 'mssql',
+      host: decodeURIComponent(url.hostname || '127.0.0.1'),
+      port: url.port ? Number(url.port) : 1433,
+      database: decodeURIComponent(url.pathname.replace(/^\//, '') || 'master'),
+      user: decodeURIComponent(url.username || 'sa'),
+      password: decodeURIComponent(url.password || ''),
+      sslMode: isAzure ? 'require' : 'prefer',
+      extraParams: Object.fromEntries(new URLSearchParams(url.search)),
+    }
+  }
+
   if (trimmed.startsWith('redis://') || trimmed.startsWith('rediss://')) {
     const url = new URL(trimmed)
     return {
@@ -172,6 +248,54 @@ export function buildConnectionString(fields: {
     const encodedPassword = fields.password ? `:${encodeURIComponent(fields.password)}` : ''
     const auth = encodedUser ? `${encodedUser}${encodedPassword}@` : ''
     return `redis://${auth}${fields.host || '127.0.0.1'}:${fields.port || 6379}/${encodeURIComponent(fields.database || '0')}`
+  }
+
+  if (fields.engine === 'duckdb') {
+    const path = fields.filePath || fields.database || ':memory:'
+    return `duckdb://${path}`
+  }
+
+  if (fields.engine === 'clickhouse') {
+    const encodedUser = fields.user ? encodeURIComponent(fields.user) : 'default'
+    const encodedPassword = fields.password ? `:${encodeURIComponent(fields.password)}` : ''
+    const auth = `${encodedUser}${encodedPassword}@`
+    const scheme = fields.sslMode === 'require' ? 'clickhouses' : 'clickhouse'
+    const db = fields.database ? encodeURIComponent(fields.database) : 'default'
+    let uri = `${scheme}://${auth}${fields.host || 'localhost'}:${fields.port || 8123}/${db}`
+    if (fields.extraParams && Object.keys(fields.extraParams).length > 0) {
+      uri += `?${new URLSearchParams(fields.extraParams).toString()}`
+    }
+    return uri
+  }
+
+  if (fields.engine === 'libsql' || fields.engine === 'turso') {
+    const scheme = fields.engine === 'turso' ? 'turso' : 'libsql'
+    const host = fields.host || ''
+    const db = fields.database ? `/${encodeURIComponent(fields.database)}` : ''
+    const params = new URLSearchParams(fields.extraParams ?? {})
+    if (fields.password) {
+      params.set('authToken', fields.password)
+    }
+    const qs = params.toString()
+    return `${scheme}://${host}${db}${qs ? `?${qs}` : ''}`
+  }
+
+  if (fields.engine === 'cassandra' || fields.engine === 'scylladb') {
+    const scheme = fields.engine === 'scylladb' ? 'scylladb' : 'cassandra'
+    const encodedUser = fields.user ? encodeURIComponent(fields.user) : ''
+    const encodedPassword = fields.password ? `:${encodeURIComponent(fields.password)}` : ''
+    const auth = encodedUser ? `${encodedUser}${encodedPassword}@` : ''
+    const db = fields.database ? `/${encodeURIComponent(fields.database)}` : ''
+    return `${scheme}://${auth}${fields.host || '127.0.0.1'}:${fields.port || 9042}${db}`
+  }
+
+  if (fields.engine === 'mssql' || fields.engine === 'azuresql') {
+    const scheme = fields.engine === 'azuresql' ? 'azuresql' : 'mssql'
+    const encodedUser = fields.user ? encodeURIComponent(fields.user) : 'sa'
+    const encodedPassword = fields.password ? `:${encodeURIComponent(fields.password)}` : ''
+    const auth = `${encodedUser}${encodedPassword}@`
+    const db = fields.database ? `/${encodeURIComponent(fields.database)}` : '/master'
+    return `${scheme}://${auth}${fields.host || '127.0.0.1'}:${fields.port || 1433}${db}`
   }
 
   if (fields.engine === 'sqlite') {

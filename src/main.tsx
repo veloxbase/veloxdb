@@ -4,7 +4,6 @@ import { QueryClientProvider } from '@tanstack/react-query'
 
 import './i18n'
 import './index.css'
-import '@/lib/monaco-setup'
 import App from './App.tsx'
 
 import { Toaster } from '@/components/ui/toaster'

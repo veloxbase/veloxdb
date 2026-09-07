@@ -130,24 +130,37 @@ impl DatabaseEngineOps for PostgresEngine {
     ) -> Result<Vec<TableInfo>, VeloxError> {
         with_pool_client_retry(app, state, connection_id, (), |client, ()| async move {
             let rows = client.query(
-                "select t.table_schema, t.table_name \
-                 from information_schema.tables t \
-                 join pg_catalog.pg_class c on c.oid = (quote_ident(t.table_schema) || '.' || quote_ident(t.table_name))::regclass \
-                 where t.table_type = 'BASE TABLE' \
-                   and t.table_schema not in ('pg_catalog', 'information_schema') \
+                "select n.nspname::text, c.relname::text, \
+                 case c.relkind \
+                     when 'r' then 'table' \
+                     when 'p' then 'table' \
+                     when 'v' then 'view' \
+                     when 'm' then 'materialized_view' \
+                     else 'table' \
+                 end as table_kind \
+                 from pg_catalog.pg_class c \
+                 join pg_catalog.pg_namespace n on n.oid = c.relnamespace \
+                 where n.nspname not in ('pg_catalog', 'information_schema') \
+                   and c.relkind in ('r', 'p', 'v', 'm') \
                    and c.relispartition = false \
-                 order by t.table_schema, t.table_name",
+                 order by n.nspname, c.relname",
                 &[],
             ).await.map_err(|error| map_pg_err(error, None))?;
 
             Ok(rows.into_iter().map(|row| {
                 let schema: String = row.get(0);
                 let name: String = row.get(1);
+                let kind: String = row.get(2);
                 let preview_query = format!(
                     "select * from \"{}\".\"{}\" limit 100;",
                     quote_identifier(&schema), quote_identifier(&name)
                 );
-                TableInfo { schema, name, preview_query }
+                TableInfo {
+                    schema,
+                    name,
+                    preview_query,
+                    kind: Some(kind),
+                }
             }).collect())
         }).await
     }

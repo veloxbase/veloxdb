@@ -31,6 +31,13 @@ pub enum DatabaseEngine {
     Mongo,
     Duckdb,
     Redis,
+    Clickhouse,
+    Libsql,
+    Turso,
+    Scylladb,
+    Cassandra,
+    Mssql,
+    Azuresql,
 }
 
 fn default_database_engine() -> DatabaseEngine {
@@ -176,12 +183,14 @@ pub struct QueryResult {
     pub command_tag: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableInfo {
     pub schema: String,
     pub name: String,
     pub preview_query: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

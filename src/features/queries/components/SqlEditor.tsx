@@ -1,14 +1,18 @@
-import Editor from "@monaco-editor/react";
-import type { Monaco } from "@monaco-editor/react";
-import type { editor, IDisposable, languages } from "monaco-editor";
-import { useEffect, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { useEffect, useMemo, useRef } from "react";
+import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
+import { EditorView, keymap } from "@codemirror/view";
+import { sql, PostgreSQL, MySQL, SQLite, MSSQL, Cassandra, StandardSQL } from "@codemirror/lang-sql";
+import { javascript } from "@codemirror/lang-javascript";
+import { autocompletion } from "@codemirror/autocomplete";
+import { setDiagnostics, type Diagnostic } from "@codemirror/lint";
+import type { Extension } from "@codemirror/state";
 
 import type { QueryEditorMetadata, SqlDiagnostic } from "@/data/types";
-
-const EDITOR_FONT_FAMILY = "JetBrains Mono";
-const EDITOR_FONT_SIZE = 13;
-const EDITOR_FONT_LOAD_TIMEOUT_MS = 2_000;
+import {
+	buildSqlSchema,
+	createMongoCompletionSource,
+	createRedisCompletionSource,
+} from "@/features/queries/lib/codemirror-completions";
 
 type SqlEditorProps = {
 	value: string;
@@ -16,48 +20,11 @@ type SqlEditorProps = {
 	onChange: (value: string) => void;
 	onRun: () => void;
 	onRunStatement: (sql: string) => void;
-	/** Language mode for Monaco. Defaults to "sql" for relational, "json" for MongoDB. */
+	/** Language mode. Defaults to "sql" for relational, "json" / "mongo" for MongoDB, "plaintext" / "redis" for Redis. */
 	language?: string;
 	metadata?: QueryEditorMetadata;
 	diagnostics?: SqlDiagnostic[];
 };
-
-function completionItemsFromMetadata(
-	metadata: QueryEditorMetadata | undefined,
-): languages.CompletionItem[] {
-	if (!metadata) return [];
-	const items: languages.CompletionItem[] = [];
-	for (const table of metadata.tables) {
-		const fqTable = `${table.schema}.${table.name}`;
-		items.push({
-			label: fqTable,
-			kind: 18,
-			insertText: fqTable,
-			detail: "table",
-			range: undefined as any,
-		});
-		for (const column of table.columns) {
-			items.push({
-				label: `${fqTable}.${column.name}`,
-				kind: 5,
-				insertText: `${table.name}.${column.name}`,
-				detail: column.dataType,
-				range: undefined as any,
-			});
-		}
-	}
-	for (const fn of metadata.functions) {
-		items.push({
-			label: `${fn.schema}.${fn.name}`,
-			kind: 1,
-			insertText: `${fn.name}($1)`,
-			insertTextRules: 4,
-			detail: fn.returnType,
-			range: undefined as any,
-		});
-	}
-	return items;
-}
 
 type SqlStatementRange = { start: number; end: number };
 
@@ -201,180 +168,224 @@ export function SqlEditor({
 	metadata,
 	diagnostics,
 }: SqlEditorProps) {
-	const { t } = useTranslation()
-	const [editorInstance, setEditorInstance] =
-		useState<editor.IStandaloneCodeEditor | null>(null);
-	const [monacoInstance, setMonacoInstance] = useState<Monaco | null>(null);
-	const [isEditorFontReady, setIsEditorFontReady] = useState(
-		() => typeof document === "undefined" || !document.fonts,
-	);
-	const providerRef = useRef<IDisposable | null>(null);
-	const markersOwner = "veloxdb-sql-lint";
+	const cmRef = useRef<ReactCodeMirrorRef>(null);
 
-	useEffect(() => {
-		if (typeof document === "undefined" || !document.fonts) return;
+	const isMongo = language === "json" || language === "mongo" || language === "mongodb";
+	const isRedis = language === "redis" || language === "plaintext";
 
-		let isActive = true;
-		const finishLoading = () => {
-			if (!isActive) return;
-			window.clearTimeout(timeoutId);
-			setIsEditorFontReady(true);
-		};
-		const timeoutId = window.setTimeout(
-			finishLoading,
-			EDITOR_FONT_LOAD_TIMEOUT_MS,
-		);
+	const { schema, tables } = useMemo(() => buildSqlSchema(metadata), [metadata]);
 
-		void document.fonts
-			.load(`${EDITOR_FONT_SIZE}px "${EDITOR_FONT_FAMILY}"`)
-			.then(finishLoading, finishLoading);
+	const languageExtension = useMemo<Extension>(() => {
+		if (isMongo) {
+			return [
+				javascript(),
+				autocompletion({
+					override: [createMongoCompletionSource(metadata)],
+					defaultKeymap: true,
+				}),
+			];
+		}
 
-		return () => {
-			isActive = false;
-			window.clearTimeout(timeoutId);
-		};
-	}, []);
+		if (isRedis) {
+			return [
+				autocompletion({
+					override: [createRedisCompletionSource()],
+					defaultKeymap: true,
+				}),
+			];
+		}
 
-	useEffect(() => {
-		if (!editorInstance || !monacoInstance) return;
-		const model = editorInstance.getModel();
-		if (!model) return;
-		const markers: editor.IMarkerData[] = (diagnostics ?? []).map((item) => {
-			const line = Math.max(1, item.line ?? 1);
-			const col = Math.max(1, item.column ?? 1);
-			return {
-				message: item.message,
-				severity:
-					item.severity === "warning" ? 4 : item.severity === "info" ? 2 : 8,
-				startLineNumber: line,
-				startColumn: col,
-				endLineNumber: Math.max(line, item.endLine ?? line),
-				endColumn: Math.max(col + 1, item.endColumn ?? col + 1),
-			};
-		});
-		monacoInstance.editor.setModelMarkers(model, markersOwner, markers);
-	}, [diagnostics, editorInstance, monacoInstance]);
+		const dialect =
+			language === "mysql"
+				? MySQL
+				: language === "sqlite" || language === "duckdb" || language === "libsql" || language === "turso"
+					? SQLite
+					: language === "mssql" || language === "azuresql"
+						? MSSQL
+						: language === "cassandra" || language === "scylladb"
+							? Cassandra
+							: language === "clickhouse"
+								? StandardSQL
+								: PostgreSQL;
 
-	const resolveCurrentStatement = (instance: editor.IStandaloneCodeEditor): string => {
-		const model = instance.getModel();
-		if (!model) return "";
+		return sql({ dialect, schema, tables });
+	}, [isMongo, isRedis, language, schema, tables, metadata]);
 
-		const selection = instance.getSelection();
-		const selectedText = selection ? model.getValueInRange(selection).trim() : "";
-		if (selectedText) return selectedText;
+	const keymapExtension = useMemo<Extension>(() => {
+		return keymap.of([
+			{
+				key: "Mod-Enter",
+				run: () => {
+					onRun();
+					return true;
+				},
+			},
+			{
+				key: "Mod-Shift-Enter",
+				run: (view) => {
+					const selection = view.state.sliceDoc(
+						view.state.selection.main.from,
+						view.state.selection.main.to,
+					).trim();
+					if (selection) {
+						onRunStatement(selection);
+						return true;
+					}
+					const offset = view.state.selection.main.head;
+					const text = view.state.doc.toString();
+					const stmt = resolveStatementFromOffset(text, offset);
+					onRunStatement(stmt || text.trim());
+					return true;
+				},
+			},
+		]);
+	}, [onRun, onRunStatement]);
 
-		const position = instance.getPosition();
-		if (!position) return model.getValue().trim();
-		const text = model.getValue();
-		const cursorOffset = model.getOffsetAt(position);
-		return resolveStatementFromOffset(text, cursorOffset);
-	};
-
-	const handleMount = (
-		instance: editor.IStandaloneCodeEditor,
-		monaco: Monaco,
-	) => {
-		setEditorInstance(instance);
-		setMonacoInstance(monaco);
-		providerRef.current?.dispose();
-		providerRef.current = instance.getModel()
-			? monaco.languages.registerCompletionItemProvider("sql", {
-					provideCompletionItems: (model: any, position: any) => {
-						const word = model.getWordUntilPosition(position);
-						const range = {
-							startLineNumber: position.lineNumber,
-							endLineNumber: position.lineNumber,
-							startColumn: word.startColumn,
-							endColumn: word.endColumn,
-						};
-						const suggestions = completionItemsFromMetadata(metadata).map((item) => ({
-							...item,
-							range,
-						}));
-						return { suggestions };
-					},
-			  })
-			: null;
-
-		instance.addAction({
-			id: "veloxdb-run-query",
-			label: t("editor.runQueryBtn"),
-			keybindings: [2048 | 3, 256 | 3],
-			run: () => onRun(),
-		});
-		instance.addAction({
-			id: "veloxdb-run-statement",
-			label: t("editor.runStatement"),
-			keybindings: [1024 | 3],
-			run: () => onRunStatement(resolveCurrentStatement(instance)),
-		});
-	};
-
-	useEffect(() => {
-		if (!editorInstance || !monacoInstance || !document.fonts) return;
-
-		let isActive = true;
-		const synchronizeFontMetrics = () => {
-			if (!isActive) return;
-			monacoInstance.editor.remeasureFonts();
-			editorInstance.layout();
-		};
-
-		document.fonts.addEventListener("loadingdone", synchronizeFontMetrics);
-		void document.fonts.ready.then(synchronizeFontMetrics);
-
-		return () => {
-			isActive = false;
-			document.fonts.removeEventListener("loadingdone", synchronizeFontMetrics);
-		};
-	}, [editorInstance, monacoInstance]);
-
-	useEffect(() => {
-		providerRef.current?.dispose();
-		if (!editorInstance || !monacoInstance) return;
-		providerRef.current = monacoInstance.languages.registerCompletionItemProvider("sql", {
-			provideCompletionItems: (model: any, position: any) => {
-				const word = model.getWordUntilPosition(position);
-				const range = {
-					startLineNumber: position.lineNumber,
-					endLineNumber: position.lineNumber,
-					startColumn: word.startColumn,
-					endColumn: word.endColumn,
-				};
-				return {
-					suggestions: completionItemsFromMetadata(metadata).map((item) => ({
-						...item,
-						range,
-					})),
-				};
+	const editorTheme = useMemo<Extension>(() => {
+		return EditorView.theme({
+			"&": {
+				height: "100%",
+				fontSize: "0.93rem",
+				fontFamily: '"JetBrains Mono", monospace',
+				backgroundColor: "transparent",
+			},
+			".cm-scroller": {
+				overflow: "auto",
+				fontFamily: '"JetBrains Mono", monospace',
+				lineHeight: "1.6",
+				padding: "8px 0",
+			},
+			".cm-content": {
+				caretColor: isDark ? "#ffffff" : "#09090b",
+			},
+			"&.cm-focused .cm-cursor": {
+				borderLeftColor: isDark ? "#ffffff" : "#09090b",
+			},
+			".cm-gutters": {
+				backgroundColor: "transparent",
+				borderRight: isDark
+					? "1px solid rgba(255, 255, 255, 0.08)"
+					: "1px solid rgba(0, 0, 0, 0.08)",
+				color: isDark ? "rgba(255, 255, 255, 0.35)" : "rgba(0, 0, 0, 0.35)",
+				paddingRight: "8px",
+			},
+			".cm-activeLine": {
+				backgroundColor: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.04)",
+			},
+			".cm-activeLineGutter": {
+				backgroundColor: "transparent",
+				color: isDark ? "rgba(255, 255, 255, 0.85)" : "rgba(0, 0, 0, 0.85)",
+			},
+			".cm-selectionBackground, ::selection": {
+				backgroundColor: isDark
+					? "rgba(255, 255, 255, 0.15) !important"
+					: "rgba(0, 0, 0, 0.12) !important",
+			},
+			".cm-tooltip": {
+				backgroundColor: isDark ? "#18181b" : "#ffffff",
+				border: isDark ? "1px solid #27272a" : "1px solid #e4e4e7",
+				borderRadius: "6px",
+				boxShadow: "0 4px 16px rgba(0, 0, 0, 0.2)",
+			},
+			".cm-tooltip-autocomplete": {
+				"& > ul": {
+					maxHeight: "260px",
+					fontFamily: '"JetBrains Mono", monospace',
+					fontSize: "0.85rem",
+				},
+				"& > ul > li": {
+					padding: "4px 8px",
+					display: "flex",
+					alignItems: "center",
+					gap: "6px",
+				},
+				"& > ul > li[aria-selected]": {
+					backgroundColor: isDark ? "#27272a" : "#f4f4f5",
+					color: isDark ? "#ffffff" : "#09090b",
+				},
 			},
 		});
-		return () => providerRef.current?.dispose();
-	}, [metadata, editorInstance, monacoInstance]);
+	}, [isDark]);
 
-	if (!isEditorFontReady) {
-		return <div className="h-full w-full bg-background" aria-hidden />;
-	}
+	const extensions = useMemo<Extension[]>(() => {
+		return [
+			languageExtension,
+			keymapExtension,
+			editorTheme,
+			EditorView.lineWrapping,
+		];
+	}, [languageExtension, keymapExtension, editorTheme]);
+
+	useEffect(() => {
+		const view = cmRef.current?.view;
+		if (!view) return;
+
+		if (!diagnostics || !diagnostics.length) {
+			view.dispatch(setDiagnostics(view.state, []));
+			return;
+		}
+
+		const doc = view.state.doc;
+		const cmDiagnostics: Diagnostic[] = diagnostics.map((item) => {
+			const lineNum = Math.max(1, Math.min(doc.lines, item.line ?? 1));
+			const line = doc.line(lineNum);
+			const from = Math.min(doc.length, line.from + Math.max(0, (item.column ?? 1) - 1));
+			const endLineNum = Math.max(lineNum, Math.min(doc.lines, item.endLine ?? lineNum));
+			const endLine = doc.line(endLineNum);
+			const to = Math.min(
+				doc.length,
+				Math.max(from + 1, endLine.from + Math.max(0, (item.endColumn ?? 1) - 1)),
+			);
+			return {
+				from,
+				to,
+				severity:
+					item.severity === "warning"
+						? "warning"
+						: item.severity === "info"
+							? "info"
+							: "error",
+				message: item.message,
+			};
+		});
+
+		view.dispatch(setDiagnostics(view.state, cmDiagnostics));
+	}, [diagnostics]);
 
 	return (
-		<Editor
-			height="100%"
-			language={language}
-			defaultLanguage={language}
-			theme={isDark ? "vs-dark" : "vs-light"}
+		<CodeMirror
+			ref={cmRef}
 			value={value}
-			onMount={handleMount}
-			onChange={(nextValue) => onChange(nextValue ?? "")}
-			options={{
-				automaticLayout: true,
-				minimap: { enabled: false },
-				fontFamily: `"${EDITOR_FONT_FAMILY}", monospace`,
-				fontSize: EDITOR_FONT_SIZE,
-				padding: { top: 16, bottom: 16 },
-				lineNumbersMinChars: 3,
-				scrollBeyondLastLine: false,
-				wordWrap: "on",
-				tabSize: 2,
+			height="100%"
+			theme={isDark ? "dark" : "light"}
+			extensions={extensions}
+			onChange={onChange}
+			indentWithTab={true}
+			basicSetup={{
+				lineNumbers: true,
+				highlightActiveLineGutter: true,
+				highlightSpecialChars: true,
+				history: true,
+				foldGutter: true,
+				drawSelection: true,
+				dropCursor: true,
+				allowMultipleSelections: true,
+				indentOnInput: true,
+				syntaxHighlighting: true,
+				bracketMatching: true,
+				closeBrackets: true,
+				autocompletion: true,
+				rectangularSelection: true,
+				crosshairCursor: true,
+				highlightActiveLine: true,
+				highlightSelectionMatches: true,
+				closeBracketsKeymap: true,
+				defaultKeymap: true,
+				searchKeymap: true,
+				historyKeymap: true,
+				foldKeymap: true,
+				completionKeymap: true,
+				lintKeymap: true,
 			}}
 		/>
 	);

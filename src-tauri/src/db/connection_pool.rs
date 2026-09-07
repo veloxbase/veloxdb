@@ -16,10 +16,12 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 use mongodb::{Client as MongoClient, bson::doc};
 use duckdb::Connection as DuckConnection;
+use scylla::client::session::Session as ScyllaSession;
 use crate::models::{
     AskVeloxyConversationMessage, AskVeloxyDbContextCache, ConnectionInput, ConnectionSslMode,
     ConnectionSummary, DatabaseEngine, StoredConnection,
 };
+use crate::engines::DatabaseEngineOps;
 use crate::ssh_tunnel::SshTunnel;
 use crate::credentials;
 
@@ -40,6 +42,36 @@ const POOL_RECYCLE_SECS: u64 = 15;
 pub const DEFAULT_MYSQL_PORT: u16 = 3306;
 pub const DEFAULT_MONGO_PORT: u16 = 27017;
 pub const DEFAULT_REDIS_PORT: u16 = 6379;
+pub const DEFAULT_CLICKHOUSE_PORT: u16 = 8123;
+pub const DEFAULT_TURSO_PORT: u16 = 443;
+pub const DEFAULT_CASSANDRA_PORT: u16 = 9042;
+pub const DEFAULT_MSSQL_PORT: u16 = 1433;
+
+#[derive(Clone, Debug)]
+pub struct ClickhouseConfig {
+    pub base_url: String,
+    pub user: String,
+    pub password: String,
+    pub database: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct TursoConfig {
+    pub base_url: String,
+    pub auth_token: String,
+    pub database: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct MssqlConfig {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub password: String,
+    pub database: String,
+    pub is_azure: bool,
+    pub ssl_mode: ConnectionSslMode,
+}
 
 fn deadpool_ssl_mode(mode: ConnectionSslMode) -> DeadpoolSslMode {
     match mode {
@@ -57,6 +89,10 @@ pub struct AppState {
     pub mongo_clients: RwLock<HashMap<String, MongoClient>>,
     pub duckdb_connections: RwLock<HashMap<String, tokio::sync::Mutex<DuckConnection>>>,
     pub redis_clients: RwLock<HashMap<String, redis::aio::ConnectionManager>>,
+    pub clickhouse_clients: RwLock<HashMap<String, ClickhouseConfig>>,
+    pub turso_clients: RwLock<HashMap<String, TursoConfig>>,
+    pub scylla_sessions: RwLock<HashMap<String, Arc<ScyllaSession>>>,
+    pub mssql_configs: RwLock<HashMap<String, MssqlConfig>>,
     pub active_connection_id: RwLock<Option<String>>,
     pub ssh_tunnels: RwLock<HashMap<String, SshTunnel>>,
     pub ask_veloxy_db_context_cache: RwLock<HashMap<String, AskVeloxyDbContextCache>>,
@@ -466,6 +502,10 @@ pub async fn drop_pool(state: &AppState, connection_id: &str) {
     state.mongo_clients.write().await.remove(connection_id);
     state.duckdb_connections.write().await.remove(connection_id);
     state.redis_clients.write().await.remove(connection_id);
+    state.clickhouse_clients.write().await.remove(connection_id);
+    state.turso_clients.write().await.remove(connection_id);
+    state.scylla_sessions.write().await.remove(connection_id);
+    state.mssql_configs.write().await.remove(connection_id);
     state
         .ask_veloxy_db_context_cache
         .write()
@@ -670,6 +710,18 @@ pub async fn refresh_connection_pools(
             let mut client = get_or_create_redis_client(app, state, connection_id).await?;
             redis::cmd("PING").query_async::<_, String>(&mut client).await
                 .map_err(|e| format!("Redis ping failed: {}", e))?;
+        }
+        DatabaseEngine::Clickhouse
+        | DatabaseEngine::Libsql
+        | DatabaseEngine::Turso
+        | DatabaseEngine::Scylladb
+        | DatabaseEngine::Cassandra
+        | DatabaseEngine::Mssql
+        | DatabaseEngine::Azuresql => {
+            crate::engines::get_engine(engine)
+                .ping(app, state, connection_id)
+                .await
+                .map_err(|e| format!("{:?} ping failed: {}", engine, e))?;
         }
     }
 

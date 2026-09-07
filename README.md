@@ -26,20 +26,20 @@
 
 ---
 
-**VeloxDB** is a **fast, memory-efficient, developer-focused** desktop client for **PostgreSQL, MySQL, SQLite, DuckDB, MongoDB, and Redis**. Connect directly to your databases — no cloud, no middleware, no telemetry. Built with performance and productivity at its core.
+**VeloxDB** is a **fast, memory-efficient, developer-focused** desktop client supporting **13 database engines**: **PostgreSQL, MySQL, SQLite, DuckDB, MongoDB, Redis, ClickHouse, LibSQL, Turso, ScyllaDB, Apache Cassandra, Microsoft SQL Server, and Azure SQL**. Connect directly to your databases — no cloud, no middleware, no telemetry. Built with performance and productivity at its core.
 
 Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 
 ---
 
-<video src="[https://raw.githubusercontent.com/username/repo/main/videos/demo.mp4](https://cdn.veloxdb.dev/veloxdb.mp4)" controls width="100%"></video>
+<video src="https://raw.githubusercontent.com/username/repo/main/videos/demo.mp4" controls width="100%"></video>
 
 ## Why VeloxDB?
 
-- **Multi-Engine Support** — One unified client for relational SQL (PostgreSQL, MySQL, SQLite, DuckDB), document stores (MongoDB), and key-value caches (Redis).
+- **Multi-Engine Support** — One unified client for relational SQL (PostgreSQL, MySQL, SQLite, MSSQL, Azure SQL), analytical OLAP / data warehouses (ClickHouse, DuckDB), distributed NoSQL (Cassandra, ScyllaDB), edge & cloud SQLite (LibSQL, Turso), document stores (MongoDB), and in-memory caches (Redis).
 - **Fast** — Native desktop application powered by Rust and Tauri 2. Direct database connections with zero latency from cloud proxies.
 - **Memory-Efficient** — Virtual scrolling for massive result sets. Only loads what's visible on screen so million-row queries stay fast and responsive.
-- **Developer-Focused** — Monaco editor (the engine behind VS Code), schema-aware autocomplete, multi-tab workspace, keyboard-first design, command palette, and visual ER modeling.
+- **Developer-Focused** — CodeMirror 6 with dialect-specific parsers, schema-aware autocomplete, multi-tab workspace, keyboard-first design, command palette, and visual ER modeling.
 
 ---
 
@@ -50,16 +50,24 @@ Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 | **PostgreSQL** | Relational | Native `tokio-postgres`, `deadpool-postgres` | Full SQL workspace, ER Diagrams, EXPLAIN ANALYZE, SSL/TLS, SSH Tunnel, Keychain |
 | **MySQL** | Relational | `sqlx` (MySQL driver) | SQL workspace, ER Diagrams, SSL/TLS, SSH Tunnel, Keychain |
 | **SQLite** | Embedded SQL | `sqlx` (SQLite driver) | File picker, SQL workspace, ER Diagrams, Keychain |
-| **DuckDB** | Analytical SQL | `duckdb` (bundled native driver) | File picker, analytical SQL workspace, query execution, Keychain |
-| **MongoDB** | Document | `mongodb` (native Rust driver) | Document querying, SRV connection string support, SSH Tunnel, Keychain |
-| **Redis** | Key-Value / In-Memory | `redis` (tokio async driver) | DB index selection, command execution, Keychain |
+| **DuckDB** | Analytical OLAP | `duckdb` (bundled native driver) | File picker, analytical SQL workspace, query execution, Keychain |
+| **ClickHouse** | Columnar Warehouse | HTTP API (`FORMAT JSON`) | Analytical queries, EXPLAIN SYNTAX, schema introspection, Keychain |
+| **LibSQL** | Edge SQL | Hybrid local file + `/v2/pipeline` | Local file or remote LibSQL cloud endpoint, Bearer auth, Keychain |
+| **Turso** | Cloud SQLite | Turso HTTP pipeline | Cloud Turso endpoints, Bearer auth token, schema explorer, Keychain |
+| **Microsoft SQL Server** | Enterprise Relational | `tiberius` (TDS driver) + `tokio-rustls` | T-SQL workspace, `TOP` limits, `sp_rename`, schema introspection, Keychain |
+| **Azure SQL** | Cloud Relational | `tiberius` (TDS driver) + TLS | Cloud Azure SQL database, T-SQL workspace, SSL/TLS require, Keychain |
+| **Apache Cassandra** | Distributed NoSQL | `scylla` (async CQL driver) | CQL workspace, keyspace/table explorer, query execution, Keychain |
+| **ScyllaDB** | Distributed NoSQL | `scylla` (async CQL driver) | Ultra-fast CQL queries, keyspace introspection, Keychain |
+| **MongoDB** | Document | `mongodb` (native Rust driver) | Document querying, collections explorer, SRV connection strings, SSH Tunnel, Keychain |
+| **Redis** | Key-Value / In-Memory | `redis` (tokio async driver) | DB index selection, command execution, Redis command completions, Keychain |
 
 ---
 
 ## Features
 
 ### Multi-Tab SQL & Query Workspace
-- **Monaco-Powered Editor** — Syntax highlighting, schema-aware autocomplete (table/column/function inference), and configurable font settings (JetBrains Mono built-in).
+- **CodeMirror 6-Powered Editor** — Syntax highlighting and native SQL dialect parsers (`MSSQL`, `Cassandra`, `SQLite`, `StandardSQL`, `PostgreSQL`, `MySQL`), MongoDB JavaScript, and Redis CLI.
+- **Intelligent Schema Autocomplete** — Real-time table and column suggestions derived from database schema introspection.
 - **Multi-Tab Workspace** — Open multiple query tabs, each independently attached to any connected database engine.
 - **Real-Time Linting** — Syntax validated live against your database server as you type.
 - **Query History & Favorites** — Per-connection query history with full-text search, filtering, and starred snippets.
@@ -79,7 +87,8 @@ Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 - **Export Diagrams** — Save visual diagrams as high-resolution PNG or PDF files.
 
 ### Connection Management & Security
-- **Multi-Engine Profiles** — Configure profiles for PostgreSQL, MySQL, SQLite, DuckDB, MongoDB, and Redis.
+- **Multi-Engine Profiles** — Configure profiles for PostgreSQL, MySQL, SQLite, DuckDB, MongoDB, Redis, ClickHouse, LibSQL, Turso, ScyllaDB, Cassandra, Microsoft SQL Server, and Azure SQL.
+- **Smart Connection Strings** — First-class support for connection URIs (`postgresql://`, `mysql://`, `clickhouse://`, `turso://`, `cassandra://`, `mssql://`, etc.) with real-time engine auto-detection.
 - **SSH Tunneling** — Connect through bastion/jump hosts with public key or password authentication.
 - **SSL/TLS Modes** — Configure SSL requirements (Disable, Prefer, Require) with custom CA certificates.
 - **OS Keychain Integration** — Credentials stored securely in native operating system keychains (macOS Keychain, Windows Credential Manager, Linux Secret Service via `secret-service`).
@@ -118,7 +127,7 @@ Download pre-built installers for the latest release (**v0.3.1**) on the **[Rele
 ### Prerequisites
 - **Node.js 20+** and **pnpm 10+**
 - **Rust 1.77+** (install via [rustup](https://rustup.rs))
-- **PostgreSQL / MySQL / SQLite / MongoDB / Redis** (local or remote instance for testing)
+- **Database instances** (local, remote, or cloud instance for testing)
 - **sshpass** *(optional)* — required only for SSH tunneling with password authentication (`brew install sshpass` on macOS, `apt install sshpass` on Linux)
 
 ### Quick Start
@@ -152,28 +161,29 @@ docker compose -f docker-compose.pg.yml up -d
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────────────┐
-│                     React 19 Frontend                  │
-│   Monaco Editor · ReactFlow 12 · Zustand 5 · i18next   │
-│       TanStack Query v5 · Tailwind CSS v4 · Radix      │
-├────────────────────────────────────────────────────────┤
-│                    Tauri 2 IPC Bridge                  │
-├────────────────────────────────────────────────────────┤
-│                      Rust Backend                      │
-│   ┌───────────────┬─────────────┬───────────┬──────┐   │
-│   │ tokio-postgres│    sqlx     │   duckdb  │mongo │   │
-│   │   (Postgres)  │(MySQL/SQLite│ (DuckDB)  │(Mongo│   │
-│   └───────────────┴─────────────┴───────────┴──────┘   │
-│       deadpool-postgres · redis-rs · SSH Tunnel        │
-│       OS Keychain (keyring) · Connection Pooling       │
-├────────────────────────────────────────────────────────┤
-│           Target Databases (Local / Cloud / SSH)       │
-└────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        React 19 Frontend                        │
+│      CodeMirror 6 · ReactFlow 12 · Zustand 5 · i18next          │
+│         TanStack Query v5 · Tailwind CSS v4 · Radix             │
+├─────────────────────────────────────────────────────────────────┤
+│                       Tauri 2 IPC Bridge                        │
+├─────────────────────────────────────────────────────────────────┤
+│                         Rust Backend                            │
+│   ┌───────────────┬─────────────┬───────────┬───────┬───────┐   │
+│   │ tokio-postgres│    sqlx     │  tiberius │scylla │reqwest│   │
+│   │  (Postgres)   │(MySQL/SQLite│(MSSQL/Az) │(Cass/ │(ClickH│   │
+│   │               │             │           │Scylla)│ Turso)│   │
+│   └───────────────┴─────────────┴───────────┴───────┴───────┘   │
+│       duckdb · mongodb · redis-rs · SSH Tunnel · deadpool       │
+│           OS Keychain (keyring) · Connection Pooling            │
+├─────────────────────────────────────────────────────────────────┤
+│             Target Databases (Local / Cloud / SSH)              │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 - **Local-First Architecture** — Direct connection between the desktop client and your database. Zero telemetry, zero web proxy routing.
 - **Repository Pattern** — Frontend data access is abstracted behind a clean transport layer (`VeloxDbRepository`), enabling seamless operation in both native desktop (Tauri IPC) and browser preview environments.
-- **Extensible Engine Drivers** — Rust backend employs specialized engine modules under `src-tauri/src/engines/` (`postgres`, `mysql`, `sqlite`, `duckdb`, `mongo`, `redis`) for high-performance, type-safe database communication.
+- **Extensible Engine Drivers** — Rust backend employs specialized engine modules under `src-tauri/src/engines/` (`postgres`, `mysql`, `sqlite`, `duckdb`, `mongo`, `redis`, `clickhouse`, `libsql`, `mssql`, `cassandra`) for high-performance, type-safe database communication.
 
 ---
 
@@ -182,12 +192,12 @@ docker compose -f docker-compose.pg.yml up -d
 | Layer | Technologies & Libraries |
 |-------|--------------------------|
 | **UI Framework** | React 19, TypeScript, Tailwind CSS v4, shadcn/ui, Radix UI, Phosphor Icons |
-| **Code Editor** | Monaco Editor 0.55 (`@monaco-editor/react`) |
+| **Code Editor** | CodeMirror 6 (`@uiw/react-codemirror`, `@codemirror/lang-sql`) |
 | **Diagram Engine** | ReactFlow 12 (`@xyflow/react`), Dagre graph layout |
 | **State Management** | Zustand 5, TanStack Query v5 |
 | **Data Grid & Virtualization** | TanStack Virtual 3, TanStack Table 8 |
 | **Desktop Framework** | Tauri 2 |
-| **Backend & Drivers** | Rust, `tokio-postgres`, `sqlx`, `duckdb`, `mongodb`, `redis`, `deadpool-postgres`, `rustls` |
+| **Backend & Drivers** | Rust, `tokio-postgres`, `sqlx`, `tiberius`, `scylla`, `duckdb`, `mongodb`, `redis`, `reqwest`, `deadpool-postgres`, `rustls` |
 | **Build & Bundler** | Vite 8, pnpm 10 |
 | **Internationalization** | i18next, react-i18next |
 | **Testing** | Vitest |

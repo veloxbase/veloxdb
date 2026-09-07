@@ -1,9 +1,12 @@
+use mongodb::bson::{doc, Bson, Document};
 use tauri::{AppHandle, State};
 
 use crate::db::{
-    get_or_create_mysql_pool, get_or_create_sqlite_pool, load_connection, quote_identifier,
-    require_safe_identifier, resolve_connection_engine, with_pool_client_retry, AppState,
+    get_or_create_duckdb_connection, get_or_create_mongo_client, get_or_create_mysql_pool,
+    get_or_create_sqlite_pool, load_connection, quote_identifier, require_safe_identifier,
+    resolve_connection_engine, with_pool_client_retry, AppState,
 };
+use crate::engines::{get_engine, DatabaseEngineOps};
 use crate::models::{
     DatabaseEngine, ForeignKeyEdge, QueryEditorColumn, QueryEditorFunction,
     QueryEditorMetadata, QueryEditorTable,
@@ -15,12 +18,246 @@ use super::{
     mysql_get_string, sqlite_get_idx, sqlite_get_name,
 };
 
+fn infer_bson_type(value: &Bson) -> &'static str {
+    match value {
+        Bson::String(_) => "string",
+        Bson::Int32(_) | Bson::Int64(_) => "integer",
+        Bson::Double(_) => "double",
+        Bson::Boolean(_) => "boolean",
+        Bson::ObjectId(_) => "objectId",
+        Bson::DateTime(_) => "date",
+        Bson::Array(_) => "array",
+        Bson::Document(_) => "object",
+        Bson::Null => "null",
+        Bson::Binary(_) => "binary",
+        Bson::RegularExpression(_) => "regex",
+        Bson::Decimal128(_) => "decimal",
+        _ => "unknown",
+    }
+}
+
 pub(crate) async fn fetch_query_editor_metadata_for_connection(
     app: &AppHandle,
     state: &AppState,
     connection_id: &str,
     engine: DatabaseEngine,
 ) -> Result<QueryEditorMetadata, String> {
+    if matches!(
+        engine,
+        DatabaseEngine::Clickhouse
+            | DatabaseEngine::Libsql
+            | DatabaseEngine::Turso
+            | DatabaseEngine::Scylladb
+            | DatabaseEngine::Cassandra
+            | DatabaseEngine::Mssql
+            | DatabaseEngine::Azuresql
+    ) {
+        let engine_ops = get_engine(engine);
+        let table_infos = engine_ops
+            .get_tables(app, state, connection_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        let truncated_tables = table_infos.len() as i64 > MAX_EDITOR_TABLES;
+        let mut tables = Vec::new();
+        let mut truncated_columns = false;
+
+        for t in table_infos.into_iter().take(MAX_EDITOR_TABLES as usize) {
+            let col_infos = engine_ops
+                .get_schema(app, state, connection_id, &t.schema, &t.name)
+                .await
+                .map_err(|e| e.to_string())?;
+            if col_infos.len() as i64 > MAX_EDITOR_COLUMNS_PER_TABLE {
+                truncated_columns = true;
+            }
+            let columns = col_infos
+                .into_iter()
+                .take(MAX_EDITOR_COLUMNS_PER_TABLE as usize)
+                .map(|c| QueryEditorColumn {
+                    name: c.column_name,
+                    data_type: c.data_type,
+                })
+                .collect();
+            tables.push(QueryEditorTable {
+                schema: t.schema,
+                name: t.name,
+                columns,
+            });
+        }
+
+        return Ok(QueryEditorMetadata {
+            tables,
+            functions: Vec::new(),
+            truncated_tables,
+            truncated_columns,
+            truncated_functions: false,
+        });
+    }
+
+    if engine == DatabaseEngine::Mongo {
+        let client = get_or_create_mongo_client(app, state, connection_id).await
+            .map_err(|e| e.to_string())?;
+        let stored = load_connection(app, connection_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Stored connection details were not found.".to_string())?;
+        let db_name = if !stored.database.trim().is_empty() {
+            stored.database.clone()
+        } else {
+            client.default_database().map(|d| d.name().to_string()).unwrap_or_else(|| "test".to_string())
+        };
+        let db = client.database(&db_name);
+        let collection_names = db.list_collection_names().await
+            .map_err(|e| format!("Failed to list MongoDB collections: {}", e))?;
+
+        let truncated_tables = collection_names.len() as i64 > MAX_EDITOR_TABLES;
+        let mut tables = Vec::new();
+        let mut truncated_columns = false;
+
+        for coll_name in collection_names.into_iter().take(MAX_EDITOR_TABLES as usize) {
+            let coll = db.collection::<Document>(&coll_name);
+            let mut cursor = coll.find(doc! {}).limit(50).await
+                .map_err(|e| format!("Failed to sample collection {}: {}", coll_name, e))?;
+
+            let mut field_names = Vec::new();
+            let mut field_types = std::collections::BTreeMap::new();
+
+            while let Ok(true) = cursor.advance().await {
+                if let Ok(doc) = cursor.deserialize_current() {
+                    for (key, val) in &doc {
+                        if !field_types.contains_key(key) {
+                            field_names.push(key.clone());
+                            let btype = infer_bson_type(val);
+                            if btype != "null" {
+                                field_types.insert(key.clone(), btype);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if field_names.len() as i64 > MAX_EDITOR_COLUMNS_PER_TABLE {
+                truncated_columns = true;
+            }
+
+            let columns = field_names.into_iter().take(MAX_EDITOR_COLUMNS_PER_TABLE as usize).map(|name| {
+                let data_type = field_types.get(&name).copied().unwrap_or("unknown").to_string();
+                QueryEditorColumn { name, data_type }
+            }).collect();
+
+            tables.push(QueryEditorTable {
+                schema: db_name.clone(),
+                name: coll_name,
+                columns,
+            });
+        }
+
+        let mongo_methods = [
+            ("find", "filter, projection", "Cursor"),
+            ("findOne", "filter, projection", "Document"),
+            ("aggregate", "pipeline", "Cursor"),
+            ("countDocuments", "filter", "number"),
+            ("distinct", "field, filter", "Array"),
+            ("insertOne", "document", "InsertOneResult"),
+            ("insertMany", "documents", "InsertManyResult"),
+            ("updateOne", "filter, update", "UpdateResult"),
+            ("updateMany", "filter, update", "UpdateResult"),
+            ("deleteOne", "filter", "DeleteResult"),
+            ("deleteMany", "filter", "DeleteResult"),
+        ];
+
+        let functions = mongo_methods.iter().map(|(name, args, ret)| QueryEditorFunction {
+            schema: "db".to_string(),
+            name: name.to_string(),
+            arg_types: args.split(", ").map(|s| s.to_string()).collect(),
+            return_type: ret.to_string(),
+        }).collect();
+
+        return Ok(QueryEditorMetadata {
+            tables,
+            functions,
+            truncated_tables,
+            truncated_columns,
+            truncated_functions: false,
+        });
+    }
+
+    if engine == DatabaseEngine::Duckdb {
+        get_or_create_duckdb_connection(app, state, connection_id).await
+            .map_err(|e| e.to_string())?;
+        let conns = state.duckdb_connections.read().await;
+        let conn_mutex = conns.get(connection_id)
+            .ok_or_else(|| "DuckDB connection not found".to_string())?;
+        let conn = conn_mutex.lock().await;
+
+        let mut stmt = conn.prepare(
+            "select table_name from information_schema.tables where table_schema = 'main' order by table_name limit ?"
+        ).map_err(|e| e.to_string())?;
+        let table_names: Vec<String> = stmt.query_map([MAX_EDITOR_TABLES + 1], |row| row.get(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let truncated_tables = table_names.len() as i64 > MAX_EDITOR_TABLES;
+        let mut tables = Vec::new();
+        let mut truncated_columns = false;
+
+        for name in table_names.into_iter().take(MAX_EDITOR_TABLES as usize) {
+            let mut col_stmt = conn.prepare(
+                "select column_name, data_type from information_schema.columns where table_schema = 'main' and table_name = ? order by ordinal_position limit ?"
+            ).map_err(|e| e.to_string())?;
+            let col_rows: Vec<(String, String)> = col_stmt.query_map(duckdb::params![name, MAX_EDITOR_COLUMNS_PER_TABLE + 1], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            }).map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+
+            if col_rows.len() as i64 > MAX_EDITOR_COLUMNS_PER_TABLE {
+                truncated_columns = true;
+            }
+
+            let columns = col_rows.into_iter().take(MAX_EDITOR_COLUMNS_PER_TABLE as usize)
+                .map(|(col_name, data_type)| QueryEditorColumn { name: col_name, data_type })
+                .collect();
+
+            tables.push(QueryEditorTable {
+                schema: "main".to_string(),
+                name,
+                columns,
+            });
+        }
+
+        return Ok(QueryEditorMetadata {
+            tables,
+            functions: Vec::new(),
+            truncated_tables,
+            truncated_columns,
+            truncated_functions: false,
+        });
+    }
+
+    if engine == DatabaseEngine::Redis {
+        let redis_commands = [
+            "GET", "SET", "DEL", "EXISTS", "EXPIRE", "TTL", "KEYS", "SCAN", "TYPE",
+            "HGET", "HSET", "HGETALL", "HDEL", "HEXISTS", "HKEYS", "HLEN",
+            "LPUSH", "RPUSH", "LPOP", "RPOP", "LRANGE", "LLEN",
+            "SADD", "SMEMBERS", "SREM", "SISMEMBER", "SCARD",
+            "ZADD", "ZRANGE", "ZREM", "ZCARD", "ZSCORE",
+            "PING", "INFO", "DBSIZE", "FLUSHDB"
+        ];
+        let functions = redis_commands.iter().map(|cmd| QueryEditorFunction {
+            schema: "cmd".to_string(),
+            name: cmd.to_string(),
+            arg_types: vec![],
+            return_type: "".to_string(),
+        }).collect();
+        return Ok(QueryEditorMetadata {
+            tables: Vec::new(),
+            functions,
+            truncated_tables: false,
+            truncated_columns: false,
+            truncated_functions: false,
+        });
+    }
+
     if engine == DatabaseEngine::Mysql {
         let pool = get_or_create_mysql_pool(app, state, connection_id).await?;
         let database = load_connection(app, connection_id)?
@@ -233,6 +470,10 @@ pub(crate) async fn fetch_foreign_keys_for_connection(
         return Ok(edges);
     }
 
+    if engine != DatabaseEngine::Postgres {
+        return Ok(Vec::new());
+    }
+
     with_pool_client_retry(app, state, connection_id, (), |client, ()| async move {
         let rows = client.query(
             "select src_ns.nspname::text as from_schema, src_cls.relname::text as from_table, \
@@ -273,154 +514,5 @@ pub async fn get_query_editor_metadata(
     connection_id: Option<String>,
 ) -> Result<QueryEditorMetadata, String> {
     let (connection_id, engine) = resolve_connection_engine(&app, &state, connection_id).await?;
-
-    if engine == DatabaseEngine::Mysql {
-        let pool = get_or_create_mysql_pool(&app, &state, &connection_id).await?;
-        let database = load_connection(&app, &connection_id)?
-            .map(|connection| connection.database).unwrap_or_default();
-        let table_rows = sqlx::query(
-            "select table_schema, table_name \
-             from information_schema.tables \
-             where table_type = 'BASE TABLE' \
-               and table_schema = ? \
-               and table_schema not in ('information_schema', 'mysql', 'performance_schema', 'sys') \
-             order by table_schema, table_name \
-             limit ?",
-        ).bind(&database).bind(MAX_EDITOR_TABLES + 1)
-        .fetch_all(&pool).await.map_err(|error| error.to_string())?;
-
-        let truncated_tables = table_rows.len() as i64 > MAX_EDITOR_TABLES;
-        let mut tables = Vec::new();
-        let mut truncated_columns = false;
-
-        for row in table_rows.into_iter().take(MAX_EDITOR_TABLES as usize) {
-            let schema: String = mysql_get_string(&row, 0, "table_schema", "get_query_editor_metadata")?;
-            let name: String = mysql_get_string(&row, 1, "table_name", "get_query_editor_metadata")?;
-            let column_rows = sqlx::query(
-                "select column_name, data_type \
-                 from information_schema.columns \
-                 where table_schema = ? and table_name = ? \
-                 order by ordinal_position limit ?",
-            ).bind(&schema).bind(&name).bind(MAX_EDITOR_COLUMNS_PER_TABLE + 1)
-            .fetch_all(&pool).await.map_err(|error| error.to_string())?;
-            if column_rows.len() as i64 > MAX_EDITOR_COLUMNS_PER_TABLE { truncated_columns = true; }
-            let mut columns = Vec::new();
-            for column in column_rows.into_iter().take(MAX_EDITOR_COLUMNS_PER_TABLE as usize) {
-                columns.push(QueryEditorColumn {
-                    name: mysql_get_string(&column, 0, "column_name", "get_query_editor_metadata")?,
-                    data_type: mysql_get_string(&column, 1, "data_type", "get_query_editor_metadata")?,
-                });
-            }
-            tables.push(QueryEditorTable { schema, name, columns });
-        }
-
-        return Ok(QueryEditorMetadata {
-            tables, functions: Vec::new(),
-            truncated_tables, truncated_columns, truncated_functions: false,
-        });
-    }
-
-    if engine == DatabaseEngine::Sqlite {
-        let pool = get_or_create_sqlite_pool(&app, &state, &connection_id).await?;
-        let table_rows = sqlx::query(
-            "select name from sqlite_master \
-             where type = 'table' and name not like 'sqlite_%' \
-             order by name limit ?",
-        ).bind(MAX_EDITOR_TABLES + 1).fetch_all(&pool).await.map_err(|error| error.to_string())?;
-        let truncated_tables = table_rows.len() as i64 > MAX_EDITOR_TABLES;
-        let mut tables = Vec::new();
-        let mut truncated_columns = false;
-        for row in table_rows.into_iter().take(MAX_EDITOR_TABLES as usize) {
-            let name: String = sqlite_get_idx(&row, 0, "name", "get_query_editor_metadata")?;
-            require_safe_identifier(&name, "table name")?;
-            let pragma_sql = format!("PRAGMA table_info(\"{}\");", quote_identifier(&name));
-            let column_rows = sqlx::query(&pragma_sql).fetch_all(&pool).await
-                .map_err(|error| error.to_string())?;
-            if column_rows.len() as i64 > MAX_EDITOR_COLUMNS_PER_TABLE { truncated_columns = true; }
-            let mut columns = Vec::new();
-            for column in column_rows.into_iter().take(MAX_EDITOR_COLUMNS_PER_TABLE as usize) {
-                columns.push(QueryEditorColumn {
-                    name: sqlite_get_name(&column, "name", "get_query_editor_metadata")?,
-                    data_type: sqlite_get_name(&column, "type", "get_query_editor_metadata")?,
-                });
-            }
-            tables.push(QueryEditorTable { schema: "main".to_string(), name, columns });
-        }
-        return Ok(QueryEditorMetadata {
-            tables, functions: Vec::new(),
-            truncated_tables, truncated_columns, truncated_functions: false,
-        });
-    }
-
-    with_pool_client_retry(&app, &state, &connection_id, (), |client, ()| async move {
-        let table_rows = client.query(
-            "select n.nspname::text as schema_name, c.relname::text as table_name \
-             from pg_class c \
-             join pg_namespace n on n.oid = c.relnamespace \
-             where c.relkind in ('r', 'p', 'v', 'm', 'f') \
-               and n.nspname not in ('pg_catalog', 'information_schema') \
-             order by n.nspname, c.relname \
-             limit $1",
-            &[&(MAX_EDITOR_TABLES + 1)],
-        ).await.map_err(|error| map_pg_err(error, None))?;
-
-        let truncated_tables = table_rows.len() as i64 > MAX_EDITOR_TABLES;
-        let table_rows = if truncated_tables {
-            table_rows.into_iter().take(MAX_EDITOR_TABLES as usize).collect::<Vec<_>>()
-        } else { table_rows };
-
-        let mut tables = Vec::with_capacity(table_rows.len());
-        let mut truncated_columns = false;
-
-        for row in table_rows {
-            let schema: String = row.get(0);
-            let name: String = row.get(1);
-            let column_rows = client.query(
-                "select a.attname::text as column_name, format_type(a.atttypid, a.atttypmod)::text as data_type \
-                 from pg_attribute a \
-                 join pg_class c on c.oid = a.attrelid \
-                 join pg_namespace n on n.oid = c.relnamespace \
-                 where n.nspname = $1 and c.relname = $2 \
-                   and a.attnum > 0 and not a.attisdropped \
-                 order by a.attnum limit $3",
-                &[&schema, &name, &(MAX_EDITOR_COLUMNS_PER_TABLE + 1)],
-            ).await.map_err(|error| map_pg_err(error, None))?;
-
-            if column_rows.len() as i64 > MAX_EDITOR_COLUMNS_PER_TABLE { truncated_columns = true; }
-            let columns = column_rows.into_iter().take(MAX_EDITOR_COLUMNS_PER_TABLE as usize)
-                .map(|column| QueryEditorColumn { name: column.get(0), data_type: column.get(1) })
-                .collect();
-
-            tables.push(QueryEditorTable { schema, name, columns });
-        }
-
-        let function_rows = client.query(
-            "select n.nspname::text as schema_name, p.proname::text as function_name, \
-             coalesce(pg_get_function_identity_arguments(p.oid), '')::text as args, \
-             pg_get_function_result(p.oid)::text as return_type \
-             from pg_proc p \
-             join pg_namespace n on n.oid = p.pronamespace \
-             where n.nspname not in ('pg_catalog', 'information_schema') \
-             order by n.nspname, p.proname limit $1",
-            &[&(MAX_EDITOR_FUNCTIONS + 1)],
-        ).await.map_err(|error| map_pg_err(error, None))?;
-
-        let truncated_functions = function_rows.len() as i64 > MAX_EDITOR_FUNCTIONS;
-        let functions = function_rows.into_iter().take(MAX_EDITOR_FUNCTIONS as usize)
-            .map(|row| {
-                let args_raw: String = row.get(2);
-                QueryEditorFunction {
-                    schema: row.get(0),
-                    name: row.get(1),
-                    arg_types: if args_raw.trim().is_empty() { Vec::new() }
-                        else { args_raw.split(',').map(|value| value.trim().to_string()).collect() },
-                    return_type: row.get(3),
-                }
-            }).collect();
-
-        Ok(QueryEditorMetadata {
-            tables, functions,
-            truncated_tables, truncated_columns, truncated_functions,
-        })
-    }).await.map_err(String::from)
+    fetch_query_editor_metadata_for_connection(&app, &state, &connection_id, engine).await
 }

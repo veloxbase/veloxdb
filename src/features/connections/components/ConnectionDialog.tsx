@@ -25,12 +25,19 @@ type InputMode = 'string' | 'fields'
 type SshAuthMethodForm = 'keyfile' | 'password'
 
 const engineOptions: { value: DatabaseEngine; label: string }[] = [
-  { value: 'postgres', label: 'PostgreSQL' },
-  { value: 'mysql',    label: 'MySQL' },
-  { value: 'sqlite',   label: 'SQLite' },
-  { value: 'mongo',    label: 'MongoDB' },
-  { value: 'duckdb',   label: 'DuckDB' },
-  { value: 'redis',    label: 'Redis' },
+  { value: 'postgres',   label: 'PostgreSQL' },
+  { value: 'mysql',      label: 'MySQL' },
+  { value: 'sqlite',     label: 'SQLite' },
+  { value: 'clickhouse', label: 'ClickHouse' },
+  { value: 'libsql',     label: 'libSQL' },
+  { value: 'turso',      label: 'Turso' },
+  { value: 'mssql',      label: 'SQL Server' },
+  { value: 'azuresql',   label: 'Azure SQL' },
+  { value: 'scylladb',   label: 'ScyllaDB' },
+  { value: 'cassandra',  label: 'Cassandra' },
+  { value: 'duckdb',     label: 'DuckDB' },
+  { value: 'mongo',      label: 'MongoDB' },
+  { value: 'redis',      label: 'Redis' },
 ]
 
 // ── Database Flavors ────────────────────────────────────────────
@@ -70,7 +77,21 @@ for (const f of DATABASE_FLAVORS) {
 
 const connectionSchema = z.object({
   name: z.string().min(2, 'Enter a connection name.'),
-  engine: z.enum(['postgres', 'mysql', 'sqlite', 'mongo', 'duckdb', 'redis'] as const),
+  engine: z.enum([
+    'postgres',
+    'mysql',
+    'sqlite',
+    'mongo',
+    'duckdb',
+    'redis',
+    'clickhouse',
+    'libsql',
+    'turso',
+    'scylladb',
+    'cassandra',
+    'mssql',
+    'azuresql',
+  ] as const),
   host: z.string(),
   port: z.coerce.number().int().min(0).max(65535),
   database: z.string(),
@@ -208,9 +229,24 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
 
   // ── Connection string mode ─────────────────────────────────
 
-  const [inputMode, setInputMode] = useState<InputMode>('fields')
+  const [inputMode, setInputMode] = useState<InputMode>('string')
   const [connString, setConnString] = useState('')
   const [connStringError, setConnStringError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (open) {
+      setInputMode('string')
+      setConnString('')
+      setConnStringError(null)
+      form.reset(defaultValues)
+    }
+  }, [open, form, defaultValues])
+
+  const detectedEngine = useMemo(() => {
+    if (!connString.trim()) return null
+    const parsed = parseConnectionString(connString)
+    return parsed?.engine ?? null
+  }, [connString])
 
   const handleConnStringChange = (value: string) => {
     setConnString(value)
@@ -306,6 +342,15 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
   // ── Submit ──────────────────────────────────────────────────
 
   const handleSubmit = form.handleSubmit((values) => {
+    if (inputMode === 'string') {
+      if (!connString.trim()) {
+        setConnStringError(t("connection.invalidConnectionString"))
+        return
+      }
+      if (connStringError) {
+        return
+      }
+    }
     const extraParams = collectExtraParams()
     const isSqlEngine = values.engine === 'postgres' || values.engine === 'mysql'
     const input: ConnectionInput = {
@@ -346,7 +391,12 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
         </DialogHeader>
 
         <form className="flex flex-col max-h-[75vh]" onSubmit={handleSubmit}>
-          <div className="overflow-y-auto space-y-5 px-6 py-4">
+          <div className="overflow-y-auto space-y-4 px-6 py-4">
+
+            {/* Connection name */}
+            <Field label={t("connection.name")} inputId="veloxdb-connection-name" error={form.formState.errors.name?.message}>
+              <Input id="veloxdb-connection-name" {...form.register('name')} placeholder={t("connection.connectionNamePlaceholder")} />
+            </Field>
 
             {/* Mode toggle */}
             <div className="flex rounded-lg border border-border/60 bg-muted/40 p-0.5">
@@ -366,7 +416,16 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
             {/* Connection string mode */}
             {inputMode === 'string' && (
               <div className="space-y-2">
-                <label htmlFor="veloxdb-connection-string" className="block text-xs text-muted-foreground">{t("connection.connectionUriLabel")}</label>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="veloxdb-connection-string" className="block text-xs font-medium text-muted-foreground">
+                    {t("connection.connectionUriLabel")}
+                  </label>
+                  {detectedEngine && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      Detected: {engineOptions.find((o) => o.value === detectedEngine)?.label ?? detectedEngine}
+                    </span>
+                  )}
+                </div>
                 <Input id="veloxdb-connection-string" value={connString}
                   onChange={(e) => handleConnStringChange(e.target.value)}
                   placeholder={t("connection.connectionUriPlaceholder")}
@@ -381,8 +440,8 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
 
               {/* Engine selector */}
               <div>
-                <span className="block text-left text-xs font-medium text-muted-foreground mb-3">{t("connection.databaseEngine")}</span>
-                <div className="flex flex-wrap gap-2" role="radiogroup">
+                <span className="block text-left text-xs font-medium text-muted-foreground mb-2.5">{t("connection.databaseEngine")}</span>
+                <div className="flex flex-wrap gap-1.5" role="radiogroup">
                   {engineOptions.map((option) => {
                     const selected = engine === option.value
                     return (
@@ -391,25 +450,78 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                           checked={selected}
                           onChange={() => handleEngineChange(option.value)} />
                         <div className={cn(
-                          'flex flex-col items-center justify-center gap-1.5 rounded-lg border px-4 py-3 transition-all select-none min-w-[100px]',
+                          'flex flex-col items-center justify-center gap-1 rounded-md border px-1.5 py-1.5 transition-all select-none w-[72px] h-[58px]',
                           selected
                             ? 'border-emerald-500/50 bg-emerald-500/10 ring-1 ring-emerald-500/30'
                             : 'border-border bg-background hover:border-primary/30 hover:bg-muted/20',
                         )}>
-                          <div className="flex h-10 items-center justify-center">
-                            {option.value === 'postgres' && <img src="/postgresql.svg" alt="PG" className="h-8 w-auto" />}
+                          <div className="flex h-5 w-5 items-center justify-center">
+                            {option.value === 'postgres' && <img src="/postgresql.svg" alt="PG" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
                             {option.value === 'mysql' && (
                               <>
-                                <img src="/mysql-wordmark-dark.svg" alt="MySQL" className="h-8 w-auto dark:hidden" />
-                                <img src="/mysql-wordmark-light.svg" alt="MySQL" className="hidden h-8 w-auto dark:block" />
+                                <img src="/mysql-wordmark-dark.svg" alt="MySQL" className="h-3.5 w-auto max-w-[26px] object-contain dark:hidden" />
+                                <img src="/mysql-wordmark-light.svg" alt="MySQL" className="hidden h-3.5 w-auto max-w-[26px] object-contain dark:block" />
                               </>
                             )}
-                            {option.value === 'sqlite' && <img src="/sqlite.svg" alt="SQLite" className="h-8 w-auto" />}
-                            {option.value === 'mongo' && <img src="/mongodb-icon-light.svg" alt="MongoDB" className="h-8 w-auto" />}
-                            {option.value === 'duckdb' && <img src="/DuckDB_icon-darkmode.svg" alt="DuckDB" className="h-8 w-auto" />}
-                            {option.value === 'redis' && <img src="/redis.svg" alt="Redis" className="h-8 w-auto" />}
+                            {option.value === 'sqlite' && <img src="/sqlite.svg" alt="SQLite" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
+                            {option.value === 'mongo' && <img src="/mongodb-icon-light.svg" alt="MongoDB" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
+                            {option.value === 'duckdb' && <img src="/DuckDB_icon-darkmode.svg" alt="DuckDB" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
+                            {option.value === 'redis' && <img src="/redis.svg" alt="Redis" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
+                            {option.value === 'clickhouse' && (
+                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none">
+                                <rect x="2" y="7" width="2.5" height="10" rx="1" fill="#FFCC00" />
+                                <rect x="6.5" y="4" width="2.5" height="16" rx="1" fill="#FF9900" />
+                                <rect x="11" y="2" width="2.5" height="20" rx="1" fill="#FF5500" />
+                                <rect x="15.5" y="8" width="2.5" height="8" rx="1" fill="#FFCC00" />
+                                <rect x="20" y="5" width="2.5" height="14" rx="1" fill="#FF0000" />
+                              </svg>
+                            )}
+                            {option.value === 'libsql' && (
+                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none" stroke="#00d492" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z" />
+                                <path d="M6 6h10" />
+                                <path d="M6 10h10" />
+                                <path d="M6 14h6" />
+                              </svg>
+                            )}
+                            {option.value === 'turso' && (
+                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none">
+                                <circle cx="12" cy="12" r="10" fill="#4ff8d2" fillOpacity="0.2" />
+                                <path d="M8 8h8v3h-2.5v6h-3v-6H8V8Z" fill="#00e5a3" />
+                              </svg>
+                            )}
+                            {option.value === 'mssql' && (
+                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none">
+                                <rect x="3" y="3" width="8" height="8" rx="1" fill="#CC292B" />
+                                <rect x="13" y="3" width="8" height="8" rx="1" fill="#E64A19" />
+                                <rect x="3" y="13" width="8" height="8" rx="1" fill="#D32F2F" />
+                                <rect x="13" y="13" width="8" height="8" rx="1" fill="#B71C1C" />
+                              </svg>
+                            )}
+                            {option.value === 'azuresql' && (
+                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none">
+                                <path d="M12 3c-4.4 0-8 1.3-8 3v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6c0-1.7-3.6-3-8-3Z" fill="#0078D4" fillOpacity="0.2" stroke="#0078D4" strokeWidth="1.5" />
+                                <path d="M4 10c0 1.7 3.6 3 8 3s8-1.3 8-3" stroke="#0078D4" strokeWidth="1.5" />
+                                <path d="M4 14c0 1.7 3.6 3 8 3s8-1.3 8-3" stroke="#0078D4" strokeWidth="1.5" />
+                                <path d="M12 9c4.4 0 8-1.3 8-3s-3.6-3-8-3-8 1.3-8 3 3.6 3 8 3Z" fill="#0078D4" />
+                              </svg>
+                            )}
+                            {option.value === 'scylladb' && (
+                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none">
+                                <circle cx="12" cy="12" r="10" fill="#00C7B5" fillOpacity="0.2" />
+                                <path d="M7 17c1-3 3-5 5-5s4 2 5 5" stroke="#00C7B5" strokeWidth="2" strokeLinecap="round" />
+                                <circle cx="9.5" cy="9.5" r="1.5" fill="#00C7B5" />
+                                <circle cx="14.5" cy="9.5" r="1.5" fill="#00C7B5" />
+                              </svg>
+                            )}
+                            {option.value === 'cassandra' && (
+                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none">
+                                <ellipse cx="12" cy="12" rx="9" ry="6" fill="#1F75FE" fillOpacity="0.2" stroke="#1F75FE" strokeWidth="1.5" />
+                                <circle cx="12" cy="12" r="3" fill="#1F75FE" />
+                              </svg>
+                            )}
                           </div>
-                          <span className="text-[11px] font-medium text-foreground leading-tight">{option.label}</span>
+                          <span className="text-[10px] font-medium text-foreground leading-tight text-center truncate w-full">{option.label}</span>
                         </div>
                       </label>
                     )
@@ -435,11 +547,6 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                   </p>
                 </div>
               )}
-
-              {/* Connection name */}
-              <Field label={t("connection.name")} inputId="veloxdb-connection-name" error={form.formState.errors.name?.message}>
-                <Input id="veloxdb-connection-name" {...form.register('name')} placeholder={t("connection.connectionNamePlaceholder")} />
-              </Field>
 
               {/* File picker (SQLite, DuckDB) */}
               {cfg.showFilePicker && (

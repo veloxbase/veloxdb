@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 export type AppTheme = 'system' | 'light' | 'dark' | 'sepia' | 'ocean' | 'forest' | 'rose' | 'slate' | 'amber'
-export type FontSize = 'sm' | 'md' | 'lg'
+export type FontSize = number | 'sm' | 'md' | 'lg'
 export type NullDisplay = 'null' | 'NULL' | 'dash' | 'empty'
 
 export type ToastLevel = 'success' | 'error'
@@ -28,7 +28,7 @@ export type AppSettings = {
 
 const defaults: AppSettings = {
   theme: 'system',
-  fontSize: 'md',
+  fontSize: 14,
   monospaceFont: "'JetBrains Mono', 'Fira Code', 'Menlo', monospace",
   tabWidth: 2,
   showLineNumbers: true,
@@ -44,11 +44,29 @@ const defaults: AppSettings = {
   toastLevels: { success: true, error: true },
 }
 
+export function resolveFontSizePx(size: FontSize | undefined): number {
+  if (typeof size === 'number' && !Number.isNaN(size)) {
+    return Math.max(10, Math.min(32, Math.round(size)));
+  }
+  if (size === 'sm') return 12;
+  if (size === 'md') return 14;
+  if (size === 'lg') return 16;
+  if (typeof size === 'string') {
+    const parsed = parseInt(size, 10);
+    if (!Number.isNaN(parsed)) return Math.max(10, Math.min(32, parsed));
+  }
+  return 14;
+}
+
 export const useSettings = create<AppSettings>()(
   persist(() => defaults, {
     name: 'veloxdb.settings',
     // The OpenRouter API key is kept in the OS keychain, never in localStorage.
-    partialize: ({ veloxyOpenRouterApiKey: _omitApiKey, ...rest }) => rest,
+    partialize: (s) => {
+      const rest = { ...s }
+      delete (rest as Partial<AppSettings>).veloxyOpenRouterApiKey
+      return rest
+    },
   }),
 )
 
@@ -86,9 +104,3 @@ export const themeLabels: Record<AppTheme, string> = {
 }
 
 export const THEME_CLASSES = ['dark', 'theme-sepia', 'theme-ocean', 'theme-forest', 'theme-rose', 'theme-slate', 'theme-amber'] as const
-
-export const fontSizeClasses: Record<FontSize, string> = {
-  sm: 'text-[12px]',
-  md: 'text-[14px]',
-  lg: 'text-[16px]',
-}

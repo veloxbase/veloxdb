@@ -85,7 +85,12 @@ pub async fn redis_get_keys(
     let (connection_id, _) = resolve_connection_engine(&app, &state, connection_id).await?;
     let mut client = get_or_create_redis_client(&app, &state, &connection_id).await?;
     let keys: Vec<String> = redis::cmd("KEYS").arg("*").query_async(&mut client).await.map_err(|e| e.to_string())?;
-    Ok(keys.into_iter().map(|k| TableInfo { schema: "0".to_string(), name: k.clone(), preview_query: format!("GET {}", k) }).collect())
+    Ok(keys.into_iter().map(|k| TableInfo {
+        schema: "0".to_string(),
+        name: k.clone(),
+        preview_query: format!("GET {}", k),
+        kind: Some("table".to_string()),
+    }).collect())
 }
 
 /// Infer schema for a Redis key by checking its type and sampling data.

@@ -273,7 +273,7 @@ function QueryPane({
 							onChange={onSqlChange}
 							onRun={onRun}
 							onRunStatement={onRunStatement}
-							language={connectionEngine === "mongo" ? "json" : connectionEngine === "redis" ? "plaintext" : "sql"}
+							language={connectionEngine ?? "sql"}
 							metadata={editorMetadata}
 							diagnostics={lintDiagnostics}
 						/>
@@ -921,11 +921,34 @@ export const QueryWorkspace = forwardRef<
 		const tabId = getFocusedTabId(stateRef.current);
 		const sql = stateRef.current.tabs[tabId]?.sql ?? "";
 		if (!sql.trim()) return;
+
+		if (connectionEngine === "mongo") {
+			try {
+				const match = sql.trim().match(/^(?:db\.)?([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\(([\s\S]*)\)$/);
+				if (match) {
+					const [, coll, method, args] = match;
+					const parsed = JSON.parse(args.replace(/'/g, '"'));
+					const formattedArgs = JSON.stringify(parsed, null, 2);
+					dispatch({ type: "replaceTabSql", tabId, sql: `db.${coll}.${method}(\n  ${formattedArgs.split("\n").join("\n  ")}\n)` });
+					return;
+				}
+				const parsed = JSON.parse(sql.trim().replace(/'/g, '"'));
+				dispatch({ type: "replaceTabSql", tabId, sql: JSON.stringify(parsed, null, 2) });
+				return;
+			} catch {
+				return;
+			}
+		}
+
+		if (connectionEngine === "redis") {
+			return;
+		}
+
 		try {
 			const language =
 				connectionEngine === "mysql"
 					? "mysql"
-					: connectionEngine === "sqlite"
+					: connectionEngine === "sqlite" || connectionEngine === "duckdb"
 						? "sqlite"
 						: "postgresql";
 			const formatted = format(sql, {

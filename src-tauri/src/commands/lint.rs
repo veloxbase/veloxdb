@@ -98,5 +98,15 @@ pub async fn lint_sql(
             }
         }
         DatabaseEngine::Redis => Err("Not supported for Redis.".to_string()),
+        DatabaseEngine::Clickhouse
+        | DatabaseEngine::Libsql
+        | DatabaseEngine::Turso
+        | DatabaseEngine::Scylladb
+        | DatabaseEngine::Cassandra
+        | DatabaseEngine::Mssql
+        | DatabaseEngine::Azuresql => {
+            Ok(LintSqlResult { diagnostics: vec![] })
+        }
     }
 }
+

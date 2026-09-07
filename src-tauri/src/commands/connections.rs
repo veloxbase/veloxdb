@@ -211,6 +211,18 @@ pub async fn switch_database(
             redis::cmd("PING").query_async::<_, String>(&mut client).await
                 .map_err(|e| format!("Redis ping failed: {}", e))?;
         }
+        DatabaseEngine::Clickhouse
+        | DatabaseEngine::Libsql
+        | DatabaseEngine::Turso
+        | DatabaseEngine::Scylladb
+        | DatabaseEngine::Cassandra
+        | DatabaseEngine::Mssql
+        | DatabaseEngine::Azuresql => {
+            engines::get_engine(connection_input.engine)
+                .connect(&app, &state, &connection_input, &input.connection_id)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
     }
 
     *state.active_connection_id.write().await = Some(input.connection_id);
