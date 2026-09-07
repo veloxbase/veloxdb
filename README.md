@@ -107,7 +107,7 @@ Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 
 ### Download (macOS, Windows, Linux)
 
-Download pre-built installers for the latest release (**v0.3.1**) on the **[Releases Page](https://github.com/abeni16/veloxdb/releases)**.
+Download pre-built installers for the latest release (**v0.4.0**) on the **[Releases Page](https://github.com/abeni16/veloxdb/releases)**.
 
 | Platform | Package | Download Link |
 |----------|---------|---------------|

@@ -160,9 +160,9 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 		},
 		{
 			id: "engines",
-			kicker: "6 Database Engines",
+			kicker: "13+ Database Engines",
 			title: "One tool, every database",
-			body: "PostgreSQL, MySQL, SQLite, MongoDB, DuckDB, Redis — plus every wire-compatible engine like Supabase, CockroachDB, MariaDB, and PlanetScale. Connect to what you already use.",
+			body: "PostgreSQL, MySQL, SQLite, ClickHouse, libSQL, Turso, SQL Server, Azure SQL, ScyllaDB, Cassandra, DuckDB, MongoDB, Redis — plus wire-compatible engines and more in future releases.",
 			icon: PlugsConnectedIcon,
 			accentColor: "#8b5cf6",
 		},
