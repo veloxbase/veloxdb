@@ -133,8 +133,8 @@ pub async fn duckdb_get_tables(
 
     let mut stmt = conn
         .prepare(
-            "SELECT table_name FROM information_schema.tables \
-             WHERE table_schema = 'main' AND table_type = 'BASE TABLE' \
+            "SELECT table_name, table_type FROM information_schema.tables \
+             WHERE table_schema = 'main' AND table_type IN ('BASE TABLE', 'VIEW') \
              ORDER BY table_name",
         )
         .map_err(|e| format!("DuckDB table listing failed: {}", e))?;
@@ -142,6 +142,8 @@ pub async fn duckdb_get_tables(
     let tables: Vec<TableInfo> = stmt
         .query_map([], |row| {
             let name: String = row.get(0)?;
+            let table_type: String = row.get(1)?;
+            let kind = if table_type == "VIEW" { "view" } else { "table" };
             Ok(TableInfo {
                 schema: "main".to_string(),
                 name: name.clone(),
@@ -149,6 +151,7 @@ pub async fn duckdb_get_tables(
                     "SELECT * FROM \"{}\" LIMIT 100;",
                     quote_identifier(&name)
                 ),
+                kind: Some(kind.to_string()),
             })
         })
         .map_err(|e| format!("DuckDB table listing failed: {}", e))?

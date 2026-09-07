@@ -25,9 +25,18 @@ export function buildTransactionalSql(
 	statements: string[],
 ): string {
 	const body = statements.join("\n");
-	if (engine === "mysql") {
-		// MySQL rejects BEGIN/COMMIT/ROLLBACK via the prepared-statement protocol.
+	if (
+		engine === "mysql" ||
+		engine === "clickhouse" ||
+		engine === "redis" ||
+		engine === "mongo" ||
+		engine === "cassandra" ||
+		engine === "scylladb"
+	) {
 		return body;
+	}
+	if (engine === "mssql" || engine === "azuresql") {
+		return `BEGIN TRANSACTION;\n${body}\nCOMMIT TRANSACTION;`;
 	}
 	return `BEGIN;\n${body}\nCOMMIT;`;
 }
@@ -49,11 +58,18 @@ async function runTransactionalStatements(
 			allowWrite: true,
 		});
 	} catch (error) {
-		if (engine !== "mysql") {
+		if (
+			engine !== "mysql" &&
+			engine !== "clickhouse" &&
+			engine !== "redis" &&
+			engine !== "mongo" &&
+			engine !== "cassandra" &&
+			engine !== "scylladb"
+		) {
 			try {
 				await veloxDbRepository.runQuery({
 					connectionId,
-					sql: "ROLLBACK;",
+					sql: engine === "mssql" || engine === "azuresql" ? "ROLLBACK TRANSACTION;" : "ROLLBACK;",
 					allowWrite: true,
 				});
 			} catch {
@@ -146,6 +162,15 @@ export function buildExplainSql(engine: DatabaseEngine, sql: string): string {
 	}
 	if (engine === "mysql") {
 		return `EXPLAIN FORMAT=TRADITIONAL\n${trimmed}`;
+	}
+	if (engine === "clickhouse") {
+		return `EXPLAIN SYNTAX\n${trimmed}`;
+	}
+	if (engine === "mssql" || engine === "azuresql") {
+		return `SET SHOWPLAN_ALL ON;\n${trimmed}`;
+	}
+	if (engine === "cassandra" || engine === "scylladb" || engine === "mongo" || engine === "redis") {
+		return trimmed;
 	}
 	return `EXPLAIN QUERY PLAN\n${trimmed}`;
 }

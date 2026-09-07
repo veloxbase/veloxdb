@@ -199,4 +199,105 @@ describe('connection string parsing and building', () => {
     })
     expect(value).toBe('mongodb://localhost:27017/test')
   })
+
+  it('parses and builds clickhouse uri', () => {
+    const parsed = parseConnectionString('clickhouse://default:password@localhost:8123/analytics')
+    expect(parsed?.engine).toBe('clickhouse')
+    expect(parsed?.host).toBe('localhost')
+    expect(parsed?.port).toBe(8123)
+    expect(parsed?.database).toBe('analytics')
+    expect(parsed?.user).toBe('default')
+    expect(parsed?.password).toBe('password')
+
+    const built = buildConnectionString({
+      engine: 'clickhouse',
+      host: 'localhost',
+      port: 8123,
+      database: 'analytics',
+      user: 'default',
+      password: 'password',
+      sslMode: 'prefer',
+    })
+    expect(built).toBe('clickhouse://default:password@localhost:8123/analytics')
+  })
+
+  it('parses and builds turso / libsql uri', () => {
+    const parsed = parseConnectionString('turso://my-db.turso.io?authToken=my-token')
+    expect(parsed?.engine).toBe('turso')
+    expect(parsed?.host).toBe('my-db.turso.io')
+    expect(parsed?.password).toBe('my-token')
+
+    const built = buildConnectionString({
+      engine: 'turso',
+      host: 'my-db.turso.io',
+      port: 443,
+      database: '',
+      user: '',
+      password: 'my-token',
+      sslMode: 'require',
+    })
+    expect(built).toBe('turso://my-db.turso.io?authToken=my-token')
+  })
+
+  it('parses and builds cassandra / scylladb uri', () => {
+    const parsed = parseConnectionString('cassandra://cassandra:pass@127.0.0.1:9042/my_keyspace')
+    expect(parsed?.engine).toBe('cassandra')
+    expect(parsed?.host).toBe('127.0.0.1')
+    expect(parsed?.port).toBe(9042)
+    expect(parsed?.database).toBe('my_keyspace')
+
+    const built = buildConnectionString({
+      engine: 'scylladb',
+      host: '127.0.0.1',
+      port: 9042,
+      database: 'my_keyspace',
+      user: 'scylla',
+      password: 'pass',
+      sslMode: 'prefer',
+    })
+    expect(built).toBe('scylladb://scylla:pass@127.0.0.1:9042/my_keyspace')
+  })
+
+  it('parses and builds mssql / azuresql uri', () => {
+    const parsed = parseConnectionString('mssql://sa:StrongPassword123!@localhost:1433/TestDb')
+    expect(parsed?.engine).toBe('mssql')
+    expect(parsed?.host).toBe('localhost')
+    expect(parsed?.port).toBe(1433)
+    expect(parsed?.database).toBe('TestDb')
+    expect(parsed?.user).toBe('sa')
+    expect(parsed?.password).toBe('StrongPassword123!')
+
+    const azureParsed = parseConnectionString('azuresql://myuser:pw@server.database.windows.net:1433/sqldb')
+    expect(azureParsed?.engine).toBe('azuresql')
+    expect(azureParsed?.sslMode).toBe('require')
+
+    const built = buildConnectionString({
+      engine: 'mssql',
+      host: 'localhost',
+      port: 1433,
+      database: 'TestDb',
+      user: 'sa',
+      password: 'StrongPassword123!',
+      sslMode: 'prefer',
+    })
+    expect(built).toBe('mssql://sa:StrongPassword123!@localhost:1433/TestDb')
+  })
+
+  it('parses and builds duckdb uri', () => {
+    const parsed = parseConnectionString('duckdb:///tmp/data.duckdb')
+    expect(parsed?.engine).toBe('duckdb')
+    expect(parsed?.filePath).toBe('/tmp/data.duckdb')
+
+    const built = buildConnectionString({
+      engine: 'duckdb',
+      host: '',
+      port: 0,
+      database: '',
+      filePath: '/tmp/data.duckdb',
+      user: '',
+      password: '',
+      sslMode: 'disable',
+    })
+    expect(built).toBe('duckdb:///tmp/data.duckdb')
+  })
 })

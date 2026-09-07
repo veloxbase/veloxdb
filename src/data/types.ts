@@ -1,6 +1,19 @@
 /** PostgreSQL `sslmode`-style TLS (lowercase in JSON for Tauri). */
 export type ConnectionSslMode = 'disable' | 'prefer' | 'require'
-export type DatabaseEngine = 'postgres' | 'mysql' | 'sqlite' | 'mongo' | 'duckdb' | 'redis'
+export type DatabaseEngine =
+  | 'postgres'
+  | 'mysql'
+  | 'sqlite'
+  | 'mongo'
+  | 'duckdb'
+  | 'redis'
+  | 'clickhouse'
+  | 'libsql'
+  | 'turso'
+  | 'scylladb'
+  | 'cassandra'
+  | 'mssql'
+  | 'azuresql'
 
 export type SshAuthMethod = 'keyfile' | 'password'
 
@@ -183,10 +196,13 @@ export type AskVeloxyResponse = {
   tokenStats: AskVeloxyTokenStats
 }
 
+export type TableKind = 'table' | 'view' | 'materialized_view'
+
 export type TableInfo = {
   schema: string
   name: string
   previewQuery: string
+  kind?: TableKind
 }
 
 export type ColumnInfo = {

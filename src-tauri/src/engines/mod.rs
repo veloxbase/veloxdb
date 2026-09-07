@@ -1,5 +1,9 @@
+mod cassandra;
+mod clickhouse;
 mod duckdb;
+mod libsql;
 mod mongo;
+mod mssql;
 mod mysql;
 mod postgres;
 mod redis;
@@ -13,8 +17,12 @@ use crate::models::{
     ColumnInfo, ConnectionInput, DatabaseEngine, DatabaseInfo, QueryResult, TableInfo,
 };
 
+use cassandra::CassandraEngine;
+use clickhouse::ClickhouseEngine;
 use duckdb::DuckdbEngine;
+use libsql::LibsqlEngine;
 use mongo::MongoEngine;
+use mssql::MssqlEngine;
 use mysql::MySqlEngine;
 use postgres::PostgresEngine;
 use redis::RedisEngine;
@@ -81,6 +89,10 @@ pub enum EngineDispatcher {
     Mongo(MongoEngine),
     Duckdb(DuckdbEngine),
     Redis(RedisEngine),
+    Clickhouse(ClickhouseEngine),
+    Libsql(LibsqlEngine),
+    Cassandra(CassandraEngine),
+    Mssql(MssqlEngine),
 }
 
 macro_rules! delegate {
@@ -92,6 +104,10 @@ macro_rules! delegate {
             EngineDispatcher::Mongo(e) => e.$method($($arg),*).await,
             EngineDispatcher::Duckdb(e) => e.$method($($arg),*).await,
             EngineDispatcher::Redis(e) => e.$method($($arg),*).await,
+            EngineDispatcher::Clickhouse(e) => e.$method($($arg),*).await,
+            EngineDispatcher::Libsql(e) => e.$method($($arg),*).await,
+            EngineDispatcher::Cassandra(e) => e.$method($($arg),*).await,
+            EngineDispatcher::Mssql(e) => e.$method($($arg),*).await,
         }
     };
 }
@@ -126,5 +142,10 @@ pub fn get_engine(engine: DatabaseEngine) -> EngineDispatcher {
         DatabaseEngine::Mongo => EngineDispatcher::Mongo(MongoEngine),
         DatabaseEngine::Duckdb => EngineDispatcher::Duckdb(DuckdbEngine),
         DatabaseEngine::Redis => EngineDispatcher::Redis(RedisEngine),
+        DatabaseEngine::Clickhouse => EngineDispatcher::Clickhouse(ClickhouseEngine),
+        DatabaseEngine::Libsql | DatabaseEngine::Turso => EngineDispatcher::Libsql(LibsqlEngine),
+        DatabaseEngine::Scylladb | DatabaseEngine::Cassandra => EngineDispatcher::Cassandra(CassandraEngine),
+        DatabaseEngine::Mssql | DatabaseEngine::Azuresql => EngineDispatcher::Mssql(MssqlEngine),
     }
 }
+

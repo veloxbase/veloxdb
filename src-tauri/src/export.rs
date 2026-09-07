@@ -12,6 +12,7 @@ use crate::db::{
     get_or_create_mysql_pool, get_or_create_sqlite_pool, load_connection, resolve_connection_engine,
     with_pool_client_retry, AppState,
 };
+use crate::engines::DatabaseEngineOps;
 use crate::models::DatabaseEngine;
 use crate::pg_error::map_pg_err;
 
@@ -411,6 +412,23 @@ pub async fn export_results_csv(
             return Ok(());
         }
         DatabaseEngine::Redis => return Err("Not supported for Redis.".to_string()),
+        _ => {
+            let res = crate::engines::get_engine(engine)
+                .run_query(app, state, &connection_id, &sql, usize::MAX)
+                .await
+                .map_err(|e| e.to_string())?;
+            let mut wtr = csv::Writer::from_writer(vec![]);
+            wtr.write_record(&res.columns).map_err(|e| e.to_string())?;
+            for row in res.rows {
+                let record: Vec<String> = res.columns.iter().map(|col| {
+                    row.get(col).cloned().flatten().unwrap_or_default()
+                }).collect();
+                wtr.write_record(&record).map_err(|e| e.to_string())?;
+            }
+            let data = wtr.into_inner().map_err(|e| e.to_string())?;
+            fs::write(&input.output_path, data).map_err(|e| e.to_string())?;
+            return Ok(());
+        }
     };
 
     let content = lines.join("\n") + "\n";
@@ -555,6 +573,15 @@ pub async fn export_results_json(
             return Ok(());
         }
         DatabaseEngine::Redis => return Err("Not supported for Redis.".to_string()),
+        _ => {
+            let res = crate::engines::get_engine(engine)
+                .run_query(app, state, &connection_id, &sql, usize::MAX)
+                .await
+                .map_err(|e| e.to_string())?;
+            let content = serde_json::to_string_pretty(&res.rows).map_err(|e| e.to_string())?;
+            fs::write(&input.output_path, content).map_err(|e| e.to_string())?;
+            return Ok(());
+        }
     };
 
     let content = format!("[\n{}\n]\n", rows.join(",\n"));

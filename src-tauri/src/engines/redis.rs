@@ -65,6 +65,7 @@ impl DatabaseEngineOps for RedisEngine {
             schema: "0".to_string(),
             name: k.clone(),
             preview_query: format!("GET {}", k),
+            kind: Some("table".to_string()),
         }).collect())
     }
 

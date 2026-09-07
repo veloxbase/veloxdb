@@ -124,6 +124,7 @@ impl DatabaseEngineOps for MongoEngine {
             schema: db_name.clone(),
             name: name.clone(),
             preview_query: format!("{}.find({{}}).limit(100)", name),
+            kind: Some("table".to_string()),
         }).collect())
     }
 

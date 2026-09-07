@@ -819,8 +819,15 @@ fn database_engine_all_variants_exist() {
         DatabaseEngine::Mongo,
         DatabaseEngine::Duckdb,
         DatabaseEngine::Redis,
+        DatabaseEngine::Clickhouse,
+        DatabaseEngine::Libsql,
+        DatabaseEngine::Turso,
+        DatabaseEngine::Scylladb,
+        DatabaseEngine::Cassandra,
+        DatabaseEngine::Mssql,
+        DatabaseEngine::Azuresql,
     ];
-    assert_eq!(engines.len(), 6);
+    assert_eq!(engines.len(), 13);
     for engine in &engines {
         assert_eq!(engine, engine);
     }
@@ -1004,3 +1011,167 @@ fn default_port_constants_are_correct() {
     assert_eq!(veloxdb_lib::db::DEFAULT_MONGO_PORT, 27017);
     assert_eq!(veloxdb_lib::db::DEFAULT_REDIS_PORT, 6379);
 }
+
+// ── LibSQL local engine round-trip ─────────────────────────────
+
+#[tokio::test]
+async fn libsql_local_round_trip() {
+    let input = ConnectionInput {
+        id: Some("test-libsql-local".into()),
+        name: "test-libsql-local".into(),
+        engine: DatabaseEngine::Libsql,
+        host: String::new(),
+        port: 0,
+        database: String::new(),
+        file_path: Some(":memory:".into()),
+        user: String::new(),
+        password: String::new(),
+        srv_enabled: false,
+        ssl_mode: ConnectionSslMode::Disable,
+        ssh_config: None,
+        extra_params: None,
+    };
+
+    let pool = build_sqlite_pool(&input).await.expect("libsql pool");
+    let mut conn = pool.acquire().await.expect("acquire");
+
+    sqlx::query("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT NOT NULL);")
+        .execute(&mut *conn)
+        .await
+        .expect("create table");
+
+    sqlx::query("INSERT INTO users (id, email) VALUES (1, 'alice@example.com');")
+        .execute(&mut *conn)
+        .await
+        .expect("insert");
+
+    let row = sqlx::query("SELECT id, email FROM users WHERE id = 1;")
+        .fetch_one(&mut *conn)
+        .await
+        .expect("select");
+
+    let id: i64 = row.try_get("id").unwrap();
+    let email: String = row.try_get("email").unwrap();
+    assert_eq!(id, 1);
+    assert_eq!(email, "alice@example.com");
+
+    drop(conn);
+}
+
+// ── ClickHouse JSON protocol format tests ───────────────────────
+
+#[test]
+fn clickhouse_json_format_parsing() {
+    let sample_json = r#"{
+        "meta": [
+            {"name": "id", "type": "UInt64"},
+            {"name": "event", "type": "String"},
+            {"name": "score", "type": "Nullable(Float64)"}
+        ],
+        "data": [
+            {"id": "1", "event": "click", "score": 98.5},
+            {"id": "2", "event": "view", "score": null}
+        ],
+        "rows": 2,
+        "rows_before_limit_at_least": 2
+    }"#;
+
+    let v: serde_json::Value = serde_json::from_str(sample_json).expect("valid json");
+    let meta = v["meta"].as_array().expect("meta array");
+    let cols: Vec<String> = meta
+        .iter()
+        .filter_map(|c| c["name"].as_str().map(String::from))
+        .collect();
+    assert_eq!(cols, vec!["id", "event", "score"]);
+
+    let data = v["data"].as_array().expect("data array");
+    assert_eq!(data.len(), 2);
+    assert_eq!(data[0]["event"].as_str().unwrap(), "click");
+    assert!(data[1]["score"].is_null());
+}
+
+// ── Turso / LibSQL HTTP pipeline format tests ───────────────────
+
+#[test]
+fn turso_pipeline_format_parsing() {
+    let sample_pipeline = r#"{
+        "results": [
+            {
+                "type": "ok",
+                "response": {
+                    "result": {
+                        "cols": [
+                            {"name": "item_id", "decltype": "INTEGER"},
+                            {"name": "title", "decltype": "TEXT"}
+                        ],
+                        "rows": [
+                            [
+                                {"type": "integer", "value": "42"},
+                                {"type": "text", "value": "Super Widget"}
+                            ]
+                        ]
+                    }
+                }
+            }
+        ]
+    }"#;
+
+    let v: serde_json::Value = serde_json::from_str(sample_pipeline).expect("valid json");
+    let results = v["results"].as_array().expect("results");
+    let result_obj = &results[0]["response"]["result"];
+    let cols: Vec<String> = result_obj["cols"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["name"].as_str().map(String::from))
+        .collect();
+    assert_eq!(cols, vec!["item_id", "title"]);
+
+    let rows = result_obj["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    let first_row = rows[0].as_array().unwrap();
+    assert_eq!(first_row[0]["value"].as_str().unwrap(), "42");
+    assert_eq!(first_row[1]["value"].as_str().unwrap(), "Super Widget");
+}
+
+// ── New engine connection inputs & summaries ───────────────────
+
+#[test]
+fn new_engines_stored_connection_conversion() {
+    let engines = [
+        DatabaseEngine::Clickhouse,
+        DatabaseEngine::Libsql,
+        DatabaseEngine::Turso,
+        DatabaseEngine::Scylladb,
+        DatabaseEngine::Cassandra,
+        DatabaseEngine::Mssql,
+        DatabaseEngine::Azuresql,
+    ];
+
+    for engine in engines {
+        let input = ConnectionInput {
+            id: Some(format!("test-{:?}", engine)),
+            name: format!("My {:?}", engine),
+            engine,
+            host: "db.test.lan".into(),
+            port: 1234,
+            database: "testdb".into(),
+            file_path: None,
+            user: "admin".into(),
+            password: "pw".into(),
+            srv_enabled: false,
+            ssl_mode: ConnectionSslMode::Prefer,
+            ssh_config: None,
+            extra_params: None,
+        };
+
+        let stored = StoredConnection::from_input("test-id".into(), input.clone());
+        assert_eq!(stored.engine, engine);
+        assert_eq!(stored.name, format!("My {:?}", engine));
+
+        let summary = stored.summary();
+        assert_eq!(summary.engine, engine);
+        assert_eq!(summary.name, format!("My {:?}", engine));
+    }
+}
+

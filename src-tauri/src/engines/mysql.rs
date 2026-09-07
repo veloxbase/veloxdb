@@ -88,9 +88,9 @@ impl DatabaseEngineOps for MySqlEngine {
         let database = load_connection(app, connection_id)?
             .map(|connection| connection.database).unwrap_or_default();
         let rows = sqlx::query(
-            "select table_schema, table_name \
+            "select table_schema, table_name, table_type \
              from information_schema.tables \
-             where table_type = 'BASE TABLE' \
+             where table_type in ('BASE TABLE', 'VIEW') \
                and table_schema = ? \
                and table_schema not in ('information_schema', 'mysql', 'performance_schema', 'sys') \
              order by table_schema, table_name",
@@ -102,9 +102,14 @@ impl DatabaseEngineOps for MySqlEngine {
                 .map_err(VeloxError::from)?;
             let name: String = mysql_get_string(&row, 1, "table_name", "get_tables")
                 .map_err(VeloxError::from)?;
+            let table_type: String = mysql_get_string(&row, 2, "table_type", "get_tables")
+                .map_err(VeloxError::from)?;
+            let kind = if table_type == "VIEW" { "view" } else { "table" };
             tables.push(TableInfo {
                 preview_query: format!("select * from `{}`.`{}` limit 100;", schema, name),
-                schema, name,
+                schema,
+                name,
+                kind: Some(kind.to_string()),
             });
         }
         Ok(tables)

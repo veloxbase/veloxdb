@@ -68,22 +68,26 @@ impl DatabaseEngineOps for SqliteEngine {
     ) -> Result<Vec<TableInfo>, VeloxError> {
         let pool = get_or_create_sqlite_pool(app, state, connection_id).await?;
         let rows = sqlx::query(
-            "select name from sqlite_master \
-             where type = 'table' and name not like 'sqlite_%' order by name",
+            "select name, type from sqlite_master \
+             where type in ('table', 'view') and name not like 'sqlite_%' order by name",
         ).fetch_all(&pool).await
             .map_err(|e| VeloxError::Query(e.to_string()))?;
         let mut tables = Vec::new();
         for row in rows {
             let name: String = sqlite_get_idx(&row, 0, "name", "get_tables")
                 .map_err(VeloxError::from)?;
+            let obj_type: String = sqlite_get_idx(&row, 1, "type", "get_tables")
+                .map_err(VeloxError::from)?;
             if !is_safe_identifier(&name) {
                 log::warn!("Skipping table with unsafe identifier: {:?}", name);
                 continue;
             }
+            let kind = if obj_type == "view" { "view" } else { "table" };
             tables.push(TableInfo {
                 schema: "main".to_string(),
                 preview_query: format!("select * from \"{}\" limit 100;", quote_identifier(&name)),
                 name,
+                kind: Some(kind.to_string()),
             });
         }
         Ok(tables)

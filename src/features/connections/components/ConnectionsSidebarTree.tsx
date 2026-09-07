@@ -12,10 +12,16 @@ import {
   ArrowsClockwiseIcon,
   CaretDownIcon,
   CaretRightIcon,
+  CodeIcon,
   DatabaseIcon,
+  EyeIcon,
+  FolderIcon,
+  FolderOpenIcon,
   HardDriveIcon,
+  ListNumbersIcon,
   MagnifyingGlassIcon,
   PlusIcon,
+  ScrollIcon,
   SidebarSimpleIcon,
   SpinnerGapIcon,
   TableIcon,
@@ -27,12 +33,19 @@ import type { ConnectionSummary, DatabaseInfo, TableInfo } from '@/data/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { TreeView, type TreeDataItem } from '@/components/ui/tree-view'
+import { TreeView } from '@/components/ui/tree-view'
 import type { TableQuickSqlAction } from '@/features/queries/table-quick-actions'
 import { useTableSchemaQuery } from '@/features/schema/queries'
 import { useConnectionHealth } from '@/features/connections/use-connection-health'
 import { useDatabasesQuery, useSwitchDatabaseMutation } from '@/features/connections/queries'
+import { buildConnectionString } from '@/lib/connection-string'
 import { readExpandedIds, writeExpandedIds } from '@/lib/tree-expanded-persistence'
+import {
+  buildSchemaTreeNodes,
+  isCategoryNode,
+  isSchemaNode,
+  type SchemaCategory,
+} from '@/features/connections/schema-tree'
 
 function engineBadge(engine: ConnectionSummary['engine']): string {
   if (engine === 'postgres') return 'PG'
@@ -40,6 +53,13 @@ function engineBadge(engine: ConnectionSummary['engine']): string {
   if (engine === 'mongo') return 'MG'
   if (engine === 'duckdb') return 'DK'
   if (engine === 'redis') return 'RD'
+  if (engine === 'clickhouse') return 'CH'
+  if (engine === 'libsql') return 'LS'
+  if (engine === 'turso') return 'TU'
+  if (engine === 'scylladb') return 'SY'
+  if (engine === 'cassandra') return 'CA'
+  if (engine === 'mssql') return 'MS'
+  if (engine === 'azuresql') return 'AZ'
   return 'SQ'
 }
 
@@ -224,13 +244,124 @@ type ConnectionsSidebarTreeProps = {
   onToggleCollapsed: () => void
 }
 
+type SchemaTreeItemProps = {
+  schema: string
+  tableCount: number
+  level: number
+  isExpanded: boolean
+  isFocused: boolean
+  highlightSchemaNeedleLower: string
+  onToggle: () => void
+}
+
+const SchemaTreeItem = memo(function SchemaTreeItem({
+  schema,
+  tableCount,
+  level,
+  isExpanded,
+  isFocused,
+  highlightSchemaNeedleLower,
+  onToggle,
+}: SchemaTreeItemProps) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        'group flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+        isFocused && 'ring-1 ring-inset ring-ring',
+      )}
+      style={{ paddingLeft: `${10 + level * 14}px` }}
+      onClick={onToggle}
+    >
+      <span className="text-sidebar-foreground/50">
+        {isExpanded ? <CaretDownIcon className="size-3" /> : <CaretRightIcon className="size-3" />}
+      </span>
+      {isExpanded ? (
+        <FolderOpenIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />
+      ) : (
+        <FolderIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />
+      )}
+      <span className="min-w-0 flex-1 truncate font-medium text-sidebar-foreground/80">
+        {highlightText(schema, highlightSchemaNeedleLower)}
+      </span>
+      <span className="ml-auto shrink-0 text-[10px] text-sidebar-foreground/40 tabular-nums">
+        {tableCount}
+      </span>
+    </button>
+  )
+})
+
+type CategoryTreeItemProps = {
+  category: SchemaCategory
+  label: string
+  count: number
+  level: number
+  isExpanded: boolean
+  isFocused: boolean
+  onToggle: () => void
+}
+
+const CategoryTreeItem = memo(function CategoryTreeItem({
+  category,
+  label,
+  count,
+  level,
+  isExpanded,
+  isFocused,
+  onToggle,
+}: CategoryTreeItemProps) {
+  const renderCategoryIcon = () => {
+    switch (category) {
+      case 'tables':
+        return <TableIcon className="size-3.5 shrink-0 text-emerald-500" />
+      case 'views':
+        return <EyeIcon className="size-3.5 shrink-0 text-purple-500" />
+      case 'materialized_views':
+        return <EyeIcon className="size-3.5 shrink-0 text-indigo-400" />
+      case 'procedures':
+        return <ScrollIcon className="size-3.5 shrink-0 text-sky-500" />
+      case 'functions':
+        return <CodeIcon className="size-3.5 shrink-0 text-amber-500" />
+      case 'sequences':
+        return <ListNumbersIcon className="size-3.5 shrink-0 text-teal-400" />
+      default:
+        return <FolderIcon className="size-3.5 shrink-0 text-sidebar-foreground/50" />
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        'group flex w-full items-center gap-1.5 px-3 py-1 text-left text-xs transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+        isFocused && 'ring-1 ring-inset ring-ring',
+      )}
+      style={{ paddingLeft: `${10 + level * 10}px` }}
+      onClick={(e) => {
+        e.stopPropagation()
+        onToggle()
+      }}
+    >
+      <span className="text-sidebar-foreground/50">
+        {isExpanded ? <CaretDownIcon className="size-3" /> : <CaretRightIcon className="size-3" />}
+      </span>
+      {renderCategoryIcon()}
+      <span className="min-w-0 flex-1 truncate font-medium text-sidebar-foreground/80">
+        {label}
+      </span>
+      <span className="ml-auto shrink-0 text-[10px] text-sidebar-foreground/40 tabular-nums">
+        {count}
+      </span>
+    </button>
+  )
+})
+
 type TableTreeItemProps = {
   connectionId: string
   table: TableInfo
   level: number
   isExpanded: boolean
   isSelected: boolean
-  highlightSchemaNeedleLower: string
   highlightTableNeedleLower: string
   onSelectTable: (table: TableInfo) => void
   onToggleExpanded: () => void
@@ -249,7 +380,6 @@ const TableTreeItem = memo(function TableTreeItem({
   level,
   isExpanded,
   isSelected,
-  highlightSchemaNeedleLower,
   highlightTableNeedleLower,
   onSelectTable,
   onToggleExpanded,
@@ -258,6 +388,9 @@ const TableTreeItem = memo(function TableTreeItem({
   const schemaQuery = useTableSchemaQuery({ connectionId, table, enabled: isExpanded })
 
   const errorMessage = schemaQuery.error instanceof Error ? schemaQuery.error.message : 'Failed to load fields'
+
+  // Indent table items to 46px so they clearly nest under the Category header
+  const tablePaddingLeft = level >= 2 ? 46 : 10 + level * 14
 
   return (
     <div>
@@ -270,7 +403,7 @@ const TableTreeItem = memo(function TableTreeItem({
         <button
           type="button"
           className="flex min-w-0 flex-1 items-start gap-2 px-3 py-1.5"
-          style={{ paddingLeft: `${20 + level * 16}px` }}
+          style={{ paddingLeft: `${tablePaddingLeft}px` }}
           onClick={() => onSelectTable(table)}
           onContextMenu={(event) => {
             onOpenContextMenu(event, {
@@ -291,23 +424,34 @@ const TableTreeItem = memo(function TableTreeItem({
             })
           }}
         >
-          <TableIcon className={cn(
-            'size-3.5 shrink-0',
-            isSelected ? 'text-emerald-500' : 'text-sidebar-foreground/60',
-          )} />
+          {table.kind === 'view' || table.kind === 'materialized_view' ? (
+            <EyeIcon
+              className={cn(
+                'size-3.5 shrink-0',
+                isSelected ? 'text-purple-500' : 'text-sidebar-foreground/60',
+              )}
+            />
+          ) : (
+            <TableIcon
+              className={cn(
+                'size-3.5 shrink-0',
+                isSelected ? 'text-emerald-500' : 'text-sidebar-foreground/60',
+              )}
+            />
+          )}
           <div className="min-w-0 truncate">
             <span className="font-medium">
               {highlightText(table.name, highlightTableNeedleLower)}
-            </span>
-            <span className="text-[11px] text-sidebar-foreground/60">
-              ({highlightText(table.schema, highlightSchemaNeedleLower)})
             </span>
           </div>
         </button>
       </div>
 
       {isExpanded ? (
-        <div className="ml-5 border-l border-sidebar-border/60 py-1.5 pl-2 pr-0.5">
+        <div
+          className="border-l border-sidebar-border/60 py-1.5 pl-2 pr-0.5"
+          style={{ marginLeft: `${tablePaddingLeft + 7}px` }}
+        >
           {schemaQuery.isLoading ? (
             <div className="flex items-center gap-2 py-1 text-[11px] text-sidebar-foreground/60">
               <SpinnerGapIcon className="size-3 animate-spin" />
@@ -394,27 +538,29 @@ export function ConnectionsSidebarTree({
       ? `${activeConnectionId}:${selectedTable.schema}.${selectedTable.name}`
       : null
 
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
-
   const persistScope = activeConnectionId ?? 'default'
+
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
+    const ids = readExpandedIds(persistScope)
+    return new Set(ids)
+  })
 
   useEffect(() => {
     const ids = readExpandedIds(persistScope)
-    if (ids.length) {
-      setExpandedIds(new Set(ids))
-    } else if (activeConnectionId && activeConnection) {
-      const defaultExpanded = [`db-${activeConnection.id}-${activeConnection.database}`]
-      setExpandedIds(new Set(defaultExpanded))
-      writeExpandedIds(persistScope, defaultExpanded)
-    }
-  }, [persistScope, activeConnectionId, activeConnection])
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setExpandedIds(new Set(ids))
+  }, [persistScope])
 
   const handleExpandedChange = useCallback(
     (ids: string[]) => {
-      setExpandedIds(new Set(ids))
-      writeExpandedIds(persistScope, ids)
+      const nextIds =
+        activeConnectionId && !ids.includes(`schema-init:${activeConnectionId}`)
+          ? [...ids, `schema-init:${activeConnectionId}`]
+          : ids
+      setExpandedIds(new Set(nextIds))
+      writeExpandedIds(persistScope, nextIds)
     },
-    [persistScope],
+    [persistScope, activeConnectionId],
   )
 
   const { fullNeedleLower, schemaNeedleLower, tableNeedleLower } = useMemo(
@@ -436,6 +582,53 @@ export function ConnectionsSidebarTree({
     if (!fullNeedleLower) return tablesWithSearchKeyLower
     return tablesWithSearchKeyLower.filter((entry) => entry.searchKeyLower.includes(fullNeedleLower))
   }, [fullNeedleLower, tablesWithSearchKeyLower])
+
+  const effectiveExpandedIds = useMemo(() => {
+    if (!activeConnectionId) return expandedIds
+    const set = new Set(expandedIds)
+
+    const getCategoryKey = (t: TableInfo) => {
+      if (t.kind === 'view') return 'views'
+      if (t.kind === 'materialized_view') return 'materialized_views'
+      return 'tables'
+    }
+
+    const hasTrackedCategories = Array.from(expandedIds).some(
+      (id) => id.startsWith(`category:${activeConnectionId}:`),
+    )
+    const hasTrackedSchemas = Array.from(expandedIds).some(
+      (id) => id.startsWith(`schema:${activeConnectionId}:`) || id === `schema-init:${activeConnectionId}`,
+    )
+    if (!hasTrackedSchemas) {
+      for (const t of tables) {
+        const schema = t.schema || 'public'
+        set.add(`schema:${activeConnectionId}:${schema}`)
+      }
+    }
+
+    if (!hasTrackedCategories) {
+      for (const t of tables) {
+        const schema = t.schema || 'public'
+        set.add(`category:${activeConnectionId}:${schema}:${getCategoryKey(t)}`)
+      }
+    }
+
+    if (selectedTable) {
+      const schema = selectedTable.schema || 'public'
+      set.add(`schema:${activeConnectionId}:${schema}`)
+      set.add(`category:${activeConnectionId}:${schema}:${getCategoryKey(selectedTable)}`)
+    }
+
+    if (isSearching) {
+      for (const entry of filteredTablesWithKeys) {
+        const schema = entry.table.schema || 'public'
+        set.add(`schema:${activeConnectionId}:${schema}`)
+        set.add(`category:${activeConnectionId}:${schema}:${getCategoryKey(entry.table)}`)
+      }
+    }
+
+    return set
+  }, [activeConnectionId, expandedIds, tables, selectedTable, isSearching, filteredTablesWithKeys])
 
   const openSidebarContextMenu = useCallback(
     (event: ReactMouseEvent<HTMLElement>, target: SidebarContextMenuTarget) => {
@@ -544,9 +737,16 @@ export function ConnectionsSidebarTree({
               onCopyConnectionString(connection)
             } else {
               void navigator.clipboard.writeText(
-                connection.engine === 'sqlite'
-                  ? `sqlite://${connection.filePath ?? connection.database}`
-                  : `${connection.engine === 'mysql' ? 'mysql' : 'postgresql'}://${connection.user}@${connection.host}:${connection.port}/${connection.database}`,
+                buildConnectionString({
+                  engine: connection.engine,
+                  user: connection.user,
+                  password: '',
+                  host: connection.host,
+                  port: connection.port,
+                  database: connection.database,
+                  filePath: connection.filePath ?? undefined,
+                  sslMode: 'prefer',
+                }),
               )
             }
             break
@@ -662,17 +862,6 @@ export function ConnectionsSidebarTree({
       (connection.engine === 'mysql' &&
         databaseName.toLowerCase() === expandedDatabaseName.toLowerCase())
 
-    const buildTableTreeNode = (tables: TableInfo[]): TreeDataItem[] =>
-      tables.map((t) => ({
-        id: `table:${connection.id}:${t.schema}.${t.name}`,
-        name: t.name,
-        data: t,
-        onDoubleClick: () => {
-          onSelectTable(t)
-          onTableQuickAction('selectAll', connection.id, t)
-        },
-      }))
-
     return (
       <div className="border-t border-sidebar-border/40">
         {databasesQuery.isLoading && !databasesQuery.data ? (
@@ -757,11 +946,44 @@ export function ConnectionsSidebarTree({
                       </div>
                     ) : (
                       <TreeView
-                        data={buildTableTreeNode(filteredTablesWithKeys.map((e) => e.table))}
-                        expandedIds={[...expandedIds]}
+                        data={buildSchemaTreeNodes(
+                          connection.id,
+                          filteredTablesWithKeys.map((e) => e.table),
+                          onSelectTable,
+                          onTableQuickAction,
+                        )}
+                        expandedIds={[...effectiveExpandedIds]}
                         onExpandedChange={handleExpandedChange}
                         initialSelectedItemId={activeTableKey ?? undefined}
                         renderItem={(params) => {
+                          if (isSchemaNode(params.item)) {
+                            return (
+                              <SchemaTreeItem
+                                schema={params.item.data.schema}
+                                tableCount={params.item.data.tableCount}
+                                level={params.level}
+                                isExpanded={params.isExpanded}
+                                isFocused={params.isFocused}
+                                highlightSchemaNeedleLower={schemaNeedleLower}
+                                onToggle={params.toggle}
+                              />
+                            )
+                          }
+
+                          if (isCategoryNode(params.item)) {
+                            return (
+                              <CategoryTreeItem
+                                category={params.item.data.category}
+                                label={params.item.data.label}
+                                count={params.item.data.count}
+                                level={params.level}
+                                isExpanded={params.isExpanded}
+                                isFocused={params.isFocused}
+                                onToggle={params.toggle}
+                              />
+                            )
+                          }
+
                           const table = params.item.data as TableInfo | undefined
                           if (!table) return undefined
                           const tableKey = `${connection.id}:${table.schema}.${table.name}`
@@ -772,7 +994,6 @@ export function ConnectionsSidebarTree({
                               level={params.level}
                               isExpanded={params.isExpanded}
                               isSelected={activeTableKey === tableKey}
-                              highlightSchemaNeedleLower={schemaNeedleLower}
                               highlightTableNeedleLower={tableNeedleLower}
                               onSelectTable={() => {
                                 params.select()

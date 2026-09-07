@@ -317,6 +317,7 @@ pub async fn mongo_get_collections(
             schema: db_name.clone(),
             name: name.clone(),
             preview_query: format!("db.{}.find({{}}).limit(100)", name),
+            kind: Some("table".to_string()),
         })
         .collect())
 }

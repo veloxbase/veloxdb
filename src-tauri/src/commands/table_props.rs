@@ -236,6 +236,13 @@ pub async fn apply_table_properties(
                 DatabaseEngine::Mongo => "MongoDB",
                 DatabaseEngine::Duckdb => "DuckDB",
                 DatabaseEngine::Redis => "Redis",
+                DatabaseEngine::Clickhouse => "ClickHouse",
+                DatabaseEngine::Libsql => "LibSQL",
+                DatabaseEngine::Turso => "Turso",
+                DatabaseEngine::Scylladb => "ScyllaDB",
+                DatabaseEngine::Cassandra => "Apache Cassandra",
+                DatabaseEngine::Mssql => "SQL Server",
+                DatabaseEngine::Azuresql => "Azure SQL",
             }
         ));
     }

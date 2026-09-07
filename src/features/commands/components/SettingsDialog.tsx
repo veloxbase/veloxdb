@@ -22,7 +22,7 @@ import { Input } from '@/components/ui/input'
 import { saveOpenRouterApiKey } from '@/lib/openrouter-credentials'
 import { fetchOpenRouterModels, OPENROUTER_POPULAR_MODELS, type OpenRouterModelOption } from '@/lib/openrouter-models'
 import { cn } from '@/lib/utils'
-import { useSettings, type AppTheme, type FontSize, type NullDisplay, themeLabels } from '@/lib/settings'
+import { useSettings, type AppTheme, type NullDisplay, themeLabels, resolveFontSizePx } from '@/lib/settings'
 import { useUpdateCheck } from '@/hooks/useUpdateCheck'
 import pkg from '../../../../package.json'
 
@@ -55,7 +55,8 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const [tab, setTab] = useState('appearance')
 
   const handleExport = useCallback(() => {
-    const { veloxyOpenRouterApiKey: _omitApiKey, ...exportable } = useSettings.getState()
+    const exportable = { ...useSettings.getState() }
+    delete (exportable as Partial<typeof exportable>).veloxyOpenRouterApiKey
     const data = JSON.stringify(exportable, null, 2)
     const blob = new Blob([data], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -153,8 +154,48 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 <ThemeSelect value={settings.theme} onChange={(v) => useSettings.setState({ theme: v as AppTheme })} />
               </Field>
               <Field label={t("settings.fontSize")} desc={t("settings.fontSizeDesc")}>
-                <Select value={settings.fontSize} onChange={(v) => useSettings.setState({ fontSize: v as FontSize })}
-                  opts={[{ v: 'sm', l: t("settings.small") }, { v: 'md', l: t("settings.medium") }, { v: 'lg', l: t("settings.large") }]} />
+                <div className="flex items-center gap-2">
+                  <div className="relative flex items-center">
+                    <Input
+                      type="number"
+                      min={10}
+                      max={32}
+                      step={1}
+                      value={resolveFontSizePx(settings.fontSize)}
+                      onChange={(e) => {
+                        const val = Number(e.target.value)
+                        if (!Number.isNaN(val) && val > 0) {
+                          useSettings.setState({ fontSize: Math.max(10, Math.min(32, val)) })
+                        }
+                      }}
+                      className="h-8 w-[80px] text-xs pr-6 text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span className="absolute right-2 text-xs text-muted-foreground pointer-events-none select-none">
+                      px
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {[12, 14, 16, 18, 20].map((size) => {
+                      const current = resolveFontSizePx(settings.fontSize)
+                      const isActive = current === size
+                      return (
+                        <button
+                          key={size}
+                          type="button"
+                          onClick={() => useSettings.setState({ fontSize: size })}
+                          className={cn(
+                            'h-8 px-2.5 text-xs transition-colors border border-input cursor-pointer',
+                            isActive
+                              ? 'bg-primary text-primary-foreground border-primary font-medium'
+                              : 'bg-muted/30 text-muted-foreground hover:bg-accent hover:text-foreground',
+                          )}
+                        >
+                          {size}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
               </Field>
               <Field label={t("settings.monospaceFont")} desc={t("settings.monospaceFontDesc")}>
                 <Input value={settings.monospaceFont} onChange={(e) => useSettings.setState({ monospaceFont: e.target.value })}

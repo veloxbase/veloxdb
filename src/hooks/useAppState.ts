@@ -41,7 +41,7 @@ import { isInsertFormColumn } from "@/features/queries/result-edits";
 import { quoteIdent } from "@/lib/sql-ident";
 import { notifyError, notifySuccess } from "@/lib/error-notifier";
 import { loadOpenRouterApiKey } from "@/lib/openrouter-credentials";
-import { useSettings, resolveTheme, themeClassName, THEME_CLASSES } from "@/lib/settings";
+import { useSettings, resolveTheme, themeClassName, THEME_CLASSES, resolveFontSizePx } from "@/lib/settings";
 
 import type { QueryWorkspaceHandle } from "@/features/queries/components/QueryWorkspace";
 
@@ -173,8 +173,8 @@ export function useAppState(
   }, [themeSetting]);
 
 	useEffect(() => {
-		const sizes = { sm: 12, md: 14, lg: 16 };
-		document.documentElement.style.fontSize = `${sizes[fontSize]}px`;
+		const sizePx = resolveFontSizePx(fontSize);
+		document.documentElement.style.fontSize = `${sizePx}px`;
 	}, [fontSize]);
 
 	useEffect(() => {

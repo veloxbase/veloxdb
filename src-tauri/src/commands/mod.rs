@@ -430,7 +430,14 @@ pub(crate) async fn run_query_mysql_or_sqlite(
         DatabaseEngine::Redis => {
             return Err("Internal engine routing error (Redis uses its own command path).".to_string());
         }
-        DatabaseEngine::Postgres => {
+        DatabaseEngine::Postgres
+        | DatabaseEngine::Clickhouse
+        | DatabaseEngine::Libsql
+        | DatabaseEngine::Turso
+        | DatabaseEngine::Scylladb
+        | DatabaseEngine::Cassandra
+        | DatabaseEngine::Mssql
+        | DatabaseEngine::Azuresql => {
             return Err("Internal engine routing error.".to_string());
         }
     }
