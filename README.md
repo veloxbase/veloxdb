@@ -24,6 +24,10 @@
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square" alt="Platforms">
 </p>
 
+<p align="center">
+  <img src="assets/hero.png" alt="VeloxDB — a fast, memory-efficient PostgreSQL desktop client. Monaco-powered SQL editor, virtual-scrolled results grid, schema sidebar, and a visual ER diagram. Local-first; no cloud, no proxies, no telemetry. Built with Rust + Tauri 2 and React 19, for macOS, Linux, and Windows.">
+</p>
+
 ---
 
 **VeloxDB** is a **fast, memory-efficient, developer-focused** desktop client supporting **13 database engines**: **PostgreSQL, MySQL, SQLite, DuckDB, MongoDB, Redis, ClickHouse, LibSQL, Turso, ScyllaDB, Apache Cassandra, Microsoft SQL Server, and Azure SQL**. Connect directly to your databases — no cloud, no middleware, no telemetry. Built with performance and productivity at its core.
