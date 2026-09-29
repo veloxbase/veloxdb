@@ -131,6 +131,7 @@ type TableContextMenuActionId =
   | 'addRow'
   | 'tableProperties'
   | 'copyTableName'
+  | 'copyTableSql'
   | 'truncateTable'
 
 type DatabaseContextMenuActionId =
@@ -237,6 +238,7 @@ type ConnectionsSidebarTreeProps = {
   onDeleteTable?: (connectionId: string, table: TableInfo) => void | Promise<void>
   onTruncateTable?: (connectionId: string, table: TableInfo) => void | Promise<void>
   onCopyTableName?: (connectionId: string, table: TableInfo) => void
+  onCopyTableSql?: (connectionId: string, table: TableInfo) => void | Promise<void>
   onRefreshDatabases?: (connectionId: string) => void | Promise<void>
   onCopyDatabaseName?: (connectionId: string, database: string) => void
   onCopyConnectionString?: (connection: ConnectionSummary) => void
@@ -511,6 +513,7 @@ export function ConnectionsSidebarTree({
   onDeleteTable,
   onTruncateTable,
   onCopyTableName,
+  onCopyTableSql,
   onRefreshDatabases,
   onCopyDatabaseName,
   onCopyConnectionString,
@@ -699,6 +702,7 @@ export function ConnectionsSidebarTree({
   const tableContextMenuActions = useMemo<ContextMenuAction[]>(
     () => [
       { id: 'selectTable', label: t("table.selectAll"), group: 'primary' },
+      { id: 'copyTableSql', label: t("table.copyTableSql"), group: 'primary' },
       { id: 'toggleFields', label: t("table.toggleFields"), group: 'primary' },
       { id: 'copyTableName', label: t("table.copyTableName"), group: 'primary' },
       { id: 'refreshTable', label: t("table.refreshTable"), group: 'secondary' },
@@ -790,6 +794,11 @@ export function ConnectionsSidebarTree({
           case 'selectTable':
             onSelectTable(table)
             break
+          case 'copyTableSql':
+            if (onCopyTableSql) {
+              void onCopyTableSql(connectionId, table)
+            }
+            break
           case 'toggleFields':
             onToggleExpanded?.()
             break
@@ -844,6 +853,7 @@ export function ConnectionsSidebarTree({
       onRenameTable,
       onTruncateTable,
       onCopyTableName,
+      onCopyTableSql,
       onDeleteTable,
       onTableQuickAction,
     ],

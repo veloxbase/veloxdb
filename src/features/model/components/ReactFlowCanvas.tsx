@@ -20,6 +20,7 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react'
 import { toPng } from 'html-to-image'
+import { CopyIcon } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
 import { buildRoutedDiagramEdges } from '@/features/model/diagram-geometry/edge-routing'
@@ -45,6 +46,7 @@ type TableNodeData = {
   columnDetail: NonNullable<DiagramSurfaceProps['columnDetail']>
   onSelect: (key: TableKey, shiftKey: boolean) => void
   onRequestColumns: (key: TableKey) => void
+  onCopyTableSql?: (key: TableKey) => void
   onQuickEditColumn?: (
     tableKey: TableKey,
     sourceColumnName: string,
@@ -60,6 +62,7 @@ type GroupNodeData = {
 }
 
 const TableFlowNode = memo(({ data }: { data: TableNodeData }) => {
+  const { t } = useTranslation()
   const rows = useMemo(() => data.columns?.slice(0, MAX_ROWS) ?? [], [data.columns])
   const moreCount = data.columns && data.columns.length > MAX_ROWS ? data.columns.length - MAX_ROWS : 0
   const height = tableNodeHeight(data.columns ?? null, data.columnDetail)
@@ -130,7 +133,7 @@ const TableFlowNode = memo(({ data }: { data: TableNodeData }) => {
   return (
     <button
       type="button"
-      className={`nopan relative block cursor-grab appearance-none rounded-md border bg-card text-left shadow-sm outline-none active:cursor-grabbing ${data.selected ? 'border-primary ring-1 ring-primary/35' : 'border-border'}`}
+      className={`nopan relative block cursor-grab appearance-none rounded-md border-2 bg-card text-left shadow-sm outline-none active:cursor-grabbing ${data.selected ? 'border-primary ring-2 ring-primary/55 shadow-md shadow-primary/20' : 'border-border'}`}
       style={{ width: TABLE_NODE_WIDTH, minHeight: height }}
       aria-label={`Table ${data.schema}.${data.name}`}
       onMouseEnter={() => setHovered(true)}
@@ -157,13 +160,37 @@ const TableFlowNode = memo(({ data }: { data: TableNodeData }) => {
         }
       }}
     >
-      <div className="rounded-t-md px-2 py-2 text-xs font-semibold" style={{ backgroundColor: headerFill, color: headerText }}>
-        {schemaLabel ? (
-          <span className="mb-0.5 block text-[9px] font-medium uppercase tracking-[0.1em] opacity-55">
-            {schemaLabel}{mongoAvgCoverage != null ? ` (avg ${mongoAvgCoverage}%)` : ''}
-          </span>
+      <div
+        className="flex items-start justify-between gap-1 rounded-t-md px-2 py-2 text-xs font-semibold"
+        style={{ backgroundColor: headerFill, color: headerText }}
+      >
+        <div className="min-w-0 flex-1">
+          {schemaLabel ? (
+            <span className="mb-0.5 block text-[9px] font-medium uppercase tracking-[0.1em] opacity-55">
+              {schemaLabel}{mongoAvgCoverage != null ? ` (avg ${mongoAvgCoverage}%)` : ''}
+            </span>
+          ) : null}
+          <span className="block truncate">{data.name} ({data.schema})</span>
+        </div>
+        {data.onCopyTableSql ? (
+          <button
+            type="button"
+            className="nodrag nopan shrink-0 rounded-sm p-0.5 opacity-80 hover:bg-black/15 hover:opacity-100"
+            style={{ color: headerText }}
+            title={t('model.copyTableSql')}
+            aria-label={t('model.copyTableSql')}
+            onClick={(e) => {
+              e.stopPropagation()
+              e.preventDefault()
+              data.onCopyTableSql?.(data.key)
+            }}
+            onPointerDown={(e) => {
+              e.stopPropagation()
+            }}
+          >
+            <CopyIcon className="size-3.5" weight="bold" aria-hidden />
+          </button>
         ) : null}
-        {data.name} ({data.schema})
       </div>
       {(
         <>
@@ -304,10 +331,12 @@ export function ReactFlowCanvas({
   selectedKeys,
   onTableSelect,
   onClearSelection,
+  onSelectionSync,
   onTableDragStart,
   onTableDragMove,
   onMoveTable,
   onRequestColumns,
+  onCopyTableSql,
   onConnectColumns,
   onConnectTables,
   canConnectColumns,
@@ -327,6 +356,10 @@ export function ReactFlowCanvas({
   const wrapperRef = useRef<HTMLDivElement>(null)
   const rfRef = useRef<ReactFlowInstance<Node, Edge> | null>(null)
   const [spaceHeld, setSpaceHeld] = useState(false)
+  const selectedKeysRef = useRef(selectedKeys)
+  selectedKeysRef.current = selectedKeys
+  const onSelectionSyncRef = useRef(onSelectionSync)
+  onSelectionSyncRef.current = onSelectionSync
 
   const palette = useMemo(() => readDiagramPalette(isDark), [isDark])
   const paletteEdgeStyle = useMemo(() => ({
@@ -362,6 +395,7 @@ export function ReactFlowCanvas({
         type: 'tableNode',
         position: pos,
         draggable: true,
+        selected: selectedKeys.has(t.key),
           data: {
             key: t.key,
             schema: t.schema,
@@ -373,12 +407,13 @@ export function ReactFlowCanvas({
             columnDetail,
           onSelect: onTableSelect,
           onRequestColumns,
+          onCopyTableSql,
           onQuickEditColumn,
           editedColumnNames: editedColumnNamesByKey[t.key] ?? new Set<string>(),
         },
       }
     })
-  }, [tableDisplays, positions, columnsByKey, headerColors, columnDetail, editedColumnNamesByKey, onQuickEditColumn, onRequestColumns, onTableSelect, selectedKeys, connectionEngine])
+  }, [tableDisplays, positions, columnsByKey, headerColors, columnDetail, editedColumnNamesByKey, onCopyTableSql, onQuickEditColumn, onRequestColumns, onTableSelect, selectedKeys, connectionEngine])
 
   const groupNodes = useMemo<Node<GroupNodeData>[]>(() => {
     if (!diagramGroups.length) return []
@@ -519,6 +554,20 @@ export function ReactFlowCanvas({
     instance.fitView({ nodes: selectedNodeIds.map((id) => ({ id })), padding: 0.2, duration: 160 })
   }, [nodes])
 
+  const handleSelectionChange = useCallback(
+    ({ nodes: selectedNodes }: { nodes: Node[] }) => {
+      const sync = onSelectionSyncRef.current
+      if (!sync) return
+      const nextKeys = selectedNodes
+        .filter((n) => n.type === 'tableNode' || !String(n.id).startsWith('group:'))
+        .map((n) => n.id as TableKey)
+      const prev = selectedKeysRef.current
+      if (nextKeys.length === prev.size && nextKeys.every((k) => prev.has(k))) return
+      sync(nextKeys)
+    },
+    [],
+  )
+
   useEffect(() => {
     const tagIgnores = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'])
     const onKeyDown = (e: KeyboardEvent) => {
@@ -609,6 +658,7 @@ export function ReactFlowCanvas({
          onPaneClick={onClearSelection}
          onPaneContextMenu={() => onEdgeSelect?.(null)}
          onNodeClick={(evt, node) => onTableSelect(node.id as TableKey, evt.shiftKey)}
+         onSelectionChange={handleSelectionChange}
         onEdgeClick={(evt, edge) => {
           evt.preventDefault()
           onEdgeSelect?.(

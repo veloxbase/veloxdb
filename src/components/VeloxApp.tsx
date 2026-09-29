@@ -77,6 +77,7 @@ export function VeloxApp() {
 		handleCopyConnectionString,
 		handleTruncateTable,
 		handleCopyTableName,
+		handleCopyTableSql,
 		handleRefreshDatabases,
 		handleCopyDatabaseName,
 		handleActivateConnectionForTab,
@@ -157,6 +158,7 @@ export function VeloxApp() {
 									onDeleteTable={handleDeleteTableRequest}
 									onTruncateTable={handleTruncateTable}
 									onCopyTableName={handleCopyTableName}
+									onCopyTableSql={handleCopyTableSql}
 									onRefreshDatabases={handleRefreshDatabases}
 									onCopyDatabaseName={handleCopyDatabaseName}
 									onCopyConnectionString={handleCopyConnectionString}

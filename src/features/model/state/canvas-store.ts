@@ -379,9 +379,12 @@ export const useCanvasStore = create<CanvasStore>((set) => {
         if (shiftKey) {
           const merged = [...new Set([...prev.selectedKeys, ...keys])]
           const primary = keys.length > 0 ? keys[keys.length - 1] ?? prev.primaryKey : prev.primaryKey
+          if (sameStringArray(prev.selectedKeys, merged) && prev.primaryKey === primary) return prev
           return { ...prev, selectedKeys: merged, primaryKey: primary }
         }
-        return { ...prev, selectedKeys: keys, primaryKey: keys[0] ?? null }
+        const primary = keys[0] ?? null
+        if (sameStringArray(prev.selectedKeys, keys) && prev.primaryKey === primary) return prev
+        return { ...prev, selectedKeys: keys, primaryKey: primary }
       }),
     selectSingleFromCatalog: (key) =>
       applyMutation((prev) =>

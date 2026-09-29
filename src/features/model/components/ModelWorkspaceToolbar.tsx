@@ -1,7 +1,7 @@
 import {
   AlignBottomIcon, AlignLeftIcon, AlignRightIcon, AlignTopIcon,
   ArrowsClockwiseIcon, ArrowsInSimpleIcon, ArrowsOutIcon,
-  DownloadSimpleIcon, FilePdfIcon, GridFourIcon, MagnetIcon,
+  CopyIcon, DownloadSimpleIcon, FilePdfIcon, GridFourIcon, MagnetIcon,
   PlusIcon, SquaresFourIcon, TreeStructureIcon,
 } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
@@ -34,6 +34,9 @@ type DiagramToolbarProps = {
   onResetLayout: () => void;
   onAddGroup: () => void;
   onCreateTable: () => void;
+  onCopySelectedSql: () => void;
+  onCopyAllTablesSql: () => void;
+  copySqlPending?: boolean;
   onExportPng: () => void;
   onExportPdf: () => void;
   // for switch between diagram and catalog
@@ -48,7 +51,8 @@ export function ModelWorkspaceToolbar({
   selectedKeysCount, onAlignLeft, onAlignRight, onAlignTop, onAlignBottom,
   onAutoLayoutGrid, onAutoLayoutTopo, onAutoLayoutDagre,
   onFitSelection, onResetViewport, onResetLayout,
-  onAddGroup, onCreateTable, onExportPng, onExportPdf,
+  onAddGroup, onCreateTable, onCopySelectedSql, onCopyAllTablesSql, copySqlPending = false,
+  onExportPng, onExportPdf,
 }: DiagramToolbarProps) {
   const { t } = useTranslation();
 
@@ -139,10 +143,32 @@ export function ModelWorkspaceToolbar({
       <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={onCreateTable}>
         <PlusIcon className="mr-1 size-3.5" aria-hidden />{t('model.createTable')}
       </Button>
-      <Button type="button" variant="outline" size="icon" className="size-8" title="Export PNG" onClick={onExportPng}>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="size-8"
+        title={t('model.copySelectedTablesSql')}
+        disabled={selectedKeysCount === 0 || copySqlPending}
+        onClick={onCopySelectedSql}
+      >
+        <CopyIcon className="size-4" aria-hidden />
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className="size-8"
+        title={t('model.copyAllTablesSql')}
+        disabled={copySqlPending}
+        onClick={onCopyAllTablesSql}
+      >
+        <CopyIcon className="size-4" weight="fill" aria-hidden />
+      </Button>
+      <Button type="button" variant="outline" size="icon" className="size-8" title={t('model.exportPng')} onClick={onExportPng}>
         <DownloadSimpleIcon className="size-4" aria-hidden />
       </Button>
-      <Button type="button" variant="outline" size="icon" className="size-8" title="Export PDF" onClick={onExportPdf}>
+      <Button type="button" variant="outline" size="icon" className="size-8" title={t('model.exportPdf')} onClick={onExportPdf}>
         <FilePdfIcon className="size-4" aria-hidden />
       </Button>
     </div>
