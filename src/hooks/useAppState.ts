@@ -40,6 +40,7 @@ import type { ResultEditPatch } from "@/features/queries/result-edits";
 import { isInsertFormColumn } from "@/features/queries/result-edits";
 import { quoteIdent } from "@/lib/sql-ident";
 import { notifyError, notifySuccess } from "@/lib/error-notifier";
+import { fetchTablesPropertiesSql } from "@/features/schema/format-table-properties-sql";
 import { loadOpenRouterApiKey } from "@/lib/openrouter-credentials";
 import { useSettings, resolveTheme, themeClassName, THEME_CLASSES } from "@/lib/settings";
 
@@ -471,6 +472,23 @@ export function useAppState(
 		void navigator.clipboard.writeText(value);
 	}, [connection?.engine]);
 
+	const handleCopyTableSql = useCallback(async (connectionId: string, table: TableInfo) => {
+		try {
+			const sql = await fetchTablesPropertiesSql(queryClient, connectionId, [table]);
+			if (!sql.trim()) {
+				notifyError(new Error(t("table.noColumnsFound")), {
+					title: t("editor.copyFailed"),
+					category: "internal",
+				});
+				return;
+			}
+			await navigator.clipboard.writeText(sql);
+			notifySuccess(t("editor.copied"));
+		} catch (error) {
+			notifyError(error, { title: t("editor.copyFailed"), category: "internal" });
+		}
+	}, [queryClient, t]);
+
 	const handleRefreshDatabases = useCallback((connectionId: string) => {
 		void queryClient.invalidateQueries({ queryKey: queryKeys.databases(connectionId) });
 		void queryClient.refetchQueries({ queryKey: queryKeys.databases(connectionId), type: "active" });
@@ -675,6 +693,7 @@ export function useAppState(
 		handleCopyConnectionString,
 		handleTruncateTable,
 		handleCopyTableName,
+		handleCopyTableSql,
 		handleRefreshDatabases,
 		handleCopyDatabaseName,
 		handleActivateConnectionForTab,

@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
-import { SpinnerGapIcon, CheckIcon } from '@phosphor-icons/react'
+import { CopyIcon, SpinnerGapIcon, CheckIcon } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import type { ColumnProperties, TableInfo } from '@/data/types'
+import { formatTablePropertiesSql } from '@/features/schema/format-table-properties-sql'
 import { useApplyTablePropertiesMutation, useTablePropertiesQuery } from '@/features/schema/queries'
+import { notifyError, notifySuccess } from '@/lib/error-notifier'
 import { cn } from '@/lib/utils'
 
 type TablePropertiesDialogProps = {
@@ -104,6 +106,19 @@ export function TablePropertiesDialog({
     })
   }, [propertiesQuery.data, draft])
 
+  const canCopyProperties =
+    propertiesQuery.isSuccess && columns.length > 0 && Boolean(table)
+
+  const handleCopyProperties = async () => {
+    if (!table || columns.length === 0) return
+    try {
+      await navigator.clipboard.writeText(formatTablePropertiesSql(table, columns))
+      notifySuccess(t('editor.copied'))
+    } catch (error) {
+      notifyError(error, { title: t('editor.copyFailed'), category: 'internal' })
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl border border-border p-0 sm:max-w-3xl">
@@ -113,8 +128,21 @@ export function TablePropertiesDialog({
         </DialogHeader>
 
         <div className="flex max-h-[70vh] flex-col overflow-hidden">
-          <div className="px-5 py-3 text-xs text-muted-foreground">
-            {t("table.editing")}: <span className="text-foreground">{targetTableLabel}</span>
+          <div className="flex items-center justify-between gap-3 px-5 py-3 text-xs text-muted-foreground">
+            <div className="min-w-0 truncate">
+              {t("table.editing")}: <span className="text-foreground">{targetTableLabel}</span>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 gap-1.5 text-xs"
+              disabled={!canCopyProperties || applyMutation.isPending}
+              onClick={() => void handleCopyProperties()}
+            >
+              <CopyIcon className="size-3.5" aria-hidden />
+              {t('table.copyProperties')}
+            </Button>
           </div>
           {!tablePropertyEditingSupported ? (
             <div className="px-5 pb-3 text-xs text-amber-600">

@@ -38,10 +38,13 @@ export type DiagramSurfaceProps = {
   diagramTool: DiagramTool
   onTableSelect: (key: TableKey, shiftKey: boolean) => void
   onClearSelection: () => void
+  /** Sync app selection from React Flow (marquee / multi-select). */
+  onSelectionSync?: (keys: TableKey[]) => void
   onTableDragStart?: (key: TableKey) => void
   onTableDragMove?: (key: TableKey, x: number, y: number) => void
   onMoveTable: (key: TableKey, x: number, y: number) => void
   onRequestColumns: (key: TableKey) => void
+  onCopyTableSql?: (key: TableKey) => void
   onConnectColumns?: (fromKey: TableKey, fromColumn: string, toKey: TableKey, toColumn: string) => void
   onConnectTables?: (fromKey: TableKey, toKey: TableKey) => void
   canConnectColumns?: (input: RelationshipInput) => boolean

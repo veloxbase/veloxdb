@@ -32,6 +32,8 @@ import {
 import { useForeignKeysQuery } from '@/features/model/queries';
 import { canQueueRelationship } from '@/features/model/relationship-validation';
 import { rgbCssToHex } from '@/lib/contrast-text-for-bg';
+import { notifyError, notifySuccess } from '@/lib/error-notifier';
+import { fetchTablesPropertiesSql } from '@/features/schema/format-table-properties-sql';
 
 type ModelWorkspaceProps = {
 	connectionId: string;
@@ -78,6 +80,7 @@ export function ModelWorkspace({
 	const [migrationPreviewOpen, setMigrationPreviewOpen] = useState(false);
 	const [applyPending, setApplyPending] = useState(false);
 	const [applyError, setApplyError] = useState<string | null>(null);
+	const [copySqlPending, setCopySqlPending] = useState(false);
 	const [initialSeedReason, setInitialSeedReason] = useState<null | 'relationships' | 'sample'>(null);
 
 	// Initialization effects
@@ -258,6 +261,41 @@ export function ModelWorkspace({
 			store.setPendingForeignKeys((prev) => [...prev, { id: crypto.randomUUID(), fromKey, fromColumn, toKey, toColumn }]);
 		}, [canQueueForeignKey, requestColumns, store.setPendingForeignKeys],
 	);
+
+	const copyTablesSql = useCallback(async (targetTables: TableInfo[]) => {
+		if (targetTables.length === 0 || copySqlPending) return;
+		setCopySqlPending(true);
+		try {
+			const sql = await fetchTablesPropertiesSql(queryClient, connectionId, targetTables);
+			if (!sql.trim()) {
+				notifyError(new Error(t('table.noColumnsFound')), { title: t('editor.copyFailed'), category: 'internal' });
+				return;
+			}
+			await navigator.clipboard.writeText(sql);
+			notifySuccess(t('editor.copied'));
+		} catch (error) {
+			notifyError(error, { title: t('editor.copyFailed'), category: 'internal' });
+		} finally {
+			setCopySqlPending(false);
+		}
+	}, [connectionId, copySqlPending, queryClient, t]);
+
+	const handleCopyTableSql = useCallback((key: TableKey) => {
+		const table = tablesByKey.get(key);
+		if (!table) return;
+		void copyTablesSql([table]);
+	}, [copyTablesSql, tablesByKey]);
+
+	const handleCopySelectedSql = useCallback(() => {
+		const selected = store.selectedKeys
+			.map((key) => tablesByKey.get(key))
+			.filter((table): table is TableInfo => Boolean(table));
+		void copyTablesSql(selected);
+	}, [copyTablesSql, store.selectedKeys, tablesByKey]);
+
+	const handleCopyAllTablesSql = useCallback(() => {
+		void copyTablesSql(tables);
+	}, [copyTablesSql, tables]);
 
 	const handleLoadAllTables = useCallback(() => {
 		if (!isPartialDiagram) return;
@@ -458,6 +496,9 @@ export function ModelWorkspace({
 							onResetViewport={() => store.setViewport({ scale: 1, x: 0, y: 0 })}
 							onResetLayout={handleAutoLayoutGrid}
 							onAddGroup={() => {}} onCreateTable={() => setCreateTableOpen(true)}
+							onCopySelectedSql={handleCopySelectedSql}
+							onCopyAllTablesSql={handleCopyAllTablesSql}
+							copySqlPending={copySqlPending}
 							onExportPng={() => {}} onExportPdf={() => {}}
 							onSwitchTab={(tab) => store.setModelTab(tab)}
 						/>
@@ -482,19 +523,17 @@ export function ModelWorkspace({
 									selectedKeys={new Set(store.selectedKeys)}
 									diagramTool={store.diagramTool}
 									onTableSelect={(key, shiftKey) => {
-										if (shiftKey) {
-											store.setSelectedKeys((prev) =>
-												prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
-											);
-										} else {
-											store.setSelectedKeys([key]);
-										}
+										store.selectTable(key, shiftKey);
 									}}
-									onClearSelection={() => store.setSelectedKeys([])}
+									onClearSelection={() => store.clearSelection()}
+									onSelectionSync={(keys) => {
+										store.applyMarquee(keys, false);
+									}}
 									onTableDragStart={(_k) => {}}
 									onTableDragMove={applyTableDragPositions}
 									onMoveTable={applyTableDragPositions}
 									onRequestColumns={requestColumns}
+									onCopyTableSql={handleCopyTableSql}
 									onConnectColumns={handleConnectColumns}
 									onConnectTables={(from, to) => { requestColumns(from); requestColumns(to); }}
 									canConnectColumns={canQueueForeignKey}
