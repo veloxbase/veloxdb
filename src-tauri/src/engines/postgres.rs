@@ -4,8 +4,8 @@ use tauri::AppHandle;
 use tokio_postgres::SimpleQueryMessage;
 
 use crate::db::{
-    build_pool, build_pool_custom, drop_pool, quote_identifier,
-    with_pool_client_retry, AppState,
+    build_pool, build_pool_custom, describe_pool_error, drop_pool, is_retryable_connection_error,
+    quote_identifier, with_pool_client_retry, AppState,
 };
 use crate::error::VeloxError;
 use crate::models::{ColumnInfo, ConnectionInput, DatabaseInfo, QueryResult, TableInfo};
@@ -39,13 +39,34 @@ impl DatabaseEngineOps for PostgresEngine {
             build_pool(input)?
         };
 
-        let client = pool.get().await.map_err(|e| {
-            VeloxError::Connection(e.to_string())
-        })?;
+        // Managed Postgres providers (Neon, Supabase, ...) suspend idle computes;
+        // the first attempt may hit the compute while it wakes from scale-to-zero.
+        // Retry the pool acquisition + ping once before giving up.
+        let mut retried = false;
+        loop {
+            let client = match pool.get().await {
+                Ok(client) => client,
+                Err(e) => {
+                    if !retried && is_retryable_connection_error(&describe_pool_error(&e)) {
+                        retried = true;
+                        continue;
+                    }
+                    drop_pool(state, connection_id).await;
+                    return Err(VeloxError::Connection(describe_pool_error(&e)));
+                }
+            };
 
-        if let Err(e) = client.simple_query("select 1").await {
-            drop_pool(state, connection_id).await;
-            return Err(VeloxError::Postgres(crate::error::PgError::from_error(e, None)));
+            match client.simple_query("select 1").await {
+                Ok(_) => break,
+                Err(e) => {
+                    if !retried && is_retryable_connection_error(&e.to_string()) {
+                        retried = true;
+                        continue;
+                    }
+                    drop_pool(state, connection_id).await;
+                    return Err(VeloxError::Postgres(crate::error::PgError::from_error(e, None)));
+                }
+            }
         }
 
         state.pools.write().await.insert(connection_id.to_string(), pool);

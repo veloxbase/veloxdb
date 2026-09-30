@@ -12,6 +12,66 @@ describe('connection string parsing and building', () => {
     expect(parsed?.sslMode).toBe('require')
   })
 
+  it('parses neon pooled uri and keeps client-side params as extraParams', () => {
+    const parsed = parseConnectionString(
+      'postgresql://neondb_owner:pw@ep-cool-name-123-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require',
+    )
+    expect(parsed).not.toBeNull()
+    expect(parsed?.engine).toBe('postgres')
+    expect(parsed?.host).toBe('ep-cool-name-123-pooler.us-east-1.aws.neon.tech')
+    expect(parsed?.port).toBe(5432)
+    expect(parsed?.database).toBe('neondb')
+    expect(parsed?.user).toBe('neondb_owner')
+    expect(parsed?.password).toBe('pw')
+    expect(parsed?.sslMode).toBe('require')
+    // channel_binding is a libpq client-side parameter; the backend maps it
+    // instead of forwarding it as a server startup option (which Neon poolers reject).
+    expect(parsed?.extraParams).toEqual({ channel_binding: 'require' })
+  })
+
+  it('parses neon direct uri (no channel_binding) as ssl require', () => {
+    const parsed = parseConnectionString(
+      'postgresql://neondb_owner:pw@ep-cool-name-123.us-east-1.aws.neon.tech/neondb?sslmode=require',
+    )
+    expect(parsed).not.toBeNull()
+    expect(parsed?.host).toBe('ep-cool-name-123.us-east-1.aws.neon.tech')
+    expect(parsed?.port).toBe(5432)
+    expect(parsed?.sslMode).toBe('require')
+    expect(parsed?.extraParams).toEqual({})
+  })
+
+  it('decodes neon pooled uri with connect_timeout and options=endpoint payload', () => {
+    // URL-encoded `options=endpoint%3Dep-...` must be decoded to
+    // `options=endpoint=ep-...` for the backend to pass through verbatim.
+    const parsed = parseConnectionString(
+      'postgresql://neondb_owner:pw@ep-cool-name-123-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require&connect_timeout=10&options=endpoint%3Dep-cool-name-123',
+    )
+    expect(parsed).not.toBeNull()
+    expect(parsed?.extraParams).toEqual({
+      channel_binding: 'require',
+      connect_timeout: '10',
+      options: 'endpoint=ep-cool-name-123',
+    })
+    expect(parsed?.sslMode).toBe('require')
+    expect(parsed?.port).toBe(5432)
+  })
+
+  it('round-trips neon extra params through buildConnectionString', () => {
+    const built = buildConnectionString({
+      engine: 'postgres',
+      user: 'neondb_owner',
+      password: 'pw',
+      host: 'ep-cool-name-123-pooler.us-east-1.aws.neon.tech',
+      port: 5432,
+      database: 'neondb',
+      sslMode: 'require',
+      extraParams: { channel_binding: 'require' },
+    })
+    const parsed = parseConnectionString(built)
+    expect(parsed?.sslMode).toBe('require')
+    expect(parsed?.extraParams).toEqual({ channel_binding: 'require' })
+  })
+
   it('parses mysql uri', () => {
     const parsed = parseConnectionString('mysql://root:pw@127.0.0.1:3306/app_db')
     expect(parsed).not.toBeNull()

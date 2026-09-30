@@ -166,7 +166,7 @@ pub async fn switch_database(
 
             let client = match pool.get().await {
                 Ok(client) => client,
-                Err(e) => { drop_pool(&state, &input.connection_id).await; return Err(e.to_string()); }
+                Err(e) => { drop_pool(&state, &input.connection_id).await; return Err(crate::db::describe_pool_error(&e)); }
             };
 
             if let Err(e) = client.simple_query("select 1").await {

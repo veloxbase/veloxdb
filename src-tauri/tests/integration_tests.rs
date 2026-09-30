@@ -416,6 +416,45 @@ fn duckdb_type_preservation() {
 
 // ── PostgreSQL — connection builder / error formatting ────────
 
+/// Round-trips a real connection carrying Neon-style client-side params.
+///
+/// BEFORE the client-side-param fix, `channel_binding`, `gssencmode`, ... were
+/// forwarded to the server as `-c key=value` startup options, which real
+/// servers (including Neon's proxy and PgBouncer) reject. With a plain dev
+/// PostgreSQL this test fails with "unrecognized configuration parameter"
+/// unless the params are mapped client-side.
+#[tokio::test]
+#[ignore = "requires a local PostgreSQL; start with: docker compose -f docker-compose.pg.yml up -d"]
+async fn postgres_neon_style_extra_params_are_client_side_only() {
+    let input = ConnectionInput {
+        id: None,
+        name: "test-neon".into(),
+        engine: DatabaseEngine::Postgres,
+        host: "localhost".into(),
+        port: 15432,
+        database: "veloxdb".into(),
+        file_path: None,
+        user: "velox".into(),
+        password: "velox".into(),
+        srv_enabled: false,
+        ssl_mode: ConnectionSslMode::Prefer,
+        ssh_config: None,
+        extra_params: Some(HashMap::from([
+            ("channel_binding".to_string(), "require".to_string()),
+            ("gssencmode".to_string(), "prefer".to_string()),
+            ("target_session_attrs".to_string(), "read-write".to_string()),
+        ])),
+    };
+
+    let pool = veloxdb_lib::db::build_pool(&input).expect("pool should build");
+    let client = pool.get().await.expect("acquire (Neon-style params must be client-side only)");
+    client
+        .simple_query("select 1;")
+        .await
+        .expect("select 1 should succeed with Neon-style params");
+    pool.close();
+}
+
 /// Pool creation is lazy — the pool object is created without connecting.
 /// This test verifies the config is accepted and a pool is returned.
 #[test]

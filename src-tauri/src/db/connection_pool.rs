@@ -4,9 +4,11 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use deadpool_postgres::{
-    Config as PostgresConfig, ManagerConfig, Pool, PoolConfig, RecyclingMethod, Runtime,
-    SslMode as DeadpoolSslMode, Timeouts,
+    ChannelBinding, Config as PostgresConfig, LoadBalanceHosts, ManagerConfig, Pool, PoolConfig,
+    PoolError, RecyclingMethod, Runtime, SslMode as DeadpoolSslMode, TargetSessionAttrs,
+    TimeoutType, Timeouts,
 };
+use std::error::Error as StdError;
 use sqlx::{MySqlPool, SqlitePool};
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
@@ -33,12 +35,19 @@ pub const CONNECTION_STORE_PATH: &str = "connections.json";
 pub const MAX_QUERY_ROWS: usize = 1000;
 
 const APP_NAME: &str = "VeloxDB";
-const CONNECT_TIMEOUT_SECS: u64 = 12;
+// Long connect/create timeouts: managed PostgreSQL providers (Neon, Supabase,
+// ...) "scale to zero" idle computes and need to wake them up during the first
+// connect, which can take well over a dozen seconds. Standard clients default
+// to *no* timeout, so a hard low timeout here made Neon connections fail out
+// while psql/DBeaver succeeded. 30s covers TCP + TLS; the pool `create` timeout
+// below bounds the entire handshake (including compute wake-up).
+const CONNECT_TIMEOUT_SECS: u64 = 30;
 const KEEPALIVES_IDLE_SECS: u64 = 60;
 const POOL_MAX_SIZE: usize = 6;
 const POOL_WAIT_SECS: u64 = 30;
-const POOL_CREATE_SECS: u64 = 15;
+const POOL_CREATE_SECS: u64 = 60;
 const POOL_RECYCLE_SECS: u64 = 15;
+pub const DEFAULT_POSTGRES_PORT: u16 = 5432;
 pub const DEFAULT_MYSQL_PORT: u16 = 3306;
 pub const DEFAULT_MONGO_PORT: u16 = 27017;
 pub const DEFAULT_REDIS_PORT: u16 = 6379;
@@ -207,6 +216,46 @@ fn apply_extra_params(
                     config.keepalives = Some(v != 0);
                 }
             }
+            // libpq client-side parameters. These are interpreted by the client and
+            // must never be forwarded to the server as `-c key=value` startup options:
+            // managed poolers (e.g. Neon's PgBouncer) reject unknown startup
+            // parameters, which made Neon connection strings fail outright.
+            // tokio-postgres performs channel binding only through SCRAM-SHA-256-PLUS,
+            // which proxies/poolers (Neon, RDS Proxy, ...) never advertise, so a strict
+            // `require` can never be satisfied. Map it to `prefer`: channel binding is
+            // still used whenever the server offers it, but the connection no longer
+            // fails against poolers.
+            "channel_binding" => {
+                config.channel_binding = Some(match value.to_ascii_lowercase().as_str() {
+                    "disable" => ChannelBinding::Disable,
+                    _ => ChannelBinding::Prefer,
+                });
+            }
+            "target_session_attrs" => {
+                config.target_session_attrs = Some(match value.to_ascii_lowercase().as_str() {
+                    "read-write" => TargetSessionAttrs::ReadWrite,
+                    // read-only / primary / standby / prefer-standby are not
+                    // supported by the pool's enum; treat them as "any" rather
+                    // than leaking them to the server.
+                    _ => TargetSessionAttrs::Any,
+                });
+            }
+            "load_balance_hosts" => {
+                config.load_balance_hosts = Some(match value.to_ascii_lowercase().as_str() {
+                    "random" => LoadBalanceHosts::Random,
+                    _ => LoadBalanceHosts::Disable,
+                });
+            }
+            // Connection-level or TLS parameters that are either applied elsewhere
+            // (host/port/user/password/dbname, sslrootcert/sslcert/sslkey) or unsupported
+            // by the Rust stack; silently drop them instead of leaking them to the server.
+            "host" | "hostaddr" | "port" | "dbname" | "user" | "password" | "passfile"
+            | "sslmode" | "requiressl" | "sslnegotiation" | "sslpassword" | "sslcertmode"
+            | "sslcompression" | "sslsni" | "ssl_min_protocol_version" | "ssl_max_protocol_version"
+            | "ssl_crl" | "ssl_crl_dir" | "requirepeer" | "require_auth" | "scram_channel_binding"
+            | "gssencmode" | "gsslib" | "gssdelegation" | "krb_srvname"
+            | "service" | "servicefile" | "replication" | "fallback_application_name"
+            | "keepalives_interval" | "keepalives_count" | "tcp_user_timeout" => {}
             // TLS params handled by tls_connector_with_params
             "sslrootcert" | "sslcert" | "sslkey" => {}
             _ => {
@@ -224,6 +273,52 @@ fn apply_extra_params(
             format!("{} {}", existing, remaining_opts.join(" "))
         };
         config.options = Some(merged);
+    }
+}
+
+/// tokio-postgres's `Display` hides the underlying cause of most failures (its
+/// message is just "error connecting to server", "error performing TLS
+/// handshake", ...). That made connection failures look identical whether the
+/// host is wrong, TLS fails, or the server rejected the startup packet — and it
+/// hid Neon-flavored causes such as `FATAL: unsupported startup parameter` or a
+/// compute cold-start timeout. Walk the source chain and return actionable text.
+fn pg_error_with_cause(error: &tokio_postgres::Error) -> String {
+    let mut message = error.to_string();
+    let mut seen = std::collections::HashSet::new();
+    let mut chain = StdError::source(error);
+    while let Some(source) = chain {
+        let text = source.to_string();
+        if text.is_empty() || !seen.insert(text.clone()) {
+            break;
+        }
+        message.push_str(": ");
+        message.push_str(&text);
+        chain = StdError::source(source);
+    }
+    message
+}
+
+/// Human-readable message for a `deadpool_postgres` pool error, including the
+/// underlying cause (io error, TLS error, FATAL message, ...) that
+/// `Display` would otherwise swallow.
+pub fn describe_pool_error(error: &PoolError) -> String {
+    match error {
+        PoolError::Timeout(TimeoutType::Wait) => {
+            "Timed out waiting for a free connection from the pool.".to_string()
+        }
+        PoolError::Timeout(TimeoutType::Create) => {
+            "Timed out while establishing the connection. The server may be starting up \
+             (for example a Neon compute waking from scale-to-zero); wait a moment and retry, \
+             or verify host, port and network access."
+                .to_string()
+        }
+        PoolError::Timeout(TimeoutType::Recycle) => {
+            "Timed out while recycling an existing connection.".to_string()
+        }
+        PoolError::Backend(pg_error) => {
+            format!("Error occurred while creating a new object: {}", pg_error_with_cause(pg_error))
+        }
+        other => other.to_string(),
     }
 }
 
@@ -277,7 +372,8 @@ pub fn build_pool_custom(host: &str, port: u16, input: &ConnectionInput) -> Resu
 }
 
 pub fn build_pool(input: &ConnectionInput) -> Result<Pool, VeloxError> {
-    build_pool_custom(&input.host, input.port, input)
+    let port = if input.port == 0 { DEFAULT_POSTGRES_PORT } else { input.port };
+    build_pool_custom(&input.host, port, input)
 }
 
 pub fn mysql_url(host: &str, port: u16, input: &ConnectionInput) -> String {
@@ -559,7 +655,7 @@ pub async fn get_or_create_pool(
 
     let input = stored_connection.to_input();
 
-    let resolved_port = if input.port == 0 { DEFAULT_MYSQL_PORT } else { input.port };
+    let resolved_port = if input.port == 0 { DEFAULT_POSTGRES_PORT } else { input.port };
     let (host, port) = if let Some(ref ssh_config) = input.ssh_config {
         if ssh_config.is_active() {
             let tunnel = SshTunnel::connect(ssh_config, &input.host, resolved_port).await?;
@@ -882,9 +978,13 @@ pub fn load_connection(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_mongo_connection_string, mysql_url};
+    use super::{
+        apply_extra_params, build_mongo_connection_string, deadpool_ssl_mode, describe_pool_error,
+        mysql_url, ChannelBinding, DeadpoolSslMode, PoolError, PostgresConfig, TimeoutType,
+    };
     use crate::models::{ConnectionInput, ConnectionSslMode, DatabaseEngine};
     use std::collections::HashMap;
+    use std::time::Duration;
 
     fn mysql_input(ssl_mode: ConnectionSslMode) -> ConnectionInput {
         ConnectionInput {
@@ -1056,5 +1156,129 @@ mod tests {
         };
         let uri = build_mongo_connection_string(&input);
         assert!(uri.contains("localhost"));
+    }
+
+    #[test]
+    fn postgres_extra_params_client_side_params_never_reach_the_server() {
+        // Managed poolers (Neon, Supabase, ...) reject unknown startup parameters,
+        // so libpq client-side params from pasted connection strings must be
+        // mapped to the client config or dropped — never sent as `-c k=v` options.
+        let mut extra = HashMap::new();
+        extra.insert("channel_binding".to_string(), "require".to_string());
+        extra.insert("sslmode".to_string(), "require".to_string());
+        extra.insert("target_session_attrs".to_string(), "read-write".to_string());
+        extra.insert("gssencmode".to_string(), "prefer".to_string());
+
+        let mut config = PostgresConfig::new();
+        apply_extra_params(&mut config, &extra);
+
+        // channel_binding is honored client-side (downgraded to prefer: tokio-postgres
+        // can only perform channel binding via SCRAM-SHA-256-PLUS, which poolers never
+        // offer, so a strict `require` would fail every managed-pooler connection).
+        assert_eq!(config.channel_binding, Some(ChannelBinding::Prefer));
+        assert_eq!(
+            config.target_session_attrs,
+            Some(deadpool_postgres::TargetSessionAttrs::ReadWrite)
+        );
+
+        let options = config.options.clone().unwrap_or_default();
+        assert!(!options.contains("channel_binding"));
+        assert!(!options.contains("sslmode"));
+        assert!(!options.contains("gssencmode"));
+        assert!(!options.contains("target_session_attrs"));
+    }
+
+    #[test]
+    fn postgres_extra_params_server_gucs_still_forwarded() {
+        let mut extra = HashMap::new();
+        extra.insert("search_path".to_string(), "app,public".to_string());
+        extra.insert("options".to_string(), "-c statement_timeout=5000".to_string());
+
+        let mut config = PostgresConfig::new();
+        apply_extra_params(&mut config, &extra);
+
+        let options = config.options.clone().unwrap_or_default();
+        assert!(options.contains("search_path"));
+        assert!(options.contains("statement_timeout=5000"));
+    }
+
+    #[test]
+    fn neon_uri_params_are_mapped_client_side_and_never_leak_to_server() {
+        // Mirrors what `parseConnectionString` produces for the two Neon URI
+        // variants from the dashboard:
+        //   direct : ...?sslmode=require
+        //   pooled : ...?sslmode=require&channel_binding=require&connect_timeout=10
+        let mut extra = HashMap::new();
+        extra.insert("channel_binding".to_string(), "require".to_string());
+        extra.insert("connect_timeout".to_string(), "10".to_string());
+        extra.insert("target_session_attrs".to_string(), "read-write".to_string());
+        extra.insert("sslmode".to_string(), "require".to_string());
+        extra.insert("keepalives".to_string(), "1".to_string());
+        extra.insert("gssencmode".to_string(), "prefer".to_string());
+
+        let mut config = PostgresConfig::new();
+        apply_extra_params(&mut config, &extra);
+
+        // Client-side parameters must be honored locally...
+        assert_eq!(config.channel_binding, Some(ChannelBinding::Prefer));
+        assert_eq!(config.connect_timeout, Some(Duration::from_secs(10)));
+        assert_eq!(config.keepalives, Some(true));
+        assert_eq!(
+            config.target_session_attrs,
+            Some(deadpool_postgres::TargetSessionAttrs::ReadWrite)
+        );
+
+        // ...and NEVER forwarded to the server as `-c key=value` startup options
+        // (Neon's proxy and PgBouncer reject unknown startup parameters).
+        let options = config.options.clone().unwrap_or_default();
+        for forbidden in [
+            "channel_binding",
+            "sslmode",
+            "target_session_attrs",
+            "keepalives",
+            "connect_timeout",
+            "gssencmode",
+        ] {
+            assert!(
+                !options.contains(forbidden),
+                "client-side param `{}` leaked to server options: {}",
+                forbidden,
+                options
+            );
+        }
+    }
+
+    #[test]
+    fn neon_options_endpoint_is_passed_through_verbatim() {
+        // Newer Neon URIs route via `options=endpoint=<endpoint-id>` (URL-decoded
+        // by the frontend). It must reach the server exactly as Neon expects —
+        // no `-c` prefix, no escaping.
+        let mut extra = HashMap::new();
+        extra.insert(
+            "options".to_string(),
+            "endpoint=ep-cool-darkness-123456".to_string(),
+        );
+        let mut config = PostgresConfig::new();
+        apply_extra_params(&mut config, &extra);
+        assert_eq!(
+            config.options.as_deref(),
+            Some("endpoint=ep-cool-darkness-123456")
+        );
+    }
+
+    #[test]
+    fn ssl_modes_map_to_deadpool_ssl_modes() {
+        assert_eq!(deadpool_ssl_mode(ConnectionSslMode::Disable), DeadpoolSslMode::Disable);
+        assert_eq!(deadpool_ssl_mode(ConnectionSslMode::Prefer), DeadpoolSslMode::Prefer);
+        assert_eq!(deadpool_ssl_mode(ConnectionSslMode::Require), DeadpoolSslMode::Require);
+    }
+
+    #[test]
+    fn describe_pool_error_surfaces_actionable_timeouts() {
+        // The pool "create" timeout is what bounds a Neon compute cold-start;
+        // deadpool renders it tersely, the helper should be helpful.
+        let message = describe_pool_error(&PoolError::Timeout(TimeoutType::Create));
+        assert!(message.contains("Timed out while establishing the connection"));
+        assert!(message.contains("starting up"));
     }
 }
