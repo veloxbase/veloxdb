@@ -23,6 +23,11 @@ pub fn is_retryable_connection_error(message: &str) -> bool {
         || m.contains("timeout occurred while waiting")
         || m.contains("timeout occurred while creating")
         || m.contains("timeout occurred while recycling")
+        // describe_pool_error() rewrites the terse deadpool messages; keep
+        // matching them so a transient failure still gets its one retry.
+        || m.contains("timed out while establishing")
+        || m.contains("timed out waiting")
+        || m.contains("timed out while recycling")
 }
 
 /// Runs `operation` with a pooled client. On a retryable connection error, drops
@@ -47,7 +52,7 @@ where
         let client = match pool.get().await {
             Ok(client) => client,
             Err(error) => {
-                let message = error.to_string();
+                let message = connection_pool::describe_pool_error(&error);
                 if !dropped_pool && is_retryable_connection_error(&message) {
                     connection_pool::drop_pool(state, connection_id).await;
                     dropped_pool = true;

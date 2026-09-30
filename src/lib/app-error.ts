@@ -63,7 +63,11 @@ function inferCategoryFromMessage(m: string): AppErrorCategory | undefined {
 		lower.includes("could not connect") ||
 		lower.includes("connection refused") ||
 		lower.includes("connection timed out") ||
+		lower.includes("error connecting to server") ||
+		lower.includes("error occurred while creating a new object") ||
+		lower.includes("timed out while establishing") ||
 		lower.includes("no pg_hba.conf entry") ||
+		lower.includes("unsupported startup parameter") ||
 		(lower.includes("ssl") && lower.includes("certificate")) ||
 		(lower.includes("database") && lower.includes("does not exist"))
 	) {

@@ -47,4 +47,37 @@ describe('adapter decode error normalization', () => {
     expect(userMessage).toBe(message)
     expect(userMessage).not.toContain('Review the SQL')
   })
+
+  it('classifies deadpool/postgres connect errors as connection errors', () => {
+    expect(
+      classifyMessage(
+        'Error occurred while creating a new object: error connecting to server: Connection refused (os error 10061)',
+      ),
+    ).toBe('connection')
+    expect(
+      classifyMessage(
+        'Error occurred while creating a new object: error connecting to server: db error: FATAL: unsupported startup parameter: channel_binding',
+      ),
+    ).toBe('connection')
+    expect(
+      classifyMessage(
+        'Timed out while establishing the connection. The server may be starting up',
+      ),
+    ).toBe('connection')
+    expect(
+      classifyMessage(
+        'error connecting to server: timed out waiting for connection',
+      ),
+    ).toBe('connection')
+  })
+
+  it('appends the connection hint for terse connect errors', () => {
+    const userMessage = toUserMessage(
+      normalizeError(
+        'Error occurred while creating a new object: error connecting to server',
+      ),
+    )
+    expect(userMessage).toContain('error connecting to server')
+    expect(userMessage).toContain('Check host, port, database name')
+  })
 })
