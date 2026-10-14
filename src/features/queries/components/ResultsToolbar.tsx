@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useTranslation } from "react-i18next";
 
 type ColumnVisibilityItem = {
@@ -125,13 +126,17 @@ export function ResultsToolbar({
 				</div>
 
 				<div className="flex shrink-0 items-center gap-2">
-					<details className="relative shrink-0">
-						<summary className="list-none">
-							<Button variant="outline" size="xs" asChild>
-								<span>{t("editor.columns")}</span>
+					<Popover>
+						<PopoverTrigger asChild>
+							<Button variant="outline" size="xs">
+								{t("editor.columns")}
 							</Button>
-						</summary>
-						<div className="absolute right-0 z-10 mt-1 min-w-44 border border-border bg-background p-2 shadow-sm">
+						</PopoverTrigger>
+						<PopoverContent
+							align="end"
+							sideOffset={4}
+							className="w-auto min-w-44 p-2"
+						>
 							<div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
 								{t("editor.visibility")}
 							</div>
@@ -154,8 +159,8 @@ export function ResultsToolbar({
 									</label>
 								))}
 							</div>
-						</div>
-					</details>
+						</PopoverContent>
+					</Popover>
 
 					<Button
 						size="xs"
