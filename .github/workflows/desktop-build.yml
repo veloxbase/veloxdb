@@ -89,6 +89,20 @@ jobs:
           export PATH="${HOME}/.cargo/bin:${PATH}"
           pnpm exec tauri build -b "${{ matrix.bundles }}"
 
+      # Bundled libwayland-client shadows the host lib and makes WebKit abort (see #47, tauri-apps/tauri#16062)
+      - name: Strip libwayland-client from AppImage
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          img=$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)
+          chmod +x "$img" && "$img" --appimage-extract >/dev/null
+          rm squashfs-root/usr/lib/libwayland-client.so.0
+          curl -fsSL https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -o appimagetool
+          chmod +x appimagetool && ./appimagetool --no-appstream squashfs-root "$img"
+          rm -rf squashfs-root appimagetool
+
       - name: Upload desktop bundles
         uses: actions/upload-artifact@v4
         with:
