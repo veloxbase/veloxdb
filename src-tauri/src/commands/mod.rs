@@ -113,7 +113,22 @@ pub(crate) fn mysql_value_to_string(row: &MySqlRow, index: usize, column_name: &
     if let Ok(value) = row.try_get::<Option<i32>, _>(index) {
         return Ok(value.map(|v| v.to_string()));
     }
+    if let Ok(value) = row.try_get::<Option<i16>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<i8>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
     if let Ok(value) = row.try_get::<Option<u64>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<u32>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<u16>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<u8>, _>(index) {
         return Ok(value.map(|v| v.to_string()));
     }
     if let Ok(value) = row.try_get::<Option<f64>, _>(index) {
@@ -140,6 +155,18 @@ pub(crate) fn mysql_value_to_string(row: &MySqlRow, index: usize, column_name: &
     if let Ok(value) = row.try_get::<Option<Vec<u8>>, _>(index) {
         return Ok(value.map(|v| decode_mysql_bytes_as_string(&v)));
     }
+    if let Ok(val_ref) = row.try_get_raw(index) {
+        use sqlx::ValueRef;
+        if val_ref.is_null() {
+            return Ok(None);
+        }
+        if let Ok(s) = val_ref.as_str() {
+            return Ok(Some(s.to_string()));
+        }
+        if let Ok(b) = val_ref.as_bytes() {
+            return Ok(Some(decode_mysql_bytes_as_string(b)));
+        }
+    }
     Err(mysql_decode_error(context, column_name, Some(index), "unsupported value type"))
 }
 
@@ -162,7 +189,22 @@ pub(crate) fn mysql_value_to_display_string(
     if let Ok(value) = row.try_get::<Option<i32>, _>(index) {
         return Ok(value.map(|v| v.to_string()));
     }
+    if let Ok(value) = row.try_get::<Option<i16>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<i8>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
     if let Ok(value) = row.try_get::<Option<u64>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<u32>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<u16>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<u8>, _>(index) {
         return Ok(value.map(|v| v.to_string()));
     }
     if let Ok(value) = row.try_get::<Option<f64>, _>(index) {
@@ -189,6 +231,18 @@ pub(crate) fn mysql_value_to_display_string(
     if let Ok(value) = row.try_get::<Option<Vec<u8>>, _>(index) {
         return Ok(value.map(|v| format!("0x{}", hex::encode(v))));
     }
+    if let Ok(val_ref) = row.try_get_raw(index) {
+        use sqlx::ValueRef;
+        if val_ref.is_null() {
+            return Ok(None);
+        }
+        if let Ok(s) = val_ref.as_str() {
+            return Ok(Some(s.to_string()));
+        }
+        if let Ok(b) = val_ref.as_bytes() {
+            return Ok(Some(decode_mysql_bytes_as_string(b)));
+        }
+    }
     Err(mysql_decode_error(context, column_name, Some(index), "unsupported value type"))
 }
 
@@ -213,14 +267,62 @@ pub(crate) fn sqlite_value_to_string(row: &SqliteRow, index: usize, column_name:
     if let Ok(value) = row.try_get::<Option<i64>, _>(index) {
         return Ok(value.map(|v| v.to_string()));
     }
+    if let Ok(value) = row.try_get::<Option<i32>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<i16>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<i8>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<u64>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<u32>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<u16>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<u8>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
     if let Ok(value) = row.try_get::<Option<f64>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<f32>, _>(index) {
         return Ok(value.map(|v| v.to_string()));
     }
     if let Ok(value) = row.try_get::<Option<bool>, _>(index) {
         return Ok(value.map(|v| v.to_string()));
     }
+    if let Ok(value) = row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>(index) {
+        return Ok(value.map(|v| v.format("%Y-%m-%d %H:%M:%S").to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<chrono::NaiveDateTime>, _>(index) {
+        return Ok(value.map(|v| v.format("%Y-%m-%d %H:%M:%S").to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<chrono::NaiveDate>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
+    if let Ok(value) = row.try_get::<Option<chrono::NaiveTime>, _>(index) {
+        return Ok(value.map(|v| v.to_string()));
+    }
     if let Ok(value) = row.try_get::<Option<Vec<u8>>, _>(index) {
         return Ok(value.map(|v| format!("0x{}", hex::encode(v))));
+    }
+    if let Ok(val_ref) = row.try_get_raw(index) {
+        use sqlx::ValueRef;
+        if val_ref.is_null() {
+            return Ok(None);
+        }
+        if let Ok(s) = val_ref.as_str() {
+            return Ok(Some(s.to_string()));
+        }
+        if let Ok(b) = val_ref.as_bytes() {
+            return Ok(Some(String::from_utf8_lossy(b).to_string()));
+        }
     }
     Err(sqlite_decode_error(context, column_name, Some(index), "unsupported value type"))
 }
