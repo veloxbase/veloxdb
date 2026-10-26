@@ -216,7 +216,12 @@ export function ResultsGrid({
 		columnId: string;
 	} | null>(null);
 	const [gridError, setGridError] = useState<string | null>(null);
-	const [jsonView, setJsonView] = useState<string | null>(null);
+	const [jsonView, setJsonView] = useState<{
+		rowId: string;
+		columnId: string;
+		value: string;
+		editable: boolean;
+	} | null>(null);
 	const [showInsertRow, setShowInsertRow] = useState(false);
 	const [insertDraft, setInsertDraft] = useState<Record<string, string>>({});
 	const [deleteBusy, setDeleteBusy] = useState(false);
@@ -490,7 +495,12 @@ export function ResultsGrid({
 										title={t("editor.jsonView")}
 										onClick={(event) => {
 											event.stopPropagation();
-											setJsonView(value as string);
+											setJsonView({
+												rowId,
+												columnId,
+												value: value as string,
+												editable: isColumnEditable && !isCellEditing,
+											});
 										}}
 									>
 										<BracketsCurly size={14} />
@@ -1273,7 +1283,13 @@ export function ResultsGrid({
 				</div>
 			) : null}
 			<JsonCellDialog
-				value={jsonView}
+				value={jsonView?.value ?? null}
+				onApply={
+					jsonView?.editable
+						? (next) =>
+								applyPendingEdit(jsonView.rowId, jsonView.columnId, next)
+						: undefined
+				}
 				onOpenChange={(open) => {
 					if (!open) setJsonView(null);
 				}}

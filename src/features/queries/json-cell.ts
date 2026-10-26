@@ -14,3 +14,19 @@ export function isJsonValue(v: string | null | undefined): boolean {
 export function formatJsonValue(v: string): string {
 	return JSON.stringify(JSON.parse(v), null, 2);
 }
+
+/** Validates user-edited text; stores compact JSON (what DBs normalize to, no whitespace noise in pending edits). */
+export function parseJsonInput(
+	text: string,
+): { ok: true; value: string } | { ok: false; error: string } {
+	try {
+		const parsed: unknown = JSON.parse(text);
+		// Only objects/arrays, matching isJsonValue, so the cell keeps its JSON icon.
+		if (parsed === null || typeof parsed !== "object") {
+			return { ok: false, error: "Expected a JSON object or array" };
+		}
+		return { ok: true, value: JSON.stringify(parsed) };
+	} catch (e) {
+		return { ok: false, error: e instanceof Error ? e.message : String(e) };
+	}
+}
