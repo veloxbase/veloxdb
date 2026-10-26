@@ -493,6 +493,7 @@ export function ResultsGrid({
 										type="button"
 										className="shrink-0 text-muted-foreground hover:text-foreground"
 										title={t("editor.jsonView")}
+										aria-label={t("editor.jsonView")}
 										onClick={(event) => {
 											event.stopPropagation();
 											setJsonView({
@@ -503,7 +504,7 @@ export function ResultsGrid({
 											});
 										}}
 									>
-										<BracketsCurly size={14} />
+										<BracketsCurly size={14} aria-hidden />
 									</button>
 									<span className="min-w-0 flex-1 truncate">{node}</span>
 								</span>

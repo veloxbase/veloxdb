@@ -375,6 +375,7 @@
     "jsonView": "JSON 视图",
     "copyJson": "复制 JSON",
     "invalidJson": "无效的 JSON",
+    "jsonNotObject": "应为 JSON 对象或数组",
     "applyJson": "应用",
     "copiedJson": "已复制",
     "copied2": "已复制！",

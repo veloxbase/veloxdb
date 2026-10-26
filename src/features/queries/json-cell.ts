@@ -15,6 +15,8 @@ export function formatJsonValue(v: string): string {
 	return JSON.stringify(JSON.parse(v), null, 2);
 }
 
+export const JSON_NOT_OBJECT_ERROR = "Expected a JSON object or array";
+
 /** Validates user-edited text; stores compact JSON (what DBs normalize to, no whitespace noise in pending edits). */
 export function parseJsonInput(
 	text: string,
@@ -23,7 +25,7 @@ export function parseJsonInput(
 		const parsed: unknown = JSON.parse(text);
 		// Only objects/arrays, matching isJsonValue, so the cell keeps its JSON icon.
 		if (parsed === null || typeof parsed !== "object") {
-			return { ok: false, error: "Expected a JSON object or array" };
+			return { ok: false, error: JSON_NOT_OBJECT_ERROR };
 		}
 		return { ok: true, value: JSON.stringify(parsed) };
 	} catch (e) {

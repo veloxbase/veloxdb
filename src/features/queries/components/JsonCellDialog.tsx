@@ -11,7 +11,11 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { formatJsonValue, parseJsonInput } from "@/features/queries/json-cell";
+import {
+	formatJsonValue,
+	JSON_NOT_OBJECT_ERROR,
+	parseJsonInput,
+} from "@/features/queries/json-cell";
 import { notifyError } from "@/lib/error-notifier";
 import { resolveTheme, useSettings } from "@/lib/settings";
 
@@ -69,7 +73,11 @@ function JsonCellBody({
 		}
 		const parsed = parseJsonInput(draft);
 		if (!parsed.ok) {
-			setError(parsed.error);
+			setError(
+				parsed.error === JSON_NOT_OBJECT_ERROR
+					? t("editor.jsonNotObject")
+					: parsed.error,
+			);
 			return;
 		}
 		onApply?.(parsed.value);

@@ -375,6 +375,7 @@
     "jsonView": "JSON view",
     "copyJson": "Copy JSON",
     "invalidJson": "Invalid JSON",
+    "jsonNotObject": "Expected a JSON object or array",
     "applyJson": "Apply",
     "copiedJson": "Copied",
     "copied2": "Copied!",
