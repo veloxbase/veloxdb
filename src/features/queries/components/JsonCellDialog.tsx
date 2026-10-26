@@ -128,7 +128,7 @@ export function JsonCellDialog({
 	const { t } = useTranslation();
 	return (
 		<Dialog open={value !== null} onOpenChange={onOpenChange}>
-			<DialogContent className="flex max-h-[80vh] max-w-2xl flex-col gap-3">
+			<DialogContent className="flex max-h-[80vh] sm:max-w-4xl flex-col gap-3">
 				<DialogHeader>
 					<DialogTitle>{title ?? t("editor.jsonView")}</DialogTitle>
 				</DialogHeader>
