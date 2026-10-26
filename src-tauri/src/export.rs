@@ -598,6 +598,9 @@ fn csv_escape(s: &str) -> String {
 }
 
 fn mysql_value_to_string(row: &MySqlRow, index: usize, column_name: &str, context: &str) -> Result<String, String> {
+    if let Some(json) = crate::commands::mysql_json_as_string(row, index, column_name, context) {
+        return json.map(Option::unwrap_or_default);
+    }
     if let Ok(value) = row.try_get::<Option<String>, _>(index) {
         return Ok(value.unwrap_or_default());
     }
