@@ -372,6 +372,8 @@
     "visibility": "Visibility",
     "clickToCopy": "Click to copy",
     "clickToEdit": "Click to edit",
+    "jsonView": "JSON view",
+    "copyJson": "Copy JSON",
     "copied2": "Copied!",
     "currentOutput": "Current query output",
     "runExplainFromToolbar": "Run Explain from the toolbar",

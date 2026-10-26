@@ -9,6 +9,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	type PointerEvent,
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -16,10 +17,13 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { BracketsCurly } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 
 import type { ColumnProperties, QueryResult, TableInfo } from "@/data/types";
 import { ResultEditInput, InsertRowInput } from "@/features/queries/components/ResultsCellEditor";
+import { JsonCellDialog } from "@/features/queries/components/JsonCellDialog";
+import { isJsonValue } from "@/features/queries/json-cell";
 import { ResultsToolbar } from "@/features/queries/components/ResultsToolbar";
 import { useInsertRowMutation } from "@/features/queries/queries";
 import {
@@ -212,6 +216,7 @@ export function ResultsGrid({
 		columnId: string;
 	} | null>(null);
 	const [gridError, setGridError] = useState<string | null>(null);
+	const [jsonView, setJsonView] = useState<string | null>(null);
 	const [showInsertRow, setShowInsertRow] = useState(false);
 	const [insertDraft, setInsertDraft] = useState<Record<string, string>>({});
 	const [deleteBusy, setDeleteBusy] = useState(false);
@@ -476,13 +481,33 @@ export function ResultsGrid({
 							);
 						}
 
+						const withJsonIcon = (node: ReactNode) =>
+							isJsonValue(value) ? (
+								<span className="flex min-w-0 items-center gap-1">
+									<button
+										type="button"
+										className="shrink-0 text-muted-foreground hover:text-foreground"
+										title={t("editor.jsonView")}
+										onClick={(event) => {
+											event.stopPropagation();
+											setJsonView(value as string);
+										}}
+									>
+										<BracketsCurly size={14} />
+									</button>
+									<span className="min-w-0 flex-1 truncate">{node}</span>
+								</span>
+							) : (
+								node
+							);
+
 						if (!isColumnEditable) {
-							return (
+							return withJsonIcon(
 								<span
 									className={`block min-w-0 truncate ${value === null ? "text-muted-foreground" : ""}`}
 								>
 									{formatValue(value)}
-								</span>
+								</span>,
 							);
 						}
 
@@ -500,7 +525,7 @@ export function ResultsGrid({
 							);
 						}
 
-						return (
+						return withJsonIcon(
 							<button
 								type="button"
 								className={`w-full min-w-0 truncate text-left ${value === null ? "text-muted-foreground" : ""}`}
@@ -508,7 +533,7 @@ export function ResultsGrid({
 								onClick={() => setEditingCell({ rowId, columnId })}
 							>
 								{formatValue(value)}
-							</button>
+							</button>,
 						);
 					},
 				}),
@@ -1247,6 +1272,12 @@ export function ResultsGrid({
 					{gridError}
 				</div>
 			) : null}
+			<JsonCellDialog
+				value={jsonView}
+				onOpenChange={(open) => {
+					if (!open) setJsonView(null);
+				}}
+			/>
 		</div>
 	);
 }
