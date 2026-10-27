@@ -103,7 +103,28 @@ pub(crate) fn mysql_database_name_from_row(row: &MySqlRow, context: &str) -> Res
     database_name_from_mysql_value(value, context)
 }
 
+/// sqlx (no `json` feature) rejects String/Vec<u8> for JSON columns in the type check,
+/// so read them unchecked. `None` = not a JSON column.
+pub(crate) fn mysql_json_as_string(
+    row: &MySqlRow,
+    index: usize,
+    column_name: &str,
+    context: &str,
+) -> Option<Result<Option<String>, String>> {
+    use sqlx::TypeInfo;
+    if row.column(index).type_info().name() != "JSON" {
+        return None;
+    }
+    Some(
+        row.try_get_unchecked::<Option<String>, _>(index)
+            .map_err(|e| mysql_decode_error(context, column_name, Some(index), &e.to_string())),
+    )
+}
+
 pub(crate) fn mysql_value_to_string(row: &MySqlRow, index: usize, column_name: &str, context: &str) -> Result<Option<String>, String> {
+    if let Some(json) = mysql_json_as_string(row, index, column_name, context) {
+        return json;
+    }
     if let Ok(value) = row.try_get::<Option<String>, _>(index) {
         return Ok(value);
     }
@@ -153,6 +174,9 @@ pub(crate) fn mysql_value_to_display_string(
     column_name: &str,
     context: &str,
 ) -> Result<Option<String>, String> {
+    if let Some(json) = mysql_json_as_string(row, index, column_name, context) {
+        return json;
+    }
     if let Ok(value) = row.try_get::<Option<String>, _>(index) {
         return Ok(value);
     }
@@ -1122,5 +1146,28 @@ mod sql_intent_tests {
         assert!(!is_read_only_redis_command("DEL user:1"));
         assert!(!is_read_only_redis_command("FLUSHALL"));
         assert!(!is_read_only_redis_command(""));
+    }
+}
+
+#[cfg(test)]
+mod mysql_json_tests {
+    use super::*;
+    use sqlx::MySqlPool;
+
+    /// Needs a live MySQL: MYSQL_JSON_TEST_URL=mysql://... cargo test -- --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn mysql_json_column_decodes_as_text() {
+        let url = std::env::var("MYSQL_JSON_TEST_URL").expect("MYSQL_JSON_TEST_URL");
+        let pool = MySqlPool::connect(&url).await.unwrap();
+        let rows = sqlx::query("SELECT id, attributes, metadata FROM products ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        let attrs = mysql_value_to_display_string(&rows[0], 1, "attributes", "t").unwrap();
+        assert!(serde_json::from_str::<serde_json::Value>(&attrs.unwrap()).unwrap().is_object());
+        assert_eq!(mysql_value_to_display_string(&rows[3], 1, "attributes", "t").unwrap(), None);
+        let meta = mysql_value_to_string(&rows[0], 2, "metadata", "t").unwrap().unwrap();
+        assert!(meta.starts_with('['));
     }
 }
