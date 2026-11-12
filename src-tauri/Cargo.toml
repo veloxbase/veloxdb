@@ -1,7 +1,7 @@
 [package]
 name = "veloxdb"
 version = "0.4.1"
-description = "SQL databases, unleashed on your desktop. Fast, memory-efficient, developer-focused desktop SQL client."
+description = "Talk to your database. Fast, AI-native, developer-focused desktop database client."
 authors = ["Abenezer"]
 license = "MIT"
 repository = "https://github.com/abeni16/veloxdb"
@@ -26,6 +26,9 @@ tauri = { version = "2.10.3", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 tauri-plugin-store = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tokio = { version = "1", features = ["full"] }
 tokio-postgres = "0.7"
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -52,6 +55,11 @@ bson = "2"
 duckdb = { version = "1", features = ["bundled"] }
 redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
 semver = "1"
+sqlparser = { version = "0.58", features = ["visitor"] }
 tiberius = { version = "0.12", default-features = false, features = ["tokio-rustls", "chrono", "tds73"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 scylla = "1.8"
+flate2 = "1.0"
+sha2 = "0.10"
+ring = "0.17"
+

@@ -1,5 +1,8 @@
+use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+use sqlparser::ast::{Query, SetExpr, Statement, Visit, Visitor};
 
 use serde_json::Value;
 use tauri::{AppHandle, State};
@@ -7,10 +10,11 @@ use tauri::{AppHandle, State};
 use crate::db::{
     load_connection, resolve_connection_engine, AppState, MAX_QUERY_ROWS,
 };
+use crate::engines;
 use crate::models::{
     AskVeloxyChatRequest, AskVeloxyChatResponse, AskVeloxyConversationMessage,
     AskVeloxyConversationResponse, AskVeloxyRequest, AskVeloxyResponse,
-    AskVeloxyTokenStats, VeloxyStreamChunk,
+    AskVeloxyTokenStats, QueryRequest, VeloxyStreamChunk,
 };
 
 use super::{
@@ -295,6 +299,160 @@ pub async fn generate_sql_from_nl(
     })
 }
 
+pub(crate) const VELOXY_MAX_READONLY_ROWS: usize = 50;
+/// Higher cap for chart-backing queries so charts bind to (near-)complete
+/// aggregates instead of a 50-row sample.
+pub(crate) const VELOXY_MAX_CHART_ROWS: usize = 500;
+/// Bound agent SELECTs. DeepSeek often emits `information_schema` FK dumps
+/// (`SELECT tc.table_schema…`) that Postgres can run for many minutes; the
+/// 50-row cap is applied only after `simple_query` finishes, so it does not
+/// protect the pool client.
+pub(crate) const VELOXY_READONLY_TIMEOUT_MS: u64 = 15_000;
+
+pub(crate) fn map_veloxy_query_error(error: impl std::fmt::Display, timeout_ms: u64) -> String {
+    let message = error.to_string();
+    let lower = message.to_lowercase();
+    if lower.contains("statement timeout") || lower.contains("canceling statement") {
+        format!(
+            "Query timed out after {}s. For foreign keys and schema, use search_schema instead of querying information_schema.",
+            timeout_ms / 1000
+        )
+    } else {
+        message
+    }
+}
+
+pub(crate) fn veloxy_sql_dialect(engine: DatabaseEngine) -> Result<Box<dyn sqlparser::dialect::Dialect>, String> {
+    match engine {
+        DatabaseEngine::Postgres | DatabaseEngine::Duckdb => {
+            Ok(Box::new(sqlparser::dialect::PostgreSqlDialect {}))
+        }
+        DatabaseEngine::Mysql => Ok(Box::new(sqlparser::dialect::MySqlDialect {})),
+        DatabaseEngine::Sqlite | DatabaseEngine::Libsql | DatabaseEngine::Turso => {
+            Ok(Box::new(sqlparser::dialect::SQLiteDialect {}))
+        }
+        DatabaseEngine::Clickhouse => Ok(Box::new(sqlparser::dialect::ClickHouseDialect {})),
+        DatabaseEngine::Mssql | DatabaseEngine::Azuresql => {
+            Ok(Box::new(sqlparser::dialect::MsSqlDialect {}))
+        }
+        DatabaseEngine::Mongo
+        | DatabaseEngine::Redis
+        | DatabaseEngine::Cassandra
+        | DatabaseEngine::Scylladb => {
+            Err("Veloxy read-only queries require a SQL database (Postgres, MySQL, SQLite, DuckDB, ClickHouse, LibSQL, or MSSQL).".to_string())
+        }
+    }
+}
+
+/// Rejects anything in a parsed statement that can write or take locks. The
+/// visitor reaches every nested statement and query, including CTE bodies,
+/// subqueries, set operations and the target of EXPLAIN.
+struct ReadOnlyGuard;
+
+impl Visitor for ReadOnlyGuard {
+    type Break = String;
+
+    fn pre_visit_statement(&mut self, statement: &Statement) -> ControlFlow<Self::Break> {
+        match statement {
+            Statement::Query(_) | Statement::Explain { .. } => ControlFlow::Continue(()),
+            other => ControlFlow::Break(format!(
+                "Only read-only SELECT or EXPLAIN statements are allowed. Found {}.",
+                statement_label(other)
+            )),
+        }
+    }
+
+    fn pre_visit_query(&mut self, query: &Query) -> ControlFlow<Self::Break> {
+        if !query.locks.is_empty() {
+            return ControlFlow::Break(
+                "Row-locking clauses (FOR UPDATE / FOR SHARE) are not allowed in read-only queries.".to_string(),
+            );
+        }
+        if set_expr_has_select_into(&query.body) {
+            return ControlFlow::Break(
+                "SELECT ... INTO creates a table and is not allowed in read-only queries.".to_string(),
+            );
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+fn set_expr_has_select_into(expr: &SetExpr) -> bool {
+    match expr {
+        SetExpr::Select(select) => select.into.is_some(),
+        SetExpr::SetOperation { left, right, .. } => {
+            set_expr_has_select_into(left) || set_expr_has_select_into(right)
+        }
+        // Nested queries are checked by `pre_visit_query` when the visitor
+        // reaches them.
+        _ => false,
+    }
+}
+
+/// Short label for error messages, e.g. "DELETE", so the whole statement is
+/// not echoed back to the model.
+fn statement_label(statement: &Statement) -> String {
+    statement
+        .to_string()
+        .split_whitespace()
+        .next()
+        .unwrap_or("statement")
+        .to_ascii_uppercase()
+}
+
+pub(crate) fn assert_veloxy_readonly_sql(sql: &str, engine: DatabaseEngine) -> Result<(), String> {
+    let trimmed = sql.trim();
+    if trimmed.is_empty() {
+        return Err("Ask Veloxy returned an empty SQL statement.".to_string());
+    }
+    let dialect = veloxy_sql_dialect(engine)?;
+    let statements = sqlparser::parser::Parser::parse_sql(dialect.as_ref(), trimmed)
+        .map_err(|error| format!("Could not parse SQL: {}", error))?;
+    if statements.is_empty() {
+        return Err("Ask Veloxy returned an empty SQL statement.".to_string());
+    }
+    if statements.len() > 1 {
+        return Err("Ask Veloxy generated multiple SQL statements. Please ask for a single statement.".to_string());
+    }
+    // Walk the whole AST, not just the top-level statement. A top-level
+    // SELECT or EXPLAIN can still wrap a write: `EXPLAIN ANALYZE DELETE ...`
+    // executes the DELETE, and Postgres runs data-modifying CTEs such as
+    // `WITH d AS (DELETE ... RETURNING *) SELECT * FROM d`.
+    if let ControlFlow::Break(reason) = statements[0].visit(&mut ReadOnlyGuard) {
+        return Err(reason);
+    }
+    if !super::is_read_only_sql(trimmed) {
+        return Err("This statement is not read-only. Veloxy will not execute writes.".to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn veloxy_run_readonly(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: QueryRequest,
+) -> Result<crate::models::QueryResult, String> {
+    let (connection_id, engine) = resolve_connection_engine(&app, &state, input.connection_id.clone()).await?;
+    let sql = input.sql.trim().to_string();
+    assert_veloxy_readonly_sql(&sql, engine)?;
+    let max_query_rows = input
+        .max_rows
+        .unwrap_or(VELOXY_MAX_READONLY_ROWS)
+        .min(VELOXY_MAX_CHART_ROWS);
+    engines::run_query_bounded(
+        &app,
+        &state,
+        &connection_id,
+        engine,
+        &sql,
+        max_query_rows,
+        Some(VELOXY_READONLY_TIMEOUT_MS),
+    )
+    .await
+    .map_err(|error| map_veloxy_query_error(error, VELOXY_READONLY_TIMEOUT_MS))
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{
@@ -364,12 +522,14 @@ mod tests {
     fn schema_context_is_bounded() {
         let columns = (0..40).map(|idx| QueryEditorColumn {
             name: format!("column_{}", idx), data_type: "text".to_string(),
+            comment: None, is_nullable: None, is_primary_key: None,
         }).collect::<Vec<_>>();
         let tables = (0..20).map(|idx| QueryEditorTable {
             schema: "public".to_string(), name: format!("events_{}", idx), columns: columns.clone(),
+            estimated_rows: None, comment: None,
         }).collect::<Vec<_>>();
         let metadata = QueryEditorMetadata {
-            tables, functions: Vec::new(),
+            tables, functions: Vec::new(), enums: Vec::new(),
             truncated_tables: false, truncated_columns: false, truncated_functions: false,
         };
         let db_context = AskVeloxyDbContextCache {
@@ -438,5 +598,126 @@ mod tests {
     fn mysql_time_formats_as_iso_time() {
         let t = chrono::NaiveTime::from_hms_opt(10, 30, 45).unwrap();
         assert_eq!(t.to_string(), "10:30:45");
+    }
+
+    #[test]
+    fn veloxy_readonly_allows_select() {
+        super::assert_veloxy_readonly_sql("SELECT 1", DatabaseEngine::Postgres).expect("select");
+        super::assert_veloxy_readonly_sql(
+            "WITH x AS (SELECT 1) SELECT * FROM x",
+            DatabaseEngine::Postgres,
+        )
+        .expect("cte");
+    }
+
+    #[test]
+    fn veloxy_readonly_allows_explain() {
+        super::assert_veloxy_readonly_sql("EXPLAIN SELECT 1", DatabaseEngine::Postgres)
+            .expect("explain");
+    }
+
+    #[test]
+    fn veloxy_readonly_rejects_delete() {
+        assert!(super::assert_veloxy_readonly_sql("DELETE FROM t", DatabaseEngine::Postgres).is_err());
+    }
+
+    #[test]
+    fn veloxy_readonly_rejects_multi_statement() {
+        assert!(
+            super::assert_veloxy_readonly_sql("SELECT 1; DELETE FROM t", DatabaseEngine::Postgres)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn veloxy_readonly_rejects_explain_wrapping_a_write() {
+        // EXPLAIN ANALYZE executes its target on Postgres.
+        for sql in [
+            "EXPLAIN ANALYZE DELETE FROM t",
+            "EXPLAIN (ANALYZE) UPDATE t SET a = 1",
+            "EXPLAIN INSERT INTO t VALUES (1)",
+        ] {
+            assert!(
+                super::assert_veloxy_readonly_sql(sql, DatabaseEngine::Postgres).is_err(),
+                "should reject: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn veloxy_readonly_allows_explain_analyze_select() {
+        super::assert_veloxy_readonly_sql("EXPLAIN ANALYZE SELECT * FROM t", DatabaseEngine::Postgres)
+            .expect("explain analyze select");
+    }
+
+    #[test]
+    fn veloxy_readonly_rejects_data_modifying_cte() {
+        for sql in [
+            "WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d",
+            "WITH u AS (UPDATE t SET a = 1 RETURNING *) SELECT * FROM u",
+            "WITH i AS (INSERT INTO t VALUES (1) RETURNING *) SELECT * FROM i",
+            "WITH ok AS (SELECT 1), d AS (DELETE FROM t RETURNING *) SELECT * FROM ok",
+        ] {
+            assert!(
+                super::assert_veloxy_readonly_sql(sql, DatabaseEngine::Postgres).is_err(),
+                "should reject: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn veloxy_readonly_rejects_select_into_and_locks() {
+        for (sql, engine) in [
+            ("SELECT * INTO new_t FROM t", DatabaseEngine::Postgres),
+            ("SELECT 1 UNION SELECT * INTO new_t FROM t", DatabaseEngine::Postgres),
+            ("SELECT * INTO #tmp FROM t", DatabaseEngine::Mssql),
+            ("SELECT * FROM t FOR UPDATE", DatabaseEngine::Postgres),
+            ("SELECT * FROM t FOR SHARE", DatabaseEngine::Postgres),
+            ("SELECT * FROM (SELECT * FROM t FOR UPDATE) s", DatabaseEngine::Postgres),
+            ("SELECT * FROM t FOR UPDATE", DatabaseEngine::Mysql),
+        ] {
+            assert!(
+                super::assert_veloxy_readonly_sql(sql, engine).is_err(),
+                "should reject: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn veloxy_readonly_allows_common_read_shapes() {
+        for sql in [
+            "SELECT a, count(*) FROM t GROUP BY a ORDER BY 2 DESC LIMIT 10",
+            "SELECT * FROM t WHERE id IN (SELECT id FROM u)",
+            "SELECT 1 UNION ALL SELECT 2",
+            "WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 5) SELECT * FROM r",
+        ] {
+            super::assert_veloxy_readonly_sql(sql, DatabaseEngine::Postgres)
+                .unwrap_or_else(|error| panic!("should allow {sql}: {error}"));
+        }
+    }
+
+    #[test]
+    fn veloxy_readonly_rejects_non_sql_engines() {
+        assert!(super::assert_veloxy_readonly_sql("SELECT 1", DatabaseEngine::Mongo).is_err());
+        assert!(super::assert_veloxy_readonly_sql("SELECT 1", DatabaseEngine::Redis).is_err());
+    }
+
+    #[test]
+    fn veloxy_query_error_rewrites_statement_timeout() {
+        let message = super::map_veloxy_query_error(
+            "ERROR: canceling statement due to statement timeout",
+            15_000,
+        );
+        assert!(message.contains("timed out after 15s"));
+        assert!(message.contains("search_schema"));
+        assert!(!message.to_lowercase().contains("canceling statement"));
+    }
+
+    #[test]
+    fn veloxy_query_error_passes_through_other_failures() {
+        assert_eq!(
+            super::map_veloxy_query_error("relation \"missing\" does not exist", 15_000),
+            "relation \"missing\" does not exist"
+        );
     }
 }

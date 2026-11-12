@@ -22,6 +22,34 @@ export const queryKeys = {
     ['tableIndexes', connectionId ?? null, table?.schema ?? null, table?.name ?? null] as const,
   databases: (connectionId?: string | null) =>
     ['databases', connectionId ?? null] as const,
+
+  savedQueries: (connectionId?: string | null) =>
+    ['savedQueries', connectionId ?? null] as const,
+  savedQuery: (id: string) =>
+    ['savedQuery', id] as const,
+
+  dashboards: (connectionId?: string | null) =>
+    ['dashboards', connectionId ?? null] as const,
+  dashboard: (id: string) =>
+    ['dashboard', id] as const,
+  veloxyThreads: (connectionId?: string | null) =>
+    ['veloxyThreads', connectionId ?? null] as const,
+  veloxyThread: (id: string) =>
+    ['veloxyThread', id] as const,
+  // Phase 2: per-widget query results, keyed so param/SQL changes refetch.
+  widgetData: (dashboardId: string, widgetId: string, sqlHash: string, varsHash: string) =>
+    ['widgetData', dashboardId, widgetId, sqlHash, varsHash] as const,
+  // Phase 3: per-cell query results (shared across widgets referencing sourceCellId).
+  cellData: (dashboardId: string, cellId: string, sqlHash: string, varsHash: string) =>
+    ['cellData', dashboardId, cellId, sqlHash, varsHash] as const,
+  // Phase 2: Chart Builder preview fetch, keyed by connection + SQL hash.
+  chartPreview: (connectionId: string, sqlHash: string) =>
+    ['chartPreview', connectionId, sqlHash] as const,
+
+  session: () => ['session'] as const,
+  entitlements: () => ['entitlements'] as const,
+  cloudUsage: () => ['cloudUsage'] as const,
+  cloudModels: () => ['cloudModels'] as const,
 } as const
 
 export type QueryKeys = typeof queryKeys

@@ -24,6 +24,8 @@ import { ENGINE_FORM_CONFIG, type EngineFormConfig } from './engine-form-config'
 type InputMode = 'string' | 'fields'
 type SshAuthMethodForm = 'keyfile' | 'password'
 
+const PRIMARY_ENGINES: DatabaseEngine[] = ['postgres', 'mysql', 'sqlite']
+
 const engineOptions: { value: DatabaseEngine; label: string }[] = [
   { value: 'postgres',   label: 'PostgreSQL' },
   { value: 'mysql',      label: 'MySQL' },
@@ -70,7 +72,10 @@ const DATABASE_FLAVORS: DatabaseFlavor[] = [
 
 const FLAVORS_BY_ENGINE: Record<string, DatabaseFlavor[]> = {}
 for (const f of DATABASE_FLAVORS) {
-  (FLAVORS_BY_ENGINE[f.engine] ??= []).push(f)
+  if (FLAVORS_BY_ENGINE[f.engine] === undefined) {
+    FLAVORS_BY_ENGINE[f.engine] = []
+  }
+  FLAVORS_BY_ENGINE[f.engine].push(f)
 }
 
 // ── Zod schema ──────────────────────────────────────────────────
@@ -93,7 +98,7 @@ const connectionSchema = z.object({
     'azuresql',
   ] as const),
   host: z.string(),
-  port: z.coerce.number().int().min(0).max(65535),
+  port: z.coerce.number().int().min(1).max(65535),
   database: z.string(),
   filePath: z.string().optional(),
   user: z.string(),
@@ -229,15 +234,19 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
 
   // ── Connection string mode ─────────────────────────────────
 
-  const [inputMode, setInputMode] = useState<InputMode>('string')
+  const [inputMode, setInputMode] = useState<InputMode>('fields')
   const [connString, setConnString] = useState('')
   const [connStringError, setConnStringError] = useState<string | null>(null)
+  const [showMoreEngines, setShowMoreEngines] = useState(false)
+  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false)
 
   useEffect(() => {
     if (open) {
-      setInputMode('string')
+      setInputMode('fields')
       setConnString('')
       setConnStringError(null)
+      setShowMoreEngines(false)
+      setMoreOptionsOpen(false)
       form.reset(defaultValues)
     }
   }, [open, form, defaultValues])
@@ -403,7 +412,7 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
 
             {/* Mode toggle */}
             <div className="flex rounded-lg border border-border/60 bg-muted/40 p-0.5">
-              {(['string', 'fields'] as const).map((mode) => (
+              {(['fields', 'string'] as const).map((mode) => (
                 <button key={mode} type="button" onClick={() => handleModeToggle(mode)}
                   className={cn(
                     'flex-1 rounded-md px-4 py-2 text-sm font-medium transition-all',
@@ -445,7 +454,9 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
               <div>
                 <span className="block text-left text-xs font-medium text-muted-foreground mb-2.5">{t("connection.databaseEngine")}</span>
                 <div className="flex flex-wrap gap-1.5" role="radiogroup">
-                  {engineOptions.map((option) => {
+                  {engineOptions
+                    .filter((option) => PRIMARY_ENGINES.includes(option.value) || showMoreEngines || engine === option.value)
+                    .map((option) => {
                     const selected = engine === option.value
                     return (
                       <label key={option.value} className="cursor-pointer">
@@ -462,67 +473,21 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                             {option.value === 'postgres' && <img src="/postgresql.svg" alt="PG" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
                             {option.value === 'mysql' && (
                               <>
-                                <img src="/mysql-wordmark-dark.svg" alt="MySQL" className="h-3.5 w-auto max-w-[26px] object-contain dark:hidden" />
-                                <img src="/mysql-wordmark-light.svg" alt="MySQL" className="hidden h-3.5 w-auto max-w-[26px] object-contain dark:block" />
+                                <img src="/mysql-wordmark-light.svg" alt="MySQL" className="h-3.5 w-auto max-w-[26px] object-contain dark:hidden" />
+                                <img src="/mysql-wordmark-dark.svg" alt="MySQL" className="hidden h-3.5 w-auto max-w-[26px] object-contain dark:block" />
                               </>
                             )}
                             {option.value === 'sqlite' && <img src="/sqlite.svg" alt="SQLite" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
                             {option.value === 'mongo' && <img src="/mongodb-icon-light.svg" alt="MongoDB" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
                             {option.value === 'duckdb' && <img src="/DuckDB_icon-darkmode.svg" alt="DuckDB" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
                             {option.value === 'redis' && <img src="/redis.svg" alt="Redis" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
-                            {option.value === 'clickhouse' && (
-                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none">
-                                <rect x="2" y="7" width="2.5" height="10" rx="1" fill="#FFCC00" />
-                                <rect x="6.5" y="4" width="2.5" height="16" rx="1" fill="#FF9900" />
-                                <rect x="11" y="2" width="2.5" height="20" rx="1" fill="#FF5500" />
-                                <rect x="15.5" y="8" width="2.5" height="8" rx="1" fill="#FFCC00" />
-                                <rect x="20" y="5" width="2.5" height="14" rx="1" fill="#FF0000" />
-                              </svg>
-                            )}
-                            {option.value === 'libsql' && (
-                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none" stroke="#00d492" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z" />
-                                <path d="M6 6h10" />
-                                <path d="M6 10h10" />
-                                <path d="M6 14h6" />
-                              </svg>
-                            )}
-                            {option.value === 'turso' && (
-                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none">
-                                <circle cx="12" cy="12" r="10" fill="#4ff8d2" fillOpacity="0.2" />
-                                <path d="M8 8h8v3h-2.5v6h-3v-6H8V8Z" fill="#00e5a3" />
-                              </svg>
-                            )}
-                            {option.value === 'mssql' && (
-                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none">
-                                <rect x="3" y="3" width="8" height="8" rx="1" fill="#CC292B" />
-                                <rect x="13" y="3" width="8" height="8" rx="1" fill="#E64A19" />
-                                <rect x="3" y="13" width="8" height="8" rx="1" fill="#D32F2F" />
-                                <rect x="13" y="13" width="8" height="8" rx="1" fill="#B71C1C" />
-                              </svg>
-                            )}
-                            {option.value === 'azuresql' && (
-                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none">
-                                <path d="M12 3c-4.4 0-8 1.3-8 3v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6c0-1.7-3.6-3-8-3Z" fill="#0078D4" fillOpacity="0.2" stroke="#0078D4" strokeWidth="1.5" />
-                                <path d="M4 10c0 1.7 3.6 3 8 3s8-1.3 8-3" stroke="#0078D4" strokeWidth="1.5" />
-                                <path d="M4 14c0 1.7 3.6 3 8 3s8-1.3 8-3" stroke="#0078D4" strokeWidth="1.5" />
-                                <path d="M12 9c4.4 0 8-1.3 8-3s-3.6-3-8-3-8 1.3-8 3 3.6 3 8 3Z" fill="#0078D4" />
-                              </svg>
-                            )}
-                            {option.value === 'scylladb' && (
-                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none">
-                                <circle cx="12" cy="12" r="10" fill="#00C7B5" fillOpacity="0.2" />
-                                <path d="M7 17c1-3 3-5 5-5s4 2 5 5" stroke="#00C7B5" strokeWidth="2" strokeLinecap="round" />
-                                <circle cx="9.5" cy="9.5" r="1.5" fill="#00C7B5" />
-                                <circle cx="14.5" cy="9.5" r="1.5" fill="#00C7B5" />
-                              </svg>
-                            )}
-                            {option.value === 'cassandra' && (
-                              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0" fill="none">
-                                <ellipse cx="12" cy="12" rx="9" ry="6" fill="#1F75FE" fillOpacity="0.2" stroke="#1F75FE" strokeWidth="1.5" />
-                                <circle cx="12" cy="12" r="3" fill="#1F75FE" />
-                              </svg>
-                            )}
+                            {option.value === 'clickhouse' && <img src="/clickhouse.svg" alt="ClickHouse" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
+                            {option.value === 'libsql' && <img src="/libsql.svg" alt="libSQL" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
+                            {option.value === 'turso' && <img src="/turso.svg" alt="Turso" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
+                            {option.value === 'mssql' && <img src="/mssql.svg" alt="SQL Server" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
+                            {option.value === 'azuresql' && <img src="/azuresql.svg" alt="Azure SQL" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
+                            {option.value === 'scylladb' && <img src="/scylladb.svg" alt="ScyllaDB" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
+                            {option.value === 'cassandra' && <img src="/cassandra.svg" alt="Cassandra" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
                           </div>
                           <span className="text-[10px] font-medium text-foreground leading-tight text-center truncate w-full">{option.label}</span>
                         </div>
@@ -530,26 +495,16 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                     )
                   })}
                 </div>
-              </div>
-
-              {/* Flavor selector */}
-              {cfg.showFlavors && (
-                <div>
-                  <span className="block text-left text-xs font-medium text-muted-foreground mb-2">Provider</span>
-                  <select
-                    value={flavor}
-                    onChange={(e) => handleFlavorChange(e.target.value)}
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                {!showMoreEngines ? (
+                  <button
+                    type="button"
+                    className="mt-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowMoreEngines(true)}
                   >
-                    {(FLAVORS_BY_ENGINE[engine] ?? []).map((f) => (
-                      <option key={f.key} value={f.key}>{f.label}</option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-[10px] text-muted-foreground/60">
-                    {DATABASE_FLAVORS.find((f) => f.key === flavor)?.description}
-                  </p>
-                </div>
-              )}
+                    {t("connection.moreEngines")}
+                  </button>
+                ) : null}
+              </div>
 
               {/* File picker (SQLite, DuckDB) */}
               {cfg.showFilePicker && (
@@ -588,12 +543,42 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                 </div>
               )}
 
-              {/* Password + SSL / SRV */}
               {showHostPort && (
-                <div className={cn('grid gap-4', showSecondCol ? 'sm:grid-cols-2' : '')}>
-                  <Field label={cfg.fields.password.label} inputId="veloxdb-password" error={form.formState.errors.password?.message}>
-                    <Input id="veloxdb-password" {...form.register('password')} type="password" placeholder={cfg.fields.password.placeholder} />
-                  </Field>
+                <Field label={cfg.fields.password.label} inputId="veloxdb-password" error={form.formState.errors.password?.message}>
+                  <Input id="veloxdb-password" {...form.register('password')} type="password" placeholder={cfg.fields.password.placeholder} />
+                </Field>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setMoreOptionsOpen((open) => !open)}
+                className="text-xs font-medium text-muted-foreground hover:text-foreground"
+              >
+                {t("connection.moreOptions")}
+              </button>
+
+              {moreOptionsOpen ? (
+              <div className="space-y-5">
+              {cfg.showFlavors && (
+                <div>
+                  <span className="block text-left text-xs font-medium text-muted-foreground mb-2">Provider</span>
+                  <select
+                    value={flavor}
+                    onChange={(e) => handleFlavorChange(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    {(FLAVORS_BY_ENGINE[engine] ?? []).map((f) => (
+                      <option key={f.key} value={f.key}>{f.label}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[10px] text-muted-foreground/60">
+                    {DATABASE_FLAVORS.find((f) => f.key === flavor)?.description}
+                  </p>
+                </div>
+              )}
+
+              {showHostPort && showSecondCol ? (
+                <div className="grid gap-4 sm:grid-cols-2">
                   {cfg.showSsl && (
                     <Field label={t("connection.sslMode")} inputId="veloxdb-ssl-mode" error={form.formState.errors.sslMode?.message}>
                       <select id="veloxdb-ssl-mode" {...form.register('sslMode')}
@@ -613,7 +598,7 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                     </Field>
                   )}
                 </div>
-              )}
+              ) : null}
 
               {/* SSH toggle */}
               {cfg.showSsh && (
@@ -768,6 +753,8 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
                   )}
                 </div>
               )}
+              </div>
+              ) : null}
             </div>
           </div>
 

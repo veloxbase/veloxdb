@@ -16,6 +16,145 @@ use super::DatabaseEngineOps;
 
 pub struct PostgresEngine;
 
+async fn simple_query_capped(
+    client: &deadpool_postgres::Client,
+    sql: &str,
+    max_rows: usize,
+) -> Result<QueryResult, String> {
+    let started_at = Instant::now();
+    let messages = client
+        .simple_query(sql)
+        .await
+        .map_err(|error| map_pg_err(error, Some(sql)))?;
+
+    let mut columns = Vec::new();
+    let mut rows = Vec::new();
+    let mut total_rows = 0usize;
+    let mut command_tag = None;
+    let mut saw_row_description = false;
+
+    for message in messages {
+        match message {
+            SimpleQueryMessage::RowDescription(description) => {
+                // A script can return several result sets. Keep the last one
+                // instead of mapping later rows onto earlier columns.
+                if saw_row_description {
+                    columns.clear();
+                    rows.clear();
+                    total_rows = 0;
+                }
+                saw_row_description = true;
+                columns = description
+                    .iter()
+                    .map(|column| column.name().to_string())
+                    .collect();
+            }
+            SimpleQueryMessage::Row(row) => {
+                total_rows += 1;
+                if !saw_row_description {
+                    saw_row_description = true;
+                    columns = row
+                        .columns()
+                        .iter()
+                        .map(|column| column.name().to_string())
+                        .collect();
+                }
+                if rows.len() >= max_rows {
+                    continue;
+                }
+                let mut mapped_row = std::collections::BTreeMap::new();
+                for (index, column_name) in columns.iter().enumerate() {
+                    mapped_row.insert(column_name.clone(), row.get(index).map(str::to_owned));
+                }
+                rows.push(mapped_row);
+            }
+            SimpleQueryMessage::CommandComplete(count) => {
+                command_tag = Some(count);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(QueryResult {
+        columns,
+        row_count: rows.len(),
+        rows,
+        execution_ms: started_at.elapsed().as_millis(),
+        truncated: total_rows > max_rows,
+        command_tag,
+    })
+}
+
+async fn run_simple_query(
+    app: &AppHandle,
+    state: &AppState,
+    connection_id: &str,
+    sql: &str,
+    max_rows: usize,
+    timeout_ms: Option<u64>,
+) -> Result<QueryResult, VeloxError> {
+    with_pool_client_retry(
+        app,
+        state,
+        connection_id,
+        sql.to_string(),
+        |client, sql| async move {
+            if let Some(ms) = timeout_ms {
+                client
+                    .batch_execute(&format!("SET statement_timeout = '{}'", ms))
+                    .await
+                    .map_err(|error| map_pg_err(error, None))?;
+            }
+            let result = simple_query_capped(&client, &sql, max_rows).await;
+            if timeout_ms.is_some() {
+                let _ = client.batch_execute("SET statement_timeout = '0'").await;
+            }
+            result
+        },
+    )
+    .await
+}
+
+impl PostgresEngine {
+    /// Runs agent SQL inside a `READ ONLY` transaction that is always rolled
+    /// back. This is the database-level backstop behind the AST check in
+    /// `assert_veloxy_readonly_sql`: Postgres itself rejects INSERT, UPDATE,
+    /// DELETE, DDL and `nextval()` here, so a parser gap cannot become a
+    /// write. `SET LOCAL` scopes the timeout to this transaction, so it is
+    /// cleared by the rollback even if the query fails.
+    pub(crate) async fn run_readonly_query_with_timeout(
+        app: &AppHandle,
+        state: &AppState,
+        connection_id: &str,
+        sql: &str,
+        max_rows: usize,
+        timeout_ms: u64,
+    ) -> Result<QueryResult, VeloxError> {
+        with_pool_client_retry(
+            app,
+            state,
+            connection_id,
+            sql.to_string(),
+            |client, sql| async move {
+                client
+                    .batch_execute(&format!(
+                        "BEGIN READ ONLY; SET LOCAL statement_timeout = {}",
+                        timeout_ms
+                    ))
+                    .await
+                    .map_err(|error| map_pg_err(error, None))?;
+                let result = simple_query_capped(&client, &sql, max_rows).await;
+                // Roll back on success too: nothing the agent runs should
+                // persist, and a failed transaction must not leak into the
+                // next user of this pooled connection.
+                let _ = client.batch_execute("ROLLBACK").await;
+                result
+            },
+        )
+        .await
+    }
+}
+
 impl DatabaseEngineOps for PostgresEngine {
     async fn connect(
         &self,
@@ -94,61 +233,7 @@ impl DatabaseEngineOps for PostgresEngine {
         sql: &str,
         max_rows: usize,
     ) -> Result<QueryResult, VeloxError> {
-        with_pool_client_retry(app, state, connection_id, sql.to_string(), |client, sql| async move {
-            let started_at = Instant::now();
-            let messages = client.simple_query(&sql).await
-                .map_err(|error| map_pg_err(error, Some(sql.as_str())))?;
-
-            let mut columns = Vec::new();
-            let mut rows = Vec::new();
-            let mut total_rows = 0usize;
-            let mut command_tag = None;
-            let mut saw_row_description = false;
-
-            for message in messages {
-                match message {
-                    SimpleQueryMessage::RowDescription(description) => {
-                        // A script can return several result sets. Keep the last
-                        // one instead of mapping later rows onto earlier columns.
-                        if saw_row_description {
-                            columns.clear();
-                            rows.clear();
-                            total_rows = 0;
-                        }
-                        saw_row_description = true;
-                        columns = description.iter()
-                            .map(|column| column.name().to_string()).collect();
-                    }
-                    SimpleQueryMessage::Row(row) => {
-                        total_rows += 1;
-                        if !saw_row_description {
-                            saw_row_description = true;
-                            columns = row.columns().iter()
-                                .map(|column| column.name().to_string()).collect();
-                        }
-                        if rows.len() >= max_rows { continue; }
-                        let mut mapped_row = std::collections::BTreeMap::new();
-                        for (index, column_name) in columns.iter().enumerate() {
-                            mapped_row.insert(column_name.clone(), row.get(index).map(str::to_owned));
-                        }
-                        rows.push(mapped_row);
-                    }
-                    SimpleQueryMessage::CommandComplete(count) => {
-                        command_tag = Some(count);
-                    }
-                    _ => {}
-                }
-            }
-
-            Ok(QueryResult {
-                columns,
-                row_count: rows.len(),
-                rows,
-                execution_ms: started_at.elapsed().as_millis(),
-                truncated: total_rows > max_rows,
-                command_tag,
-            })
-        }).await
+        run_simple_query(app, state, connection_id, sql, max_rows, None).await
     }
 
     async fn get_tables(

@@ -47,6 +47,11 @@ pub async fn save_text_file(content: String, output_path: String) -> Result<(), 
 }
 
 #[tauri::command]
+pub async fn read_text_file(input_path: String) -> Result<String, String> {
+    std::fs::read_to_string(&input_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn store_openrouter_api_key(api_key: String) -> Result<(), String> {
     if api_key.trim().is_empty() {
         return credentials::delete_openrouter_api_key();
@@ -62,4 +67,22 @@ pub async fn get_openrouter_api_key() -> Result<Option<String>, String> {
 #[tauri::command]
 pub async fn delete_openrouter_api_key() -> Result<(), String> {
     credentials::delete_openrouter_api_key()
+}
+
+#[tauri::command]
+pub async fn store_cloud_api_key(api_key: String) -> Result<(), String> {
+    if api_key.trim().is_empty() {
+        return credentials::delete_cloud_api_key();
+    }
+    credentials::store_cloud_api_key(&api_key)
+}
+
+#[tauri::command]
+pub async fn get_cloud_api_key() -> Result<Option<String>, String> {
+    credentials::get_cloud_api_key()
+}
+
+#[tauri::command]
+pub async fn delete_cloud_api_key() -> Result<(), String> {
+    credentials::delete_cloud_api_key()
 }

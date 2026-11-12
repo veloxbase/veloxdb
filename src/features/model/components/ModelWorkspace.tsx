@@ -15,6 +15,7 @@ import { ModelInspector } from '@/features/model/components/ModelInspector';
 import { ModelWorkspaceToolbar } from '@/features/model/components/ModelWorkspaceToolbar';
 import { MigrationPreviewDialog } from '@/features/model/components/MigrationPreviewDialog';
 import { buildMigrationSql, buildMigrationSummary } from '@/features/model/migration-preview';
+import { ModelSkeletonGraph } from '@/features/model/components/ModelSkeletonGraph';
 import { defaultDiagramHeaderHex as distinctDiagramHeaderHex } from '@/features/model/diagram-header-palette';
 import { readDiagramPalette } from '@/features/model/diagram-theme';
 import { useModelColumns } from '@/features/model/hooks/useModelColumns';
@@ -442,7 +443,7 @@ export function ModelWorkspace({
 
 	// Gurad returns
 	if (isTablesLoading && !tables.length) {
-		return <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">Loading tables…</div>;
+		return <ModelSkeletonGraph />;
 	}
 	if (tablesErrorMessage) {
 		return <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-destructive">{tablesErrorMessage}</div>;
@@ -526,7 +527,7 @@ export function ModelWorkspace({
 									onSelectionSync={(keys) => {
 										store.applyMarquee(keys, false);
 									}}
-									onTableDragStart={(_k) => {}}
+									onTableDragStart={() => {}}
 									onTableDragMove={applyTableDragPositions}
 									onMoveTable={applyTableDragPositions}
 									onRequestColumns={requestColumns}

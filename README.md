@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <strong>Databases, unleashed on your desktop.</strong>
+  <strong>Talk to your database. Built for pure speed.</strong>
 </p>
 
 <p align="center">
@@ -26,7 +26,7 @@
 
 ---
 
-**VeloxDB** is a **fast, memory-efficient, developer-focused** desktop client supporting **13 database engines**: **PostgreSQL, MySQL, SQLite, DuckDB, MongoDB, Redis, ClickHouse, LibSQL, Turso, ScyllaDB, Apache Cassandra, Microsoft SQL Server, and Azure SQL**. Connect directly to your databases — no cloud, no middleware, no telemetry. Built with performance and productivity at its core.
+**VeloxDB** is an **AI-native, fast, developer-focused** desktop client supporting **13 database engines**: **PostgreSQL, MySQL, SQLite, DuckDB, MongoDB, Redis, ClickHouse, LibSQL, Turso, ScyllaDB, Apache Cassandra, Microsoft SQL Server, and Azure SQL**. Talk to your data in plain English, query directly with zero cloud middleware, and inspect schemas with zero telemetry. Built with performance and productivity at its core.
 
 Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 

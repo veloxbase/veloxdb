@@ -1,0 +1,78 @@
+.dashboard-grid-canvas {
+  background-color: color-mix(in oklch, var(--muted) 35%, var(--background));
+}
+
+.dashboard-grid-canvas--editing {
+  background-color: var(--background);
+  background-image: radial-gradient(
+    color-mix(in oklch, var(--border) 70%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 24px 24px;
+}
+
+.dashboard-grid-surface {
+  width: 100%;
+}
+
+.dashboard-grid-item {
+  transition: box-shadow 0.15s ease, outline-color 0.15s ease;
+}
+
+.dashboard-grid-canvas--editing .dashboard-grid-item {
+  outline: 1px solid var(--control-accent);
+  outline-offset: -1px;
+}
+
+.dashboard-grid-canvas--editing .dashboard-grid-item--dragging,
+.dashboard-grid-canvas--editing .dashboard-grid-item--resizing {
+  z-index: 10;
+  outline-width: 2px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+}
+
+.dashboard-grid-placeholder {
+  border: 1px dashed var(--control-accent);
+  background: color-mix(in oklch, var(--control-accent) 10%, transparent);
+  z-index: 5;
+}
+
+.dashboard-grid-canvas--editing .widget-drag-handle {
+  touch-action: none;
+  user-select: none;
+}
+
+.dashboard-grid-canvas--editing .dashboard-grid-tile__body--no-events {
+  pointer-events: none;
+}
+
+.dashboard-grid-canvas--editing .dashboard-grid-tile__body--interactive {
+  pointer-events: auto;
+}
+
+.dashboard-grid-canvas--editing .dashboard-grid-item {
+  user-select: none;
+}
+
+.dashboard-grid-canvas--editing .moveable-control-box {
+  z-index: 20 !important;
+}
+
+.dashboard-grid-canvas--editing .moveable-direction.moveable-se {
+  width: 24px !important;
+  height: 24px !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+.dashboard-grid-canvas--editing .moveable-direction.moveable-se::after {
+  content: '';
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid var(--control-accent);
+  border-bottom: 2px solid var(--control-accent);
+  border-bottom-right-radius: 2px;
+}

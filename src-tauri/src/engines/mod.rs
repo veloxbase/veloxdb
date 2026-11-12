@@ -149,3 +149,35 @@ pub fn get_engine(engine: DatabaseEngine) -> EngineDispatcher {
     }
 }
 
+/// Like [`DatabaseEngineOps::run_query`], for agent (Veloxy) reads. On
+/// Postgres with a timeout it runs inside a rolled-back `READ ONLY`
+/// transaction with `statement_timeout`, so agent reads can neither write nor
+/// pin a pool client. Other engines rely on `assert_veloxy_readonly_sql`
+/// alone, which callers must run first.
+pub(crate) async fn run_query_bounded(
+    app: &AppHandle,
+    state: &AppState,
+    connection_id: &str,
+    engine: DatabaseEngine,
+    sql: &str,
+    max_rows: usize,
+    timeout_ms: Option<u64>,
+) -> Result<QueryResult, VeloxError> {
+    if engine == DatabaseEngine::Postgres {
+        if let Some(ms) = timeout_ms {
+            return PostgresEngine::run_readonly_query_with_timeout(
+                app,
+                state,
+                connection_id,
+                sql,
+                max_rows,
+                ms,
+            )
+            .await;
+        }
+    }
+    get_engine(engine)
+        .run_query(app, state, connection_id, sql, max_rows)
+        .await
+}
+

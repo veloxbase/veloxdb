@@ -8,21 +8,30 @@ import {
   PlugIcon,
   DatabaseIcon,
   SparkleIcon,
+  UserIcon,
   InfoIcon,
   ArrowSquareOutIcon,
   ArrowsClockwiseIcon,
   BellIcon,
 } from '@phosphor-icons/react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { useQuery } from '@tanstack/react-query'
+
+import { AccountSettingsPanel } from '@/features/auth/components/AccountSettingsPanel'
+import { useCloudAuth } from '@/features/auth/AuthProvider'
+import { fetchAiModels } from '@/features/auth/cloud-client'
+import { queryKeys } from '@/data/query-keys'
+import { isProBuild } from '@/lib/build-config'
 import { saveOpenRouterApiKey } from '@/lib/openrouter-credentials'
-import { fetchOpenRouterModels, OPENROUTER_POPULAR_MODELS, type OpenRouterModelOption } from '@/lib/openrouter-models'
+import { fetchOpenRouterModels, OPENROUTER_POPULAR_MODELS, OLLAMA_POPULAR_MODELS, type OpenRouterModelOption } from '@/lib/openrouter-models'
 import { cn } from '@/lib/utils'
-import { useSettings, type AppTheme, type NullDisplay, themeLabels, resolveFontSizePx } from '@/lib/settings'
+import { useSettings, isLocalAiEndpoint, type AppTheme, type ChartPaperStrength, type ChartPaperTint, type NullDisplay, themeLabels, resolveFontSizePx } from '@/lib/settings'
+import { useAppHotkey } from '@/lib/shortcuts/use-app-hotkey'
 import { useUpdateCheck } from '@/hooks/useUpdateCheck'
 import pkg from '../../../../package.json'
 
@@ -32,31 +41,29 @@ const VELOXDB_SITE = 'https://veloxdb.dev'
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const settings = useSettings()
   const { t, i18n } = useTranslation()
+  const { hasSession } = useCloudAuth()
 
   const tabs = [
     { id: 'appearance', label: t("settings.appearance"), Icon: PaintBrushIcon },
     { id: 'editor', label: t("settings.editor"), Icon: CodeIcon },
     { id: 'results', label: t("settings.results"), Icon: TableIcon },
     { id: 'connections', label: t("settings.connections"), Icon: PlugIcon },
+    ...(isProBuild ? [{ id: 'account', label: t("settings.account"), Icon: UserIcon }] : []),
     { id: 'veloxy', label: t("settings.veloxy"), Icon: SparkleIcon },
     { id: 'notifications', label: t("settings.notifications"), Icon: BellIcon },
     { id: 'data', label: t("settings.data"), Icon: DatabaseIcon },
     { id: 'about', label: t("settings.about"), Icon: InfoIcon },
   ]
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === ',') { e.preventDefault(); onOpenChange(true) }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onOpenChange])
+  useAppHotkey('openSettings', () => {
+    onOpenChange(true)
+  })
 
   const [tab, setTab] = useState('appearance')
 
   const handleExport = useCallback(() => {
-    const exportable = { ...useSettings.getState() }
-    delete (exportable as Partial<typeof exportable>).veloxyOpenRouterApiKey
+    const exportable = { ...useSettings.getState() } as Record<string, unknown>
+    delete exportable.veloxyOpenRouterApiKey
     const data = JSON.stringify(exportable, null, 2)
     const blob = new Blob([data], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -84,6 +91,12 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     { enabled: open },
   )
 
+  const cloudModelsQuery = useQuery({
+    queryKey: queryKeys.cloudModels(),
+    queryFn: fetchAiModels,
+    enabled: open && hasSession && tab === 'veloxy',
+  })
+
   const refreshOpenRouterModels = useCallback(async () => {
     setModelsStatus('loading')
     setModelsError(null)
@@ -98,19 +111,31 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     } catch (error) {
       setModelsStatus('error')
       setModelsError(error instanceof Error ? error.message : 'Failed to fetch models')
-      setModelOptions(OPENROUTER_POPULAR_MODELS)
+      setModelOptions(isLocalAiEndpoint(veloxyBaseUrl) ? OLLAMA_POPULAR_MODELS : OPENROUTER_POPULAR_MODELS)
     }
   }, [])
 
   const selectSettingsTab = useCallback(
     (id: string) => {
       setTab(id)
-      if (id === 'veloxy' && useSettings.getState().veloxyOpenRouterApiKey.trim()) {
+      const st = useSettings.getState()
+      if (id === 'veloxy' && (st.veloxyOpenRouterApiKey.trim() || isLocalAiEndpoint(st.veloxyBaseUrl))) {
         void refreshOpenRouterModels()
       }
     },
     [refreshOpenRouterModels],
   )
+
+  const cloudModels = useMemo(() => {
+    const models = [...(cloudModelsQuery.data ?? [])]
+    models.sort((left, right) => Number(Boolean(right.supportsTools)) - Number(Boolean(left.supportsTools)))
+    return models
+  }, [cloudModelsQuery.data])
+  const preferredCloudModel = cloudModels.find((model) => model.supportsTools) ?? cloudModels[0]
+  const selectedCloudModel = settings.veloxyCloudModel || preferredCloudModel?.slug || ''
+  const selectedCloudSupportsTools = cloudModels.find((model) => model.slug === selectedCloudModel)?.supportsTools
+  const showCloudToolsHint =
+    hasSession && selectedCloudModel.length > 0 && selectedCloudSupportsTools === false
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -152,6 +177,28 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               </Field>
               <Field label={t("settings.theme")} desc={t("settings.themeDesc")}>
                 <ThemeSelect value={settings.theme} onChange={(v) => useSettings.setState({ theme: v as AppTheme })} />
+              </Field>
+              <Field label={t("settings.chartPaperTint")} desc={t("settings.chartPaperTintDesc")}>
+                <Select
+                  value={settings.chartPaperTint ?? 'auto'}
+                  onChange={(v) => useSettings.setState({ chartPaperTint: v as ChartPaperTint })}
+                  opts={[
+                    { v: 'auto', l: t("settings.chartPaperTintAuto") },
+                    { v: 'neutral', l: t("settings.chartPaperTintNeutral") },
+                    { v: 'accent', l: t("settings.chartPaperTintAccent") },
+                  ]}
+                />
+              </Field>
+              <Field label={t("settings.chartPaperStrength")} desc={t("settings.chartPaperStrengthDesc")}>
+                <Select
+                  value={settings.chartPaperStrength ?? 'medium'}
+                  onChange={(v) => useSettings.setState({ chartPaperStrength: v as ChartPaperStrength })}
+                  opts={[
+                    { v: 'off', l: t("settings.chartPaperStrengthOff") },
+                    { v: 'soft', l: t("settings.chartPaperStrengthSoft") },
+                    { v: 'medium', l: t("settings.chartPaperStrengthMedium") },
+                  ]}
+                />
               </Field>
               <Field label={t("settings.fontSize")} desc={t("settings.fontSizeDesc")}>
                 <div className="flex items-center gap-2">
@@ -241,23 +288,105 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               </Field>
             </Section>}
 
+            {tab === 'account' && isProBuild && <Section title={t("settings.account")}>
+              <AccountSettingsPanel />
+            </Section>}
+
             {tab === 'veloxy' && <Section title={t("settings.veloxy")}>
-              <Field label={t("settings.provider")} desc={t("settings.providerDesc")}>
+              <Field label={t("settings.provider")} desc={hasSession ? t("settings.providerCloudDesc") : t("settings.providerDesc")}>
                 <span className="inline-flex items-center h-8 px-3 rounded-md border border-border bg-muted/50 text-xs text-foreground">
-                  OpenRouter
+                  {hasSession ? t("settings.veloxCloud") : 'OpenRouter'}
                 </span>
               </Field>
-              <Field label={t("settings.openRouterApiKey")} desc={t("settings.openRouterApiKeyDesc")}>
+              {hasSession ? (
+                <>
+                  <Field label={t("settings.cloudModel")} desc={t("settings.cloudModelDesc")}>
+                    <Select
+                      value={selectedCloudModel}
+                      onChange={(v) => useSettings.setState({ veloxyCloudModel: v })}
+                      opts={cloudModels.map((model) => ({
+                        v: model.slug,
+                        l: model.supportsTools === false
+                          ? `${model.displayName} (text only)`
+                          : model.displayName,
+                      }))}
+                    />
+                  </Field>
+                  {showCloudToolsHint ? (
+                    <p className="text-[11px] leading-snug text-amber-800 dark:text-amber-200">
+                      {t("settings.cloudToolsHint")}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+              <Field label="AI Provider" desc="Select Cloud OpenRouter or Local Ollama/LM Studio.">
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant={!isLocalAiEndpoint(settings.veloxyBaseUrl) && settings.veloxyBaseUrl.includes('openrouter.ai') ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      useSettings.setState({
+                        veloxyBaseUrl: 'https://openrouter.ai/api/v1',
+                        veloxyModel: 'deepseek/deepseek-chat',
+                      })
+                      void refreshOpenRouterModels()
+                    }}
+                  >
+                    OpenRouter
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={isLocalAiEndpoint(settings.veloxyBaseUrl) && settings.veloxyBaseUrl.includes('11434') ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      useSettings.setState({
+                        veloxyBaseUrl: 'http://localhost:11434/v1',
+                        veloxyModel: 'qwen2.5-coder:latest',
+                      })
+                      void refreshOpenRouterModels()
+                    }}
+                  >
+                    Ollama (Local)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={
+                      (!settings.veloxyBaseUrl.includes('openrouter.ai') && !settings.veloxyBaseUrl.includes('11434'))
+                        ? 'default'
+                        : 'outline'
+                    }
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      if (settings.veloxyBaseUrl.includes('openrouter.ai') || settings.veloxyBaseUrl.includes('11434')) {
+                        useSettings.setState({ veloxyBaseUrl: 'http://localhost:1234/v1' })
+                        void refreshOpenRouterModels()
+                      }
+                    }}
+                  >
+                    Custom
+                  </Button>
+                </div>
+              </Field>
+              <Field
+                label={isLocalAiEndpoint(settings.veloxyBaseUrl) ? "API Key (Optional)" : t("settings.openRouterApiKey")}
+                desc={isLocalAiEndpoint(settings.veloxyBaseUrl) ? "Not required for local models like Ollama or LM Studio." : t("settings.openRouterApiKeyDesc")}
+              >
                 <Input
                   type="password"
                   value={settings.veloxyOpenRouterApiKey}
                   onChange={(e) => {
                     const value = e.target.value
                     void saveOpenRouterApiKey(value)
-                    if (value.trim()) void refreshOpenRouterModels()
+                    if (value.trim() || isLocalAiEndpoint(settings.veloxyBaseUrl)) {
+                      void refreshOpenRouterModels()
+                    }
                   }}
                   className="h-8 w-[260px] text-[11px]"
-                  placeholder="sk-or-v1-..."
+                  placeholder={isLocalAiEndpoint(settings.veloxyBaseUrl) ? "Optional for local models" : "sk-or-v1-..."}
                   spellCheck={false}
                 />
               </Field>
@@ -265,8 +394,9 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 <Input
                   value={settings.veloxyBaseUrl}
                   onChange={(e) => {
-                    useSettings.setState({ veloxyBaseUrl: e.target.value })
-                    if (useSettings.getState().veloxyOpenRouterApiKey.trim()) {
+                    const nextUrl = e.target.value
+                    useSettings.setState({ veloxyBaseUrl: nextUrl })
+                    if (useSettings.getState().veloxyOpenRouterApiKey.trim() || isLocalAiEndpoint(nextUrl)) {
                       void refreshOpenRouterModels()
                     }
                   }}

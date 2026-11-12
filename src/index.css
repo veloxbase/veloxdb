@@ -5,6 +5,7 @@
 @import "@fontsource/jetbrains-mono/500.css";
 @import "@fontsource/jetbrains-mono/600.css";
 @import "@fontsource/jetbrains-mono/700.css";
+@import "./features/queries/veloxy/highlight-theme.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -28,11 +29,11 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.809 0.105 251.813);
-  --chart-2: oklch(0.623 0.214 259.815);
-  --chart-3: oklch(0.546 0.245 262.881);
-  --chart-4: oklch(0.488 0.243 264.376);
-  --chart-5: oklch(0.424 0.199 265.638);
+  --chart-1: #2563eb;
+  --chart-2: #3b82f6;
+  --chart-3: #60a5fa;
+  --chart-4: #93c5fd;
+  --chart-5: #bfdbfe;
   --radius: 0;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
@@ -45,6 +46,10 @@
   --control-accent: oklch(0.5 0.14 262);
   --control-accent-muted: oklch(0.5 0.14 262 / 14%);
   --diagram-table-header: oklch(0.94 0.02 262);
+  --motion-micro: 120ms;
+  --motion-ui: 160ms;
+  --motion-theme: 260ms;
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .dark {
@@ -78,6 +83,11 @@
   --control-accent: oklch(0.7 0.12 262);
   --control-accent-muted: oklch(0.7 0.12 262 / 18%);
   --diagram-table-header: oklch(0.32 0.04 262);
+  --chart-1: #5e95ff;
+  --chart-2: #38bdf8;
+  --chart-3: #2dd4bf;
+  --chart-4: #a855f7;
+  --chart-5: #34d399;
 }
 
 /* ── Sepia ── warm paper tones for long reading ──────────── */
@@ -112,6 +122,11 @@
   --control-accent: oklch(0.5 0.08 70);
   --control-accent-muted: oklch(0.5 0.08 70 / 14%);
   --diagram-table-header: oklch(0.88 0.04 84);
+  --chart-1: oklch(0.55 0.12 70);
+  --chart-2: oklch(0.48 0.1 50);
+  --chart-3: oklch(0.42 0.08 40);
+  --chart-4: oklch(0.5 0.09 90);
+  --chart-5: oklch(0.38 0.07 30);
 }
 
 /* ── Ocean ── cool blue professional ─────────────────────── */
@@ -146,6 +161,11 @@
   --control-accent: oklch(0.65 0.14 252);
   --control-accent-muted: oklch(0.65 0.14 252 / 18%);
   --diagram-table-header: oklch(0.26 0.04 252);
+  --chart-1: oklch(0.72 0.14 252);
+  --chart-2: oklch(0.66 0.12 230);
+  --chart-3: oklch(0.7 0.1 200);
+  --chart-4: oklch(0.62 0.12 270);
+  --chart-5: oklch(0.68 0.08 180);
 }
 
 /* ── Forest ── sage green, easy on eyes ──────────────────── */
@@ -180,6 +200,11 @@
   --control-accent: oklch(0.62 0.11 155);
   --control-accent-muted: oklch(0.62 0.11 155 / 18%);
   --diagram-table-header: oklch(0.27 0.04 155);
+  --chart-1: oklch(0.7 0.12 155);
+  --chart-2: oklch(0.64 0.1 140);
+  --chart-3: oklch(0.68 0.08 175);
+  --chart-4: oklch(0.6 0.1 120);
+  --chart-5: oklch(0.72 0.07 90);
 }
 
 /* ── Rose ── warm mauve, cosy evening ────────────────────── */
@@ -214,6 +239,11 @@
   --control-accent: oklch(0.64 0.1 345);
   --control-accent-muted: oklch(0.64 0.1 345 / 18%);
   --diagram-table-header: oklch(0.26 0.03 345);
+  --chart-1: oklch(0.72 0.1 345);
+  --chart-2: oklch(0.66 0.09 320);
+  --chart-3: oklch(0.7 0.08 20);
+  --chart-4: oklch(0.62 0.1 300);
+  --chart-5: oklch(0.68 0.07 360);
 }
 
 /* ── Slate ── high-contrast blue-gray, VSCode feel ───────── */
@@ -248,6 +278,11 @@
   --control-accent: oklch(0.55 0.1 240);
   --control-accent-muted: oklch(0.55 0.1 240 / 16%);
   --diagram-table-header: oklch(0.24 0.03 240);
+  --chart-1: oklch(0.7 0.1 240);
+  --chart-2: oklch(0.64 0.08 220);
+  --chart-3: oklch(0.68 0.07 200);
+  --chart-4: oklch(0.6 0.09 260);
+  --chart-5: oklch(0.66 0.06 180);
 }
 
 /* ── Amber ── terminal amber on black, late-night low-blue ── */
@@ -282,6 +317,11 @@
   --control-accent: oklch(0.68 0.14 65);
   --control-accent-muted: oklch(0.68 0.14 65 / 18%);
   --diagram-table-header: oklch(0.18 0.04 65);
+  --chart-1: oklch(0.72 0.14 65);
+  --chart-2: oklch(0.64 0.12 50);
+  --chart-3: oklch(0.68 0.1 80);
+  --chart-4: oklch(0.58 0.12 40);
+  --chart-5: oklch(0.7 0.08 95);
 }
 
 @theme inline {
@@ -364,4 +404,193 @@
 
 .diagram-edge-animated {
   animation: diagram-edge-dash-flow 900ms linear infinite;
+}
+
+/* ── Hardware-Accelerated View Transitions for Instant Theme Switching ── */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 9999;
+}
+
+/* ── Zero-Overhead GPU Composited Animations ── */
+@keyframes laser-sweep {
+  0% {
+    transform: translateX(-100%) scaleX(0.2);
+    opacity: 0.3;
+  }
+  50% {
+    transform: translateX(0%) scaleX(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100%) scaleX(0.2);
+    opacity: 0.3;
+  }
+}
+
+.animate-laser-sweep {
+  animation: laser-sweep 750ms var(--motion-ease) infinite;
+}
+
+@keyframes metric-influx {
+  0% {
+    transform: translateY(3px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-metric-influx {
+  animation: metric-influx var(--motion-ui) cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+@keyframes phosphor-bloom {
+  0% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.animate-phosphor-bloom {
+  animation: phosphor-bloom 140ms ease-out forwards;
+}
+
+@keyframes veloxy-drawer-enter {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-veloxy-drawer {
+  animation: veloxy-drawer-enter var(--motion-ui) var(--motion-ease) both;
+}
+
+@keyframes thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-thinking-pulse {
+  animation: thinking-pulse 960ms var(--motion-ease) infinite;
+}
+
+@keyframes lattice-on {
+  0%,
+  100% {
+    opacity: var(--ll-idle);
+  }
+  18%,
+  42% {
+    opacity: var(--ll-peak);
+  }
+  62% {
+    opacity: var(--ll-idle);
+  }
+}
+
+@keyframes lattice-on-45 {
+  0%,
+  100% {
+    opacity: var(--ll-idle);
+  }
+  13%,
+  31% {
+    opacity: var(--ll-peak);
+  }
+  45% {
+    opacity: var(--ll-idle);
+  }
+}
+
+@keyframes lattice-on-35 {
+  0%,
+  100% {
+    opacity: var(--ll-idle);
+  }
+  10%,
+  24% {
+    opacity: var(--ll-peak);
+  }
+  35% {
+    opacity: var(--ll-idle);
+  }
+}
+
+@keyframes lattice-on-25 {
+  0%,
+  100% {
+    opacity: var(--ll-idle);
+  }
+  7%,
+  17% {
+    opacity: var(--ll-peak);
+  }
+  25% {
+    opacity: var(--ll-idle);
+  }
+}
+
+@keyframes prompt-bar-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.animate-prompt-bar-pop {
+  animation: prompt-bar-pop var(--motion-ui) var(--motion-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-laser-sweep,
+  .animate-metric-influx,
+  .animate-phosphor-bloom,
+  .animate-veloxy-drawer,
+  .animate-thinking-pulse,
+  .animate-prompt-bar-pop,
+  .ll-run > span,
+  .diagram-edge-animated,
+  .animate-ping,
+  .animate-pulse,
+  .animate-spin {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .animate-laser-sweep,
+  .animate-metric-influx,
+  .animate-phosphor-bloom,
+  .animate-veloxy-drawer {
+    opacity: 1 !important;
+  }
+
+  .animate-thinking-pulse {
+    opacity: 0.7 !important;
+  }
+
+  *:focus-visible {
+    transition: none;
+  }
 }

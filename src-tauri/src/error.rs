@@ -78,3 +78,9 @@ impl From<serde_json::Error> for VeloxError {
         VeloxError::Internal(e.to_string())
     }
 }
+
+impl From<sqlx::Error> for VeloxError {
+    fn from(e: sqlx::Error) -> Self {
+        VeloxError::Query(e.to_string())
+    }
+}

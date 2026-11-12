@@ -7,7 +7,7 @@ use crate::db::{
     drop_pool, get_or_create_duckdb_connection, get_or_create_mongo_client,
     get_or_create_redis_client,
     load_connection, persist_connection_with_password, refresh_connection_pools,
-    resolve_connection_engine, AppState, DEFAULT_MYSQL_PORT,
+    resolve_connection_engine, AppMetaDb, AppState, DEFAULT_MYSQL_PORT,
 };
 use mongodb::bson::doc;
 use crate::credentials;
@@ -103,6 +103,7 @@ pub async fn rename_connection(
 pub async fn delete_connection(
     app: AppHandle,
     state: State<'_, AppState>,
+    meta: State<'_, AppMetaDb>,
     connection_id: String,
 ) -> Result<(), String> {
     disconnect_connection(&state, &connection_id).await;
@@ -110,6 +111,9 @@ pub async fn delete_connection(
         log::warn!("Failed to delete keychain entry for {}: {}", connection_id, e);
     }
     crate::db::delete_connection_from_store(&app, &connection_id)?;
+    crate::db::delete_veloxy_threads_for_connection(meta.pool(), &connection_id)
+        .await
+        .map_err(String::from)?;
     Ok(())
 }
 

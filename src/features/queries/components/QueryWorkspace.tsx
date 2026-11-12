@@ -1,8 +1,10 @@
 import {
-	ClockCounterClockwiseIcon,
+	CaretDownIcon,
 	DatabaseIcon,
+	DotsThreeIcon,
+	FloppyDiskIcon,
+	LightningIcon,
 	PlayIcon,
-	PlugIcon,
 	PlusIcon,
 	TextHIcon,
 	XIcon,
@@ -10,7 +12,6 @@ import {
 import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import {
 	forwardRef,
-	type ReactNode,
 	type PointerEvent as ReactPointerEvent,
 	useCallback,
 	useEffect,
@@ -25,9 +26,11 @@ import { format } from "sql-formatter";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DatabaseEngine, TableInfo } from "@/data/types";
 import { queryKeys } from "@/data/query-keys";
+import { canUseDashboards } from "@/features/dashboards/engine-guard";
 import { QueryHistoryPanel } from "@/features/queries/components/QueryHistoryPanel";
 import { ResultsGrid } from "@/features/queries/components/ResultsGrid";
 import { SqlEditor } from "@/features/queries/components/SqlEditor";
@@ -41,6 +44,8 @@ import {
 	toPersistedSnapshot,
 	writePersistedQueryWorkspace,
 } from "@/features/queries/query-workspace-persistence";
+import { getShortcutDisplay } from "@/lib/shortcuts/registry";
+import { useAppHotkey } from "@/lib/shortcuts/use-app-hotkey";
 import {
 	getFocusedTabId,
 	loadQueryWorkspaceInitialState,
@@ -56,22 +61,6 @@ import type {
 import { notifyError, notifySuccess } from "@/lib/error-notifier";
 import { isReadOnlySql } from "@/lib/sql-intent";
 import { cn } from "@/lib/utils";
-
-const ASK_VELOXY_WIDTH_KEY = "veloxdb.askVeloxyWidth";
-const DEFAULT_ASK_VELOXY_WIDTH = 320;
-const MIN_ASK_VELOXY_WIDTH = 240;
-const MAX_ASK_VELOXY_WIDTH = 560;
-
-function clampAskVeloxyWidth(value: number) {
-	return Math.min(MAX_ASK_VELOXY_WIDTH, Math.max(MIN_ASK_VELOXY_WIDTH, value));
-}
-
-function readAskVeloxyWidth() {
-	const raw = Number(window.localStorage.getItem(ASK_VELOXY_WIDTH_KEY));
-	return Number.isFinite(raw)
-		? clampAskVeloxyWidth(raw)
-		: DEFAULT_ASK_VELOXY_WIDTH;
-}
 
 const MIN_QUERY_HEIGHT = 180;
 const MIN_RESULTS_HEIGHT = 160;
@@ -99,6 +88,12 @@ export type QueryWorkspaceHandle = {
 	/** Clear a removed saved connection from all tabs so IPC targets stay valid. */
 	detachDeletedConnection: (connectionId: string) => void;
 	toggleAskVeloxy: () => void;
+	/** Current SQL in the focused tab (unexecuted edits included). Used by "Save Query". */
+	getActiveTabSql: () => string | null;
+	/** Saved connection bound to the focused tab, if any. Used by "Save Query". */
+	getActiveTabConnectionId: () => string | null;
+	/** Last executed SQL in the focused tab, if any. Used by "Create chart". */
+	getActiveTabLastExecutedSql: () => string | null;
 };
 
 type QueryWorkspaceProps = {
@@ -136,7 +131,13 @@ type QueryWorkspaceProps = {
 	insertTable: TableInfo | null;
 	canInsertRow: boolean;
 	onInsertRowSuccess: () => void;
-	askVeloxySidebar?: (onClose: () => void) => ReactNode;
+	onFixQueryError?: (sql: string, errorMessage: string) => void;
+	onToggleAskVeloxy?: () => void;
+	isVeloxyOpen?: boolean;
+	/** Pro-only: opens the Save Query dialog for the focused tab's SQL. Hidden when omitted. */
+	onSaveQuery?: () => void;
+	/** Pro-only: opens the Chart Builder for the focused tab's last executed SQL. Hidden when omitted. */
+	onCreateChart?: (sql: string, connectionId: string) => void;
 };
 
 function buildPersistSnapshot(state: QueryWorkspaceState) {
@@ -210,10 +211,9 @@ type QueryPaneProps = {
 	insertTable: TableInfo | null;
 	canInsertRow: boolean;
 	onInsertRowSuccess: () => void;
-	askVeloxySidebar?: ReactNode;
-	isAskVeloxyOpen: boolean;
-	askVeloxyWidth: number;
-	onAskVeloxyResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
+	onFixQueryError?: (sql: string, errorMessage: string) => void;
+	/** Pro-only: opens the Chart Builder for the focused tab's last executed SQL. Hidden when omitted. */
+	onCreateChart?: (sql: string, connectionId: string) => void;
 };
 
 function QueryPane({
@@ -249,15 +249,20 @@ function QueryPane({
 	insertTable,
 	canInsertRow,
 	onInsertRowSuccess,
-	askVeloxySidebar,
-	isAskVeloxyOpen,
-	askVeloxyWidth,
-	onAskVeloxyResizeStart,
+	onFixQueryError,
+	onCreateChart,
 }: QueryPaneProps) {
 	const { t } = useTranslation()
 	const resultsTab = tab.resultsSubTab;
 	const runPending = tab.runInFlight;
 	const explainPending = tab.explainInFlight;
+	const canCreateChart = Boolean(
+		tab.connectionId
+		&& tab.lastExecutedSql.trim()
+		&& tab.queryResult
+		&& connectionEngine
+		&& canUseDashboards(connectionEngine),
+	);
 
 	return (
 		<section
@@ -265,35 +270,17 @@ function QueryPane({
 						aria-label={t("editor.queryEditor")}
 		>
 			<section className="relative z-0 min-h-0 min-w-0 flex-1 overflow-hidden">
-				<div className="flex h-full min-w-0 overflow-hidden">
-					<div className="min-h-0 h-full min-w-0 flex-1 overflow-hidden contain-[layout_paint]">
-						<SqlEditor
-							value={tab.sql}
-							isDark={isDark}
-							onChange={onSqlChange}
-							onRun={onRun}
-							onRunStatement={onRunStatement}
-							language={connectionEngine ?? "sql"}
-							metadata={editorMetadata}
-							diagnostics={lintDiagnostics}
-						/>
-					</div>
-					{isAskVeloxyOpen && askVeloxySidebar ? (
-						<>
-							<div
-								className="w-1 shrink-0 cursor-col-resize border-x border-transparent bg-muted/20 transition-colors hover:bg-muted/60"
-								onPointerDown={onAskVeloxyResizeStart}
-								title={t("editor.resizeAskVeloxy")}
-							/>
-							<aside
-								className="h-full min-h-0 min-w-0 shrink-0 overflow-hidden border-l border-border"
-								style={{ width: askVeloxyWidth }}
-							>
-								{askVeloxySidebar}
-							</aside>
-						</>
-					) : null}
-				</div>
+				<SqlEditor
+					value={tab.sql}
+					isDark={isDark}
+					onChange={onSqlChange}
+					onRun={onRun}
+					onRunStatement={onRunStatement}
+					language={connectionEngine ?? "sql"}
+					metadata={editorMetadata}
+					diagnostics={lintDiagnostics}
+					connectionEngine={connectionEngine}
+				/>
 			</section>
 
 			<div
@@ -347,7 +334,10 @@ function QueryPane({
 													: t("editor.runExplainFromToolbar")}
 									</span>
 								) : tab.queryResult ? (
-									<span>
+									<span
+										key={`${tab.runFlightId}-${tab.queryResult.executionMs}-${tab.queryResult.rowCount}`}
+										className="inline-block animate-metric-influx"
+									>
 										{t("editor.rowsIn", { count: tab.queryResult.rowCount, time: tab.queryResult.executionMs })}
 										{columnCount != null
 											? ` · ${t("editor.columnsInSelectedTable", { count: columnCount })}`
@@ -385,21 +375,25 @@ function QueryPane({
 								editableColumns={editableColumns}
 								primaryKeyColumns={primaryKeyColumns}
 								saveDisabledReason={saveDisabledReason}
-								onRefresh={onRefreshResults}
-								onSaveEdits={onSaveResultEdits}
-								onDeleteRows={onDeleteRows}
-								onAddRow={onAddRow}
-								insertRowTrigger={insertRowTrigger}
-								insertConnectionId={insertConnectionId}
-								insertTable={insertTable}
-								canInsertRow={canInsertRow}
-								onInsertRowSuccess={onInsertRowSuccess}
-							/>
-						</ErrorBoundary>
-					</TabsContent>
+							onRefresh={onRefreshResults}
+							onSaveEdits={onSaveResultEdits}
+							onDeleteRows={onDeleteRows}
+							onAddRow={onAddRow}
+							insertRowTrigger={insertRowTrigger}
+							insertConnectionId={insertConnectionId}
+							insertTable={insertTable}
+							canInsertRow={canInsertRow}
+							onInsertRowSuccess={onInsertRowSuccess}
+							onCreateChart={onCreateChart && tab.connectionId
+								? () => onCreateChart(tab.lastExecutedSql, tab.connectionId as string)
+								: undefined}
+							canCreateChart={canCreateChart}
+						/>
+					</ErrorBoundary>
+				</TabsContent>
 
-					<TabsContent
-						value="plan"
+				<TabsContent
+					value="plan"
 						className="m-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
 					>
 						<ErrorBoundary
@@ -443,14 +437,48 @@ function QueryPane({
 				) : null}
 
 				{tab.runError ? (
-					<div className="border-t border-border bg-destructive/10 px-4 py-2 font-mono text-xs whitespace-pre-wrap text-destructive">
-						{tab.runError}
+					<div className="flex flex-wrap items-start justify-between gap-3 border-t border-border bg-destructive/10 px-4 py-2.5 text-xs text-destructive">
+						<div className="min-w-0 flex-1 font-mono whitespace-pre-wrap">
+							{tab.runError}
+						</div>
+						{onFixQueryError ? (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="h-7 shrink-0 gap-1.5 border-destructive/40 bg-background/80 text-[11px] font-medium text-destructive shadow-none hover:bg-destructive/10 hover:text-destructive"
+								onClick={() => onFixQueryError(tab.sql, tab.runError || "")}
+							>
+								<LightningIcon className="size-3.5 fill-current" />
+								<span>{t("shortcuts.fixQueryError", "Fix with Veloxy")}</span>
+								<kbd className="rounded border border-destructive/30 bg-muted/50 px-1 py-0.2 text-[9px] font-mono">
+									{getShortcutDisplay("fixQueryError")}
+								</kbd>
+							</Button>
+						) : null}
 					</div>
 				) : null}
 
 				{tab.planError ? (
-					<div className="border-t border-border bg-destructive/10 px-4 py-2 font-mono text-xs whitespace-pre-wrap text-destructive">
-						{tab.planError}
+					<div className="flex flex-wrap items-start justify-between gap-3 border-t border-border bg-destructive/10 px-4 py-2.5 text-xs text-destructive">
+						<div className="min-w-0 flex-1 font-mono whitespace-pre-wrap">
+							{tab.planError}
+						</div>
+						{onFixQueryError ? (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="h-7 shrink-0 gap-1.5 border-destructive/40 bg-background/80 text-[11px] font-medium text-destructive shadow-none hover:bg-destructive/10 hover:text-destructive"
+								onClick={() => onFixQueryError(tab.sql, tab.planError || "")}
+							>
+								<LightningIcon className="size-3.5 fill-current" />
+								<span>{t("shortcuts.fixQueryError", "Fix with Veloxy")}</span>
+								<kbd className="rounded border border-destructive/30 bg-muted/50 px-1 py-0.2 text-[9px] font-mono">
+									{getShortcutDisplay("fixQueryError")}
+								</kbd>
+							</Button>
+						) : null}
 					</div>
 				) : null}
 
@@ -498,7 +526,10 @@ export const QueryWorkspace = forwardRef<
 		insertTable,
 		canInsertRow,
 		onInsertRowSuccess,
-		askVeloxySidebar,
+		onFixQueryError,
+		onToggleAskVeloxy,
+		onSaveQuery,
+		onCreateChart,
 	},
 	ref,
 ) {
@@ -510,12 +541,9 @@ export const QueryWorkspace = forwardRef<
 		loadQueryWorkspaceInitialState,
 	);
 	const stateRef = useRef(state);
+	stateRef.current = state;
 
 	const layoutRef = useRef<HTMLDivElement | null>(null);
-
-	useEffect(() => {
-		stateRef.current = state;
-	}, [state]);
 
 	const runQueryMutation = useRunQueryMutation({
 		onSuccess: (result, variables) => {
@@ -637,44 +665,33 @@ export const QueryWorkspace = forwardRef<
 				window.clearTimeout(persistTimerRef.current);
 				persistTimerRef.current = null;
 			}
+			flushPersist();
 		};
 	}, [state, flushPersist]);
 
 	useEffect(() => {
 		const onUnload = () => flushPersist();
 		window.addEventListener("beforeunload", onUnload);
-		return () => window.removeEventListener("beforeunload", onUnload);
+		window.addEventListener("pagehide", onUnload);
+		return () => {
+			window.removeEventListener("beforeunload", onUnload);
+			window.removeEventListener("pagehide", onUnload);
+			flushPersist();
+		};
 	}, [flushPersist]);
+
+	useEffect(() => {
+		if (!connectionId) return;
+		const tab = stateRef.current.tabs[state.activeTabId];
+		if (tab && tab.connectionId == null) {
+			dispatch({ type: "setActiveTabConnection", connectionId });
+		}
+	}, [connectionId, state.activeTabId]);
 
 	const focusedTabId = getFocusedTabId(state);
 	const focusedTab = state.tabs[focusedTabId];
 	const [historyOpen, setHistoryOpen] = useState(false);
-	const [isAskVeloxyOpen, setIsAskVeloxyOpen] = useState(false);
-	const [askVeloxyWidth, setAskVeloxyWidth] = useState(readAskVeloxyWidth);
-	const askVeloxyOpen = Boolean(connectionId) && isAskVeloxyOpen;
-
-	useEffect(() => {
-		window.localStorage.setItem(ASK_VELOXY_WIDTH_KEY, String(askVeloxyWidth));
-	}, [askVeloxyWidth]);
-
-	const handleAskVeloxyResizeStart = useCallback(
-		(event: ReactPointerEvent<HTMLDivElement>) => {
-			event.preventDefault();
-			const startX = event.clientX;
-			const startWidth = askVeloxyWidth;
-			const handlePointerMove = (moveEvent: PointerEvent) => {
-				const delta = moveEvent.clientX - startX;
-				setAskVeloxyWidth(clampAskVeloxyWidth(startWidth - delta));
-			};
-			const handlePointerUp = () => {
-				window.removeEventListener("pointermove", handlePointerMove);
-				window.removeEventListener("pointerup", handlePointerUp);
-			};
-			window.addEventListener("pointermove", handlePointerMove);
-			window.addEventListener("pointerup", handlePointerUp);
-		},
-		[askVeloxyWidth],
-	);
+	const [pendingWrite, setPendingWrite] = useState<{ tabId: string; sql: string } | null>(null);
 	const [favorites, setFavorites] = useState<Set<string>>(() => {
 		try {
 			const stored = localStorage.getItem("veloxdb.queryFavorites");
@@ -757,6 +774,28 @@ export const QueryWorkspace = forwardRef<
 		[resultsHeight, onResultsHeightChange, clampResultsHeight],
 	);
 
+	const executeForTab = useCallback(
+		(tabId: string, sql: string, allowWrite: boolean) => {
+			const tab = stateRef.current.tabs[tabId];
+			if (!tab) return;
+			const targetId = tab.connectionId ?? connectionId;
+			if (!targetId) {
+				onRequestConnection();
+				return;
+			}
+			const flightId = tab.runFlightId + 1;
+			dispatch({ type: "runStart", tabId, flightId });
+			runQueryMutation.mutate({
+				connectionId: targetId,
+				sql,
+				allowWrite,
+				tabId,
+				flightId,
+			});
+		},
+		[connectionId, onRequestConnection, runQueryMutation],
+	);
+
 	const runForTab = useCallback(
 		(tabId: string, sql: string) => {
 			const trimmed = sql.trim();
@@ -769,20 +808,13 @@ export const QueryWorkspace = forwardRef<
 				return;
 			}
 			const allowWrite = !isReadOnlySql(trimmed, connectionEngine ?? undefined);
-			if (allowWrite && !window.confirm(t("editor.confirmWrite"))) {
+			if (allowWrite) {
+				setPendingWrite({ tabId, sql: trimmed });
 				return;
 			}
-			const flightId = tab.runFlightId + 1;
-			dispatch({ type: "runStart", tabId, flightId });
-			runQueryMutation.mutate({
-				connectionId: targetId,
-				sql: trimmed,
-				allowWrite,
-				tabId,
-				flightId,
-			});
+			executeForTab(tabId, trimmed, false);
 		},
-		[connectionId, onRequestConnection, runQueryMutation, t],
+		[connectionId, connectionEngine, executeForTab, onRequestConnection],
 	);
 
 	const explainForTab = useCallback(
@@ -899,9 +931,23 @@ export const QueryWorkspace = forwardRef<
 				const tabId = getFocusedTabId(stateRef.current);
 				return Boolean(stateRef.current.tabs[tabId]?.lastExecutedSql?.trim());
 			},
-			toggleAskVeloxy: () => setIsAskVeloxyOpen((prev) => !prev),
+			toggleAskVeloxy: () => {
+				onToggleAskVeloxy?.();
+			},
+			getActiveTabSql: () => {
+				const tabId = getFocusedTabId(stateRef.current);
+				return stateRef.current.tabs[tabId]?.sql ?? null;
+			},
+			getActiveTabConnectionId: () => {
+				const tabId = getFocusedTabId(stateRef.current);
+				return stateRef.current.tabs[tabId]?.connectionId ?? connectionId ?? null;
+			},
+			getActiveTabLastExecutedSql: () => {
+				const tabId = getFocusedTabId(stateRef.current);
+				return stateRef.current.tabs[tabId]?.lastExecutedSql?.trim() || null;
+			},
 		}),
-		[runForTab, connectionId, onRequestConnection, runQueryMutation],
+		[runForTab, connectionId, onRequestConnection, runQueryMutation, onToggleAskVeloxy],
 	);
 
 	const handleToolbarRun = useCallback(() => {
@@ -968,17 +1014,24 @@ export const QueryWorkspace = forwardRef<
 		}
 	}, [connectionEngine]);
 
-	useEffect(() => {
-		const onKeyDown = (event: KeyboardEvent) => {
-			const commandKey = event.metaKey || event.ctrlKey;
-			if (commandKey && event.shiftKey && event.key === "F") {
-				event.preventDefault();
-				handleFormatSql();
-			}
-		};
-		window.addEventListener("keydown", onKeyDown);
-		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [handleFormatSql]);
+	const handleFixQueryError = useCallback((sql: string, errorMessage: string) => {
+		onFixQueryError?.(sql, errorMessage);
+	}, [onFixQueryError]);
+
+	useAppHotkey("formatSql", () => {
+		handleFormatSql();
+	});
+
+	useAppHotkey("fixQueryError", () => {
+		const tabId = getFocusedTabId(stateRef.current);
+		const tab = stateRef.current.tabs[tabId];
+		const error = tab?.runError || tab?.planError;
+		if (error && tab?.sql) {
+			handleFixQueryError(tab.sql, error);
+		} else {
+			onToggleAskVeloxy?.();
+		}
+	});
 
 	const activeTab = state.tabs[state.activeTabId];
 	const toolbarBusy = Boolean(
@@ -1033,7 +1086,7 @@ export const QueryWorkspace = forwardRef<
 			ref={layoutRef}
 			className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
 		>
-			<div className="flex min-w-0 shrink-0 flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+			<div className="relative flex min-w-0 shrink-0 flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
 				<div
 					className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
 					role="tablist"
@@ -1102,68 +1155,139 @@ export const QueryWorkspace = forwardRef<
 						) : null}
 					</div>
 					<div className="flex items-center gap-1">
+						<Popover>
+							<PopoverTrigger asChild>
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									aria-label={t("editor.moreActions")}
+									title={t("editor.moreActions")}
+								>
+									<DotsThreeIcon className="size-4" />
+								</Button>
+							</PopoverTrigger>
+							<PopoverContent align="end" className="w-52 p-1">
+								{onSaveQuery ? (
+									<button
+										type="button"
+										className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50"
+										disabled={!activeConnectionForHistory}
+										onClick={onSaveQuery}
+									>
+										<FloppyDiskIcon className="size-3.5 text-muted-foreground" />
+										{t("savedQuery.saveQuery")}
+									</button>
+								) : null}
+								<button
+									type="button"
+									className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent"
+									onClick={handleFormatSql}
+								>
+									<TextHIcon className="size-3.5 text-muted-foreground" />
+									{t("editor.formatSql")}
+								</button>
+								<button
+									type="button"
+									className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50"
+									disabled={!activeConnectionForHistory}
+									onClick={() => setHistoryOpen(true)}
+								>
+									{t("editor.historyTitle")}
+								</button>
+								<button
+									type="button"
+									className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50"
+									disabled={toolbarBusy}
+									onClick={handleToolbarExplain}
+								>
+									<DatabaseIcon className="size-3.5 text-muted-foreground" />
+									{connectionEngine === "postgres"
+										? t("editor.explainAnalyze")
+										: t("editor.explainTitle", "Explain")}
+								</button>
+							</PopoverContent>
+						</Popover>
+						<div className="flex items-center">
+							<Button
+								variant="default"
+								size="sm"
+								className="h-8 gap-1 rounded-r-none px-3"
+								onClick={handleToolbarRun}
+								disabled={toolbarBusy}
+								aria-label={t("editor.runQueryBtn")}
+								title={`${t("editor.runQueryBtn")} (${getShortcutDisplay("runQuery") || "Cmd+Enter"})`}
+							>
+								<PlayIcon weight="fill" className="size-3.5" />
+								{t("editor.runQueryBtn")}
+							</Button>
+							<Popover>
+								<PopoverTrigger asChild>
+									<Button
+										variant="default"
+										size="icon-sm"
+										className="h-8 w-7 rounded-l-none border-l border-primary-foreground/20"
+										disabled={toolbarBusy}
+										aria-label={t("editor.runStatementMenu")}
+									>
+										<CaretDownIcon className="size-3" />
+									</Button>
+								</PopoverTrigger>
+								<PopoverContent align="end" className="w-48 p-1">
+									<button
+										type="button"
+										className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent"
+										onClick={handleToolbarRunStatement}
+									>
+										<span>{t("editor.runStatementMenu")}</span>
+										<span className="text-[10px] text-muted-foreground">
+											{getShortcutDisplay("runSelection") || "Cmd+Shift+Enter"}
+										</span>
+									</button>
+								</PopoverContent>
+							</Popover>
+						</div>
+					</div>
+				</div>
+				{toolbarBusy ? (
+					<div className="pointer-events-none absolute bottom-0 left-0 right-0 h-[2px] overflow-hidden z-30" aria-hidden="true">
+						<div className="h-full w-full bg-gradient-to-r from-transparent via-primary to-transparent animate-laser-sweep" />
+					</div>
+				) : null}
+			</div>
+
+			{pendingWrite ? (
+				<div className="flex shrink-0 items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2">
+					<p className="text-xs text-foreground">{t("editor.confirmWriteBanner")}</p>
+					<div className="flex items-center gap-2">
 						<Button
-							variant="ghost"
-							size="icon-sm"
-							onClick={handleFormatSql}
-						aria-label={t("editor.formatSqlShortcut")}
-						title={t("editor.formatSqlShortcut")}
-						>
-							<TextHIcon />
-						</Button>
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							onClick={() => setHistoryOpen(true)}
-							disabled={!activeConnectionForHistory}
-						aria-label={t("editor.openQueryHistory")}
-						title={t("editor.queryHistory")}
-						>
-							<ClockCounterClockwiseIcon />
-						</Button>
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							onClick={handleToolbarExplain}
-							disabled={toolbarBusy}
-							aria-label={
-								connectionEngine === "postgres"
-									? t("editor.runExplainAnalyzeAria")
-									: t("editor.runExplainAria")
-							}
-							title={
-								connectionEngine === "postgres"
-									? t("editor.explainAnalyzeTitle")
-									: t("editor.explainTitle")
-							}
-						>
-							<DatabaseIcon />
-						</Button>
-						<Button
+							size="sm"
 							variant="outline"
-							size="icon-sm"
-							onClick={handleToolbarRunStatement}
-							disabled={toolbarBusy}
-						aria-label={t("editor.runCurrentStatement")}
-						title={t("editor.runStatement")}
+							onClick={() => setPendingWrite(null)}
 						>
-							<PlugIcon />
+							{t("connection.cancel")}
 						</Button>
 						<Button
-							variant="default"
-							size="icon-sm"
-							onClick={handleToolbarRun}
-							disabled={toolbarBusy}
-						aria-label={t("editor.runQueryBtn")}
-						title={t("editor.runQueryBtn")}
+							size="sm"
+							onClick={() => {
+								executeForTab(pendingWrite.tabId, pendingWrite.sql, true);
+								setPendingWrite(null);
+							}}
 						>
-							<PlayIcon weight="fill" />
+							{t("editor.runAnyway")}
 						</Button>
 					</div>
 				</div>
-			</div>
+			) : null}
 
-			{activeTab ? (
+			{!connectionId ? (
+				<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+					<p className="text-sm font-medium text-foreground">{t("editor.connectToStart")}</p>
+					<p className="max-w-sm text-xs text-muted-foreground">{t("editor.connectToStartDesc")}</p>
+					<Button size="sm" onClick={onRequestConnection}>
+						{t("sidebar.connectDatabase")}
+					</Button>
+				</div>
+			) : activeTab ? (
 				<QueryPane
 					tab={activeTab}
 					connectionEngine={connectionEngine}
@@ -1218,19 +1342,15 @@ export const QueryWorkspace = forwardRef<
 					insertTable={insertTable}
 					canInsertRow={canInsertRow}
 					onInsertRowSuccess={onInsertRowSuccess}
-					askVeloxySidebar={
-						askVeloxySidebar
-							? askVeloxySidebar(() => setIsAskVeloxyOpen(false))
-							: undefined
-					}
-					isAskVeloxyOpen={askVeloxyOpen}
-					askVeloxyWidth={askVeloxyWidth}
-					onAskVeloxyResizeStart={handleAskVeloxyResizeStart}
+					onFixQueryError={handleFixQueryError}
+					onCreateChart={onCreateChart}
 				/>
 			) : null}
 			<QueryHistoryPanel
 				open={historyOpen}
 				onOpenChange={setHistoryOpen}
+				connectionId={connectionId}
+				onOpenVeloxy={onToggleAskVeloxy}
 				history={historyEntries}
 				onLoadQuery={(entry) => {
 					dispatch({ type: "addTab", connectionId: connectionId ?? null });

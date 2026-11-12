@@ -11,6 +11,7 @@ import type {
   ConnectionSummary,
   ColumnInfo,
   ColumnProperties,
+  Dashboard,
   DatabaseInfo,
   DdlBatchRequest,
   DdlStatementRequest,
@@ -22,10 +23,15 @@ import type {
   QueryEditorMetadata,
   QueryRequest,
   QueryResult,
+  SavedQuery,
+  SavedQueryInput,
   SwitchDatabaseRequest,
   TableInfo,
   TableIndexesResult,
   TablePropertiesApplyRequest,
+  VeloxyThread,
+  VeloxyThreadInput,
+  VeloxyThreadSummary,
 } from '@/data/types'
 import type { VeloxDbRepository } from '@/data/repositories/VeloxDbRepository'
 
@@ -96,6 +102,12 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
   async runQuery(request: QueryRequest): Promise<QueryResult> {
     return invokeCommand('run_query', () =>
       invoke<QueryResult>('run_query', { input: request }),
+    )
+  }
+
+  async veloxyRunReadonly(request: QueryRequest): Promise<QueryResult> {
+    return invokeCommand('veloxy_run_readonly', () =>
+      invoke<QueryResult>('veloxy_run_readonly', { input: request }),
     )
   }
 
@@ -250,6 +262,104 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
   async saveTextFile(content: string, outputPath: string): Promise<void> {
     return invokeCommand('save_text_file', () =>
       invoke<void>('save_text_file', { content, outputPath }),
+    )
+  }
+
+  async readTextFile(inputPath: string): Promise<string> {
+    return invokeCommand('read_text_file', () =>
+      invoke<string>('read_text_file', { inputPath }),
+    )
+  }
+
+  // BI (Pro): saved queries + dashboards
+
+  async listSavedQueries(connectionId?: string | null): Promise<SavedQuery[]> {
+    return invokeCommand('list_saved_queries', () =>
+      invoke<SavedQuery[]>('list_saved_queries', { connectionId: connectionId ?? undefined }),
+    )
+  }
+
+  async getSavedQuery(id: string): Promise<SavedQuery | null> {
+    return invokeCommand('get_saved_query', () =>
+      invoke<SavedQuery | null>('get_saved_query', { id }),
+    )
+  }
+
+  async saveSavedQuery(input: SavedQueryInput): Promise<SavedQuery> {
+    return invokeCommand('save_saved_query', () =>
+      invoke<SavedQuery>('save_saved_query', { input }),
+    )
+  }
+
+  async deleteSavedQuery(id: string): Promise<void> {
+    return invokeCommand('delete_saved_query', () =>
+      invoke<void>('delete_saved_query', { id }),
+    )
+  }
+
+  async duplicateSavedQuery(id: string): Promise<SavedQuery> {
+    return invokeCommand('duplicate_saved_query', () =>
+      invoke<SavedQuery>('duplicate_saved_query', { id }),
+    )
+  }
+
+  async listDashboards(connectionId?: string | null): Promise<Dashboard[]> {
+    return invokeCommand('list_dashboards', () =>
+      invoke<Dashboard[]>('list_dashboards', { connectionId: connectionId ?? undefined }),
+    )
+  }
+
+  async getDashboard(id: string): Promise<Dashboard | null> {
+    return invokeCommand('get_dashboard', () =>
+      invoke<Dashboard | null>('get_dashboard', { id }),
+    )
+  }
+
+  async saveDashboard(input: Dashboard): Promise<Dashboard> {
+    return invokeCommand('save_dashboard', () =>
+      invoke<Dashboard>('save_dashboard', { input }),
+    )
+  }
+
+  async deleteDashboard(id: string): Promise<void> {
+    return invokeCommand('delete_dashboard', () =>
+      invoke<void>('delete_dashboard', { id }),
+    )
+  }
+
+  async duplicateDashboard(id: string): Promise<Dashboard> {
+    return invokeCommand('duplicate_dashboard', () =>
+      invoke<Dashboard>('duplicate_dashboard', { id }),
+    )
+  }
+
+  async listVeloxyThreads(connectionId: string): Promise<VeloxyThreadSummary[]> {
+    return invokeCommand('list_veloxy_threads', () =>
+      invoke<VeloxyThreadSummary[]>('list_veloxy_threads', { connectionId }),
+    )
+  }
+
+  async loadVeloxyThread(id: string): Promise<VeloxyThread | null> {
+    return invokeCommand('load_veloxy_thread', () =>
+      invoke<VeloxyThread | null>('load_veloxy_thread', { id }),
+    )
+  }
+
+  async saveVeloxyThread(input: VeloxyThreadInput): Promise<VeloxyThread> {
+    return invokeCommand('save_veloxy_thread', () =>
+      invoke<VeloxyThread>('save_veloxy_thread', { input }),
+    )
+  }
+
+  async touchVeloxyThread(id: string): Promise<void> {
+    return invokeCommand('touch_veloxy_thread', () =>
+      invoke<void>('touch_veloxy_thread', { id }),
+    )
+  }
+
+  async deleteVeloxyThread(id: string): Promise<void> {
+    return invokeCommand('delete_veloxy_thread', () =>
+      invoke<void>('delete_veloxy_thread', { id }),
     )
   }
 }

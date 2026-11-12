@@ -99,10 +99,14 @@ export function readPersistedQueryWorkspace(): PersistedQueryWorkspace | null {
 export function writePersistedQueryWorkspace(
 	snapshot: PersistedQueryWorkspace,
 ) {
-	window.localStorage.setItem(
-		QUERY_WORKSPACE_STORAGE_KEY,
-		JSON.stringify(snapshot),
-	);
+	try {
+		window.localStorage.setItem(
+			QUERY_WORKSPACE_STORAGE_KEY,
+			JSON.stringify(snapshot),
+		);
+	} catch {
+		// private mode / quota — losing a snapshot is better than crashing the editor
+	}
 }
 
 export function toPersistedSnapshot(input: {

@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use mongodb::bson::{doc, Bson, Document};
+
 use tauri::{AppHandle, State};
 
 use crate::db::{
@@ -8,14 +10,14 @@ use crate::db::{
 };
 use crate::engines::{get_engine, DatabaseEngineOps};
 use crate::models::{
-    DatabaseEngine, ForeignKeyEdge, QueryEditorColumn, QueryEditorFunction,
+    DatabaseEngine, ForeignKeyEdge, QueryEditorColumn, QueryEditorEnum, QueryEditorFunction,
     QueryEditorMetadata, QueryEditorTable,
 };
 use crate::pg_error::map_pg_err;
 
 use super::{
-    MAX_EDITOR_TABLES, MAX_EDITOR_COLUMNS_PER_TABLE, MAX_EDITOR_FUNCTIONS, MAX_FOREIGN_KEY_ROWS,
-    mysql_get_string, sqlite_get_idx, sqlite_get_name,
+    MAX_EDITOR_TABLES, MAX_EDITOR_COLUMNS_PER_TABLE, MAX_EDITOR_ENUMS, MAX_EDITOR_FUNCTIONS,
+    MAX_FOREIGN_KEY_ROWS, mysql_get_string, sqlite_get_idx, sqlite_get_name,
 };
 
 fn infer_bson_type(value: &Bson) -> &'static str {
@@ -75,18 +77,24 @@ pub(crate) async fn fetch_query_editor_metadata_for_connection(
                 .map(|c| QueryEditorColumn {
                     name: c.column_name,
                     data_type: c.data_type,
+                    comment: None,
+                    is_nullable: Some(c.is_nullable),
+                    is_primary_key: None,
                 })
                 .collect();
             tables.push(QueryEditorTable {
                 schema: t.schema,
                 name: t.name,
                 columns,
+                estimated_rows: None,
+                comment: None,
             });
         }
 
         return Ok(QueryEditorMetadata {
             tables,
             functions: Vec::new(),
+            enums: Vec::new(),
             truncated_tables,
             truncated_columns,
             truncated_functions: false,
@@ -140,13 +148,21 @@ pub(crate) async fn fetch_query_editor_metadata_for_connection(
 
             let columns = field_names.into_iter().take(MAX_EDITOR_COLUMNS_PER_TABLE as usize).map(|name| {
                 let data_type = field_types.get(&name).copied().unwrap_or("unknown").to_string();
-                QueryEditorColumn { name, data_type }
+                QueryEditorColumn {
+                    name,
+                    data_type,
+                    comment: None,
+                    is_nullable: None,
+                    is_primary_key: None,
+                }
             }).collect();
 
             tables.push(QueryEditorTable {
                 schema: db_name.clone(),
                 name: coll_name,
                 columns,
+                estimated_rows: None,
+                comment: None,
             });
         }
 
@@ -174,6 +190,7 @@ pub(crate) async fn fetch_query_editor_metadata_for_connection(
         return Ok(QueryEditorMetadata {
             tables,
             functions,
+            enums: Vec::new(),
             truncated_tables,
             truncated_columns,
             truncated_functions: false,
@@ -215,19 +232,28 @@ pub(crate) async fn fetch_query_editor_metadata_for_connection(
             }
 
             let columns = col_rows.into_iter().take(MAX_EDITOR_COLUMNS_PER_TABLE as usize)
-                .map(|(col_name, data_type)| QueryEditorColumn { name: col_name, data_type })
+                .map(|(col_name, data_type)| QueryEditorColumn {
+                    name: col_name,
+                    data_type,
+                    comment: None,
+                    is_nullable: None,
+                    is_primary_key: None,
+                })
                 .collect();
 
             tables.push(QueryEditorTable {
                 schema: "main".to_string(),
                 name,
                 columns,
+                estimated_rows: None,
+                comment: None,
             });
         }
 
         return Ok(QueryEditorMetadata {
             tables,
             functions: Vec::new(),
+            enums: Vec::new(),
             truncated_tables,
             truncated_columns,
             truncated_functions: false,
@@ -252,6 +278,7 @@ pub(crate) async fn fetch_query_editor_metadata_for_connection(
         return Ok(QueryEditorMetadata {
             tables: Vec::new(),
             functions,
+            enums: Vec::new(),
             truncated_tables: false,
             truncated_columns: false,
             truncated_functions: false,
@@ -294,13 +321,17 @@ pub(crate) async fn fetch_query_editor_metadata_for_connection(
                 columns.push(QueryEditorColumn {
                     name: mysql_get_string(&column, 0, "column_name", "get_query_editor_metadata")?,
                     data_type: mysql_get_string(&column, 1, "data_type", "get_query_editor_metadata")?,
+                    comment: None, is_nullable: None, is_primary_key: None,
                 });
             }
-            tables.push(QueryEditorTable { schema, name, columns });
+            tables.push(QueryEditorTable {
+                schema, name, columns,
+                estimated_rows: None, comment: None,
+            });
         }
 
         return Ok(QueryEditorMetadata {
-            tables, functions: Vec::new(),
+            tables, functions: Vec::new(), enums: Vec::new(),
             truncated_tables, truncated_columns, truncated_functions: false,
         });
     }
@@ -327,23 +358,41 @@ pub(crate) async fn fetch_query_editor_metadata_for_connection(
                 columns.push(QueryEditorColumn {
                     name: sqlite_get_name(&column, "name", "get_query_editor_metadata")?,
                     data_type: sqlite_get_name(&column, "type", "get_query_editor_metadata")?,
+                    comment: None, is_nullable: None, is_primary_key: None,
                 });
             }
-            tables.push(QueryEditorTable { schema: "main".to_string(), name, columns });
+            tables.push(QueryEditorTable {
+                schema: "main".to_string(), name, columns,
+                estimated_rows: None, comment: None,
+            });
         }
         return Ok(QueryEditorMetadata {
-            tables, functions: Vec::new(),
+            tables, functions: Vec::new(), enums: Vec::new(),
             truncated_tables, truncated_columns, truncated_functions: false,
         });
     }
 
     with_pool_client_retry(app, state, connection_id, (), |client, ()| async move {
+        // Bound catalog work so Veloxy describe/search cannot hold a pool
+        // client indefinitely on a large database.
+        client
+            .batch_execute(&format!("SET statement_timeout = '{}'", super::CATALOG_STATEMENT_TIMEOUT))
+            .await
+            .map_err(|error| map_pg_err(error, None))?;
+
+        let catalog = async {
+        // Tables with planner row estimates and comments, one round-trip.
         let table_rows = client.query(
-            "select n.nspname::text as schema_name, c.relname::text as table_name \
+            "select n.nspname::text as schema_name, c.relname::text as table_name, \
+             greatest(c.reltuples, 0)::bigint as estimated_rows, \
+             obj_description(c.oid, 'pg_class') as table_comment, \
+             c.oid as table_oid \
              from pg_class c \
              join pg_namespace n on n.oid = c.relnamespace \
              where c.relkind in ('r', 'p', 'v', 'm', 'f') \
-               and n.nspname not in ('pg_catalog', 'information_schema') \
+               and n.nspname not in ('pg_catalog', 'information_schema', 'pg_toast') \
+               and n.nspname not like 'pg_temp%' \
+               and n.nspname not like 'pg_toast_temp%' \
              order by n.nspname, c.relname \
              limit $1",
             &[&(MAX_EDITOR_TABLES + 1)],
@@ -354,30 +403,83 @@ pub(crate) async fn fetch_query_editor_metadata_for_connection(
             table_rows.into_iter().take(MAX_EDITOR_TABLES as usize).collect::<Vec<_>>()
         } else { table_rows };
 
-        let mut tables = Vec::with_capacity(table_rows.len());
-        let mut truncated_columns = false;
+        let table_oids: Vec<u32> = table_rows.iter().map(|row| row.get::<_, u32>(4)).collect();
 
-        for row in table_rows {
-            let schema: String = row.get(0);
-            let name: String = row.get(1);
+        // Columns only for the listed tables (not the whole database).
+        let mut truncated_columns = false;
+        let mut columns_by_table: HashMap<(String, String), Vec<QueryEditorColumn>> = HashMap::new();
+        if !table_oids.is_empty() {
             let column_rows = client.query(
-                "select a.attname::text as column_name, format_type(a.atttypid, a.atttypmod)::text as data_type \
-                 from pg_attribute a \
-                 join pg_class c on c.oid = a.attrelid \
-                 join pg_namespace n on n.oid = c.relnamespace \
-                 where n.nspname = $1 and c.relname = $2 \
-                   and a.attnum > 0 and not a.attisdropped \
-                 order by a.attnum limit $3",
-                &[&schema, &name, &(MAX_EDITOR_COLUMNS_PER_TABLE + 1)],
+                "select schema_name, table_name, column_name, data_type, col_comment, \
+                        is_nullable, is_primary_key, rn from ( \
+                   select n.nspname::text as schema_name, c.relname::text as table_name, \
+                          a.attname::text as column_name, \
+                          format_type(a.atttypid, a.atttypmod)::text as data_type, \
+                          col_description(c.oid, a.attnum) as col_comment, \
+                          (not a.attnotnull) as is_nullable, \
+                          exists ( \
+                            select 1 from pg_index i \
+                            where i.indrelid = c.oid and i.indisprimary \
+                              and a.attnum = any(i.indkey) \
+                          ) as is_primary_key, \
+                          row_number() over (partition by c.oid order by a.attnum) as rn \
+                   from pg_attribute a \
+                   join pg_class c on c.oid = a.attrelid \
+                   join pg_namespace n on n.oid = c.relnamespace \
+                   where c.oid = any($1::oid[]) \
+                     and a.attnum > 0 and not a.attisdropped \
+                 ) cols where rn <= $2 \
+                 order by schema_name, table_name, rn",
+                &[&table_oids, &(MAX_EDITOR_COLUMNS_PER_TABLE + 1)],
             ).await.map_err(|error| map_pg_err(error, None))?;
 
-            if column_rows.len() as i64 > MAX_EDITOR_COLUMNS_PER_TABLE { truncated_columns = true; }
-            let columns = column_rows.into_iter().take(MAX_EDITOR_COLUMNS_PER_TABLE as usize)
-                .map(|column| QueryEditorColumn { name: column.get(0), data_type: column.get(1) })
-                .collect();
-
-            tables.push(QueryEditorTable { schema, name, columns });
+            for row in column_rows {
+                let schema: String = row.get(0);
+                let name: String = row.get(1);
+                let rn: i64 = row.get(7);
+                if rn > MAX_EDITOR_COLUMNS_PER_TABLE {
+                    truncated_columns = true;
+                    continue;
+                }
+                columns_by_table.entry((schema, name)).or_default().push(QueryEditorColumn {
+                    name: row.get(2),
+                    data_type: row.get(3),
+                    comment: row.get::<_, Option<String>>(4),
+                    is_nullable: Some(row.get(5)),
+                    is_primary_key: Some(row.get(6)),
+                });
+            }
         }
+
+        let tables = table_rows.into_iter().map(|row| {
+            let schema: String = row.get(0);
+            let name: String = row.get(1);
+            let estimated_rows: i64 = row.get(2);
+            let comment: Option<String> = row.get(3);
+            let columns = columns_by_table.remove(&(schema.clone(), name.clone())).unwrap_or_default();
+            QueryEditorTable {
+                schema, name, columns,
+                estimated_rows: Some(estimated_rows),
+                comment,
+            }
+        }).collect::<Vec<_>>();
+
+        let enum_rows = client.query(
+            "select (n.nspname || '.' || t.typname)::text as name, \
+             array_agg(e.enumlabel::text order by e.enumsortorder) as labels \
+             from pg_type t \
+             join pg_enum e on e.enumtypid = t.oid \
+             join pg_namespace n on n.oid = t.typnamespace \
+             group by n.nspname, t.typname \
+             order by n.nspname, t.typname \
+             limit $1",
+            &[&MAX_EDITOR_ENUMS],
+        ).await.map_err(|error| map_pg_err(error, None))?;
+
+        let enums = enum_rows.into_iter().map(|row| QueryEditorEnum {
+            name: row.get(0),
+            values: row.get::<_, Vec<String>>(1),
+        }).collect::<Vec<_>>();
 
         let function_rows = client.query(
             "select n.nspname::text as schema_name, p.proname::text as function_name, \
@@ -404,9 +506,14 @@ pub(crate) async fn fetch_query_editor_metadata_for_connection(
             }).collect();
 
         Ok(QueryEditorMetadata {
-            tables, functions,
+            tables, functions, enums,
             truncated_tables, truncated_columns, truncated_functions,
         })
+        };
+
+        let result = catalog.await;
+        let _ = client.batch_execute("SET statement_timeout = '0'").await;
+        result
     }).await.map_err(String::from)
 }
 
@@ -475,7 +582,12 @@ pub(crate) async fn fetch_foreign_keys_for_connection(
     }
 
     with_pool_client_retry(app, state, connection_id, (), |client, ()| async move {
-        let rows = client.query(
+        client
+            .batch_execute(&format!("SET statement_timeout = '{}'", super::CATALOG_STATEMENT_TIMEOUT))
+            .await
+            .map_err(|error| error.to_string())?;
+        let result = async {
+            let rows = client.query(
             "select src_ns.nspname::text as from_schema, src_cls.relname::text as from_table, \
              src_att.attname::text as from_column, tgt_ns.nspname::text as to_schema, \
              tgt_cls.relname::text as to_table, tgt_att.attname::text as to_column \
@@ -496,14 +608,17 @@ pub(crate) async fn fetch_foreign_keys_for_connection(
             &[&MAX_FOREIGN_KEY_ROWS],
         ).await.map_err(|error| error.to_string())?;
 
-        Ok(rows.into_iter().map(|row| ForeignKeyEdge {
-            from_schema: row.get(0),
-            from_table: row.get(1),
-            from_column: row.get(2),
-            to_schema: row.get(3),
-            to_table: row.get(4),
-            to_column: row.get(5),
-        }).collect())
+            Ok(rows.into_iter().map(|row| ForeignKeyEdge {
+                from_schema: row.get(0),
+                from_table: row.get(1),
+                from_column: row.get(2),
+                to_schema: row.get(3),
+                to_table: row.get(4),
+                to_column: row.get(5),
+            }).collect())
+        }.await;
+        let _ = client.batch_execute("SET statement_timeout = '0'").await;
+        result
     }).await.map_err(String::from)
 }
 

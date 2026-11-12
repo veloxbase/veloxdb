@@ -60,7 +60,7 @@ export const ENGINE_FORM_CONFIG: Record<DatabaseEngine, EngineFormConfig> = {
     showAdvanced: true,
     showFlavors: true,
     requireUser: true,
-    requirePassword: true,
+    requirePassword: false,
   },
   mysql: {
     defaultPort: 3306,

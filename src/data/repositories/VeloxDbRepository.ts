@@ -8,6 +8,7 @@ import type {
   ColumnProperties,
   ConnectionInput,
   ConnectionSummary,
+  Dashboard,
   DatabaseInfo,
   DdlBatchRequest,
   DdlStatementRequest,
@@ -19,10 +20,15 @@ import type {
   QueryEditorMetadata,
   QueryRequest,
   QueryResult,
+  SavedQuery,
+  SavedQueryInput,
   SwitchDatabaseRequest,
   TableInfo,
   TableIndexesResult,
   TablePropertiesApplyRequest,
+  VeloxyThread,
+  VeloxyThreadInput,
+  VeloxyThreadSummary,
 } from '@/data/types'
 
 /**
@@ -39,6 +45,7 @@ export interface VeloxDbRepository {
   listConnections(): Promise<ConnectionSummary[]>
   setActiveConnection(connectionId: string): Promise<ConnectionSummary>
   runQuery(request: QueryRequest): Promise<QueryResult>
+  veloxyRunReadonly(request: QueryRequest): Promise<QueryResult>
   chatWithDb(request: AskVeloxyChatRequest): Promise<AskVeloxyChatResponse>
   cancelVeloxyRequest(): Promise<void>
   loadVeloxyConversation(connectionId?: string): Promise<AskVeloxyConversationResponse>
@@ -64,5 +71,22 @@ export interface VeloxDbRepository {
   exportResultsJson(input: ExportQueryRequest): Promise<void>
   saveBase64Png(data: string, outputPath: string): Promise<void>
   saveTextFile(content: string, outputPath: string): Promise<void>
+  readTextFile(inputPath: string): Promise<string>
+  // BI (Pro): saved queries + dashboards
+  listSavedQueries(connectionId?: string | null): Promise<SavedQuery[]>
+  getSavedQuery(id: string): Promise<SavedQuery | null>
+  saveSavedQuery(input: SavedQueryInput): Promise<SavedQuery>
+  deleteSavedQuery(id: string): Promise<void>
+  duplicateSavedQuery(id: string): Promise<SavedQuery>
+  listDashboards(connectionId?: string | null): Promise<Dashboard[]>
+  getDashboard(id: string): Promise<Dashboard | null>
+  saveDashboard(input: Dashboard): Promise<Dashboard>
+  deleteDashboard(id: string): Promise<void>
+  duplicateDashboard(id: string): Promise<Dashboard>
+  listVeloxyThreads(connectionId: string): Promise<VeloxyThreadSummary[]>
+  loadVeloxyThread(id: string): Promise<VeloxyThread | null>
+  saveVeloxyThread(input: VeloxyThreadInput): Promise<VeloxyThread>
+  touchVeloxyThread(id: string): Promise<void>
+  deleteVeloxyThread(id: string): Promise<void>
 }
 

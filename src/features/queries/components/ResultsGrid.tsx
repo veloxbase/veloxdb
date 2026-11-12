@@ -3,7 +3,11 @@ import {
 	createColumnHelper,
 	flexRender,
 	getCoreRowModel,
+	getFilteredRowModel,
+	getSortedRowModel,
 	type RowSelectionState,
+	type SortingState,
+	type Table,
 	useReactTable,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -19,8 +23,27 @@ import {
 } from "react";
 import { BracketsCurly } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
+import {
+	ArrowsDownUpIcon,
+	CaretDownIcon,
+	CaretUpIcon,
+	CopyIcon,
+	KeyIcon,
+	MagnifyingGlassIcon,
+	SidebarSimpleIcon,
+	TrashIcon,
+} from "@phosphor-icons/react";
 
 import type { ColumnProperties, QueryResult, TableInfo } from "@/data/types";
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuSeparator,
+	ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { CellBadgeRenderer } from "@/features/queries/components/CellBadgeRenderer";
+import { CellInspectorDrawer } from "@/features/queries/components/CellInspectorDrawer";
 import { ResultEditInput, InsertRowInput } from "@/features/queries/components/ResultsCellEditor";
 import { JsonCellDialog } from "@/features/queries/components/JsonCellDialog";
 import { isJsonValue } from "@/features/queries/json-cell";
@@ -34,6 +57,8 @@ import {
 } from "@/features/queries/result-edits";
 import {
 	copyRows,
+	copyRowsAsMarkdown,
+	copyRowsAsSqlInsert,
 	downloadRowsAsCsv,
 	downloadRowsAsJson,
 } from "@/features/queries/results-export";
@@ -42,6 +67,7 @@ import { notifyError } from "@/lib/error-notifier";
 import { useSettings } from "@/lib/settings";
 
 const SELECT_COLUMN_WIDTH_PX = 44;
+const ROW_NUMBER_COLUMN_WIDTH_PX = 44;
 const DEFAULT_DATA_COLUMN_WIDTH_PX = 180;
 const MIN_COLUMN_WIDTH_PX = 48;
 const MAX_COLUMN_WIDTH_PX = 640;
@@ -64,6 +90,9 @@ type ResultsGridProps = {
 	canInsertRow?: boolean;
 	onInsertRowSuccess?: () => void;
 	onDeleteRows?: (primaryKeys: Record<string, string | null>[]) => Promise<void>;
+	/** Pro-only: opens the Chart Builder for this result. Hidden when omitted. */
+	onCreateChart?: () => void;
+	canCreateChart?: boolean;
 };
 
 function formatValue(value: string | null | undefined) {
@@ -78,6 +107,32 @@ function formatValue(value: string | null | undefined) {
 	return value;
 }
 
+type PendingEditsMap = Record<string, Record<string, string | null>>;
+
+function mergePendingEdit(
+	current: PendingEditsMap,
+	rowId: string,
+	columnId: string,
+	raw: string,
+	originalValue: string | null,
+): PendingEditsMap {
+	const nextValue = raw === "" ? null : raw;
+	const next = { ...current };
+	const existing = { ...(next[rowId] ?? {}) };
+	if (nextValue === originalValue) {
+		delete existing[columnId];
+	} else {
+		existing[columnId] = nextValue;
+	}
+
+	if (Object.keys(existing).length === 0) {
+		delete next[rowId];
+	} else {
+		next[rowId] = existing;
+	}
+	return next;
+}
+
 function toEditableValue(value: string | null | undefined) {
 	return value ?? "";
 }
@@ -86,18 +141,65 @@ function normalizeColumnId(columnId: string) {
 	return columnId.toLowerCase();
 }
 
+/** TanStack Table sorting wrapper that guarantees __insert__ stays pinned at the bottom */
+function getCustomSortedRowModel<TData>() {
+	const baseSortedModel = getSortedRowModel<TData>();
+	return (table: Table<TData>) => {
+		const baseFn = baseSortedModel(table);
+		return () => {
+			const model = baseFn();
+			if (!model.rows.some((r) => r.id === "__insert__")) {
+				return model;
+			}
+			const dataRows = model.rows.filter((r) => r.id !== "__insert__");
+			const insertRows = model.rows.filter((r) => r.id === "__insert__");
+			const combined = [...dataRows, ...insertRows];
+			return {
+				...model,
+				rows: combined,
+				flatRows: combined,
+			};
+		};
+	};
+}
+
+/** TanStack Table filter wrapper that keeps __insert__ row visible when typing a filter */
+function getCustomFilteredRowModel<TData>() {
+	const baseFilteredModel = getFilteredRowModel<TData>();
+	return (table: Table<TData>) => {
+		const baseFn = baseFilteredModel(table);
+		return () => {
+			const model = baseFn();
+			const hasInsertInCore = table.getCoreRowModel().rows.some((r) => r.id === "__insert__");
+			if (!hasInsertInCore || model.rows.some((r) => r.id === "__insert__")) {
+				return model;
+			}
+			const insertRow = table.getCoreRowModel().rows.find((r) => r.id === "__insert__");
+			if (insertRow) {
+				return {
+					...model,
+					rows: [...model.rows, insertRow],
+					flatRows: [...model.flatRows, insertRow],
+				};
+			}
+			return model;
+		};
+	};
+}
+
 function renderLoadingSkeleton() {
 	const dataColumnCount = 4;
 	const placeholderRows = 10;
 	const skeletonTemplateColumns = [
 		`${SELECT_COLUMN_WIDTH_PX}px`,
+		`${ROW_NUMBER_COLUMN_WIDTH_PX}px`,
 		...Array.from(
 			{ length: dataColumnCount },
 			() => `${DEFAULT_DATA_COLUMN_WIDTH_PX}px`,
 		),
 	].join(" ");
 	const columnIndices = Array.from(
-		{ length: 1 + dataColumnCount },
+		{ length: 2 + dataColumnCount },
 		(_, index) => index,
 	);
 	const rowKeys = Array.from(
@@ -107,6 +209,7 @@ function renderLoadingSkeleton() {
 
 	const toolbarColumns = [
 		{ id: "__select", label: "Select", visible: true, canHide: false },
+		{ id: "__rowNumber", label: "#", visible: true, canHide: false },
 		...Array.from({ length: dataColumnCount }, (_, index) => ({
 			id: `__skeleton_col_${index}`,
 			label: `Column ${index + 1}`,
@@ -142,7 +245,9 @@ function renderLoadingSkeleton() {
 								className="relative min-w-0 truncate border-r border-border px-3 py-2 pr-2 last:border-r-0"
 							>
 								<div
-									className={`h-3 animate-pulse rounded-sm bg-muted ${columnIndex === 0 ? "w-10" : "w-24 max-w-full"}`}
+									className={`h-3 animate-pulse rounded-sm bg-muted ${
+										columnIndex === 0 ? "w-6" : columnIndex === 1 ? "w-5" : "w-24 max-w-full"
+									}`}
 								/>
 							</div>
 						))}
@@ -199,22 +304,45 @@ export function ResultsGrid({
 	canInsertRow = false,
 	onInsertRowSuccess = () => {},
 	onDeleteRows,
+	onCreateChart,
+	canCreateChart,
 }: ResultsGridProps) {
-	const { t } = useTranslation()
+	const { t } = useTranslation();
 	const parentRef = useRef<HTMLDivElement | null>(null);
 	const horizontalScrollRef = useRef<HTMLDivElement | null>(null);
+	const filterInputRef = useRef<HTMLInputElement | null>(null);
+	const contextMenuTargetRef = useRef<{
+		rowId: string;
+		columnId: string;
+		value: string | null;
+		rowIndex: number;
+		row: ResultRow;
+	} | null>(null);
+	const [contextMenuTarget, setContextMenuTarget] = useState<{
+		rowId: string;
+		columnId: string;
+		value: string | null;
+		rowIndex: number;
+		row: ResultRow;
+	} | null>(null);
+
 	const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-	const [columnVisibility, setColumnVisibility] = useState<
-		Record<string, boolean>
-	>({});
+	const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>({});
 	const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
-	const [pendingEdits, setPendingEdits] = useState<
-		Record<string, Record<string, string | null>>
-	>({});
+	const [sorting, setSorting] = useState<SortingState>([]);
+	const [globalFilter, setGlobalFilter] = useState("");
+	const [pendingEdits, setPendingEdits] = useState<PendingEditsMap>({});
 	const [editingCell, setEditingCell] = useState<{
 		rowId: string;
 		columnId: string;
 	} | null>(null);
+	const [inspectedCell, setInspectedCell] = useState<{
+		rowId: string;
+		columnId: string;
+		value: string | null;
+		rowIndex: number;
+	} | null>(null);
+	const [isInspectorOpen, setIsInspectorOpen] = useState(false);
 	const [gridError, setGridError] = useState<string | null>(null);
 	const [jsonView, setJsonView] = useState<{
 		rowId: string;
@@ -230,7 +358,7 @@ export function ResultsGrid({
 	const pendingResizeWidthsRef = useRef<Record<string, number>>({});
 	const [copiedCellId, setCopiedCellId] = useState<string | null>(null);
 	const copyTimeoutRef = useRef<number | null>(null);
-	const clickToCopy = useSettings((s) => s.clickToCopy)
+	const clickToCopy = useSettings((s) => s.clickToCopy);
 
 	const insertMutation = useInsertRowMutation({
 		onError: (error) => {
@@ -324,13 +452,11 @@ export function ResultsGrid({
 	const indexedRows = useMemo(() => {
 		const rows = result?.rows ?? [];
 		return rows.map((row, index) => {
-			const pkValues = primaryKeyColumns.map(
-				(columnName) => {
-					const resolvedColumnName =
-						resultColumnByLower.get(normalizeColumnId(columnName)) ?? columnName;
-					return row[resolvedColumnName] ?? null;
-				},
-			);
+			const pkValues = primaryKeyColumns.map((columnName) => {
+				const resolvedColumnName =
+					resultColumnByLower.get(normalizeColumnId(columnName)) ?? columnName;
+				return row[resolvedColumnName] ?? null;
+			});
 			const hasCompletePrimaryKey =
 				primaryKeyColumns.length > 0 &&
 				pkValues.length === primaryKeyColumns.length &&
@@ -338,14 +464,15 @@ export function ResultsGrid({
 			const rowId = hasCompletePrimaryKey
 				? `pk:${pkValues.join("\u001f")}`
 				: `idx:${index}`;
-			const primaryKey = primaryKeyColumns.reduce<
-				Record<string, string | null>
-			>((accumulator, columnName) => {
-				const resolvedColumnName =
-					resultColumnByLower.get(normalizeColumnId(columnName)) ?? columnName;
-				accumulator[columnName] = row[resolvedColumnName] ?? null;
-				return accumulator;
-			}, {});
+			const primaryKey = primaryKeyColumns.reduce<Record<string, string | null>>(
+				(accumulator, columnName) => {
+					const resolvedColumnName =
+						resultColumnByLower.get(normalizeColumnId(columnName)) ?? columnName;
+					accumulator[columnName] = row[resolvedColumnName] ?? null;
+					return accumulator;
+				},
+				{},
+			);
 
 			return {
 				rowId,
@@ -385,26 +512,34 @@ export function ResultsGrid({
 		[],
 	);
 
+	// Keyboard shortcut for Cmd+F / Ctrl+F
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+				const active = document.activeElement;
+				// Avoid hijacking when inside CodeMirror or Monaco editor
+				if (
+					active?.closest(".cm-editor") ||
+					active?.closest(".monaco-editor") ||
+					active?.tagName === "TEXTAREA"
+				) {
+					return;
+				}
+				e.preventDefault();
+				filterInputRef.current?.focus();
+				filterInputRef.current?.select();
+			}
+		};
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, []);
+
 	const applyPendingEdit = useCallback(
 		(rowId: string, columnId: string, raw: string) => {
-			const nextValue = raw === "" ? null : raw;
 			const originalValue = originalByRowId[rowId]?.[columnId] ?? null;
-			setPendingEdits((current) => {
-				const next = { ...current };
-				const existing = { ...(next[rowId] ?? {}) };
-				if (nextValue === originalValue) {
-					delete existing[columnId];
-				} else {
-					existing[columnId] = nextValue;
-				}
-
-				if (Object.keys(existing).length === 0) {
-					delete next[rowId];
-				} else {
-					next[rowId] = existing;
-				}
-				return next;
-			});
+			setPendingEdits((current) =>
+				mergePendingEdit(current, rowId, columnId, raw, originalValue),
+			);
 		},
 		[originalByRowId],
 	);
@@ -422,6 +557,7 @@ export function ResultsGrid({
 				id: "__select",
 				header: () => "Select",
 				enableHiding: false,
+				enableSorting: false,
 				cell: (context) => {
 					if (context.row.id === "__insert__") {
 						return (
@@ -442,10 +578,60 @@ export function ResultsGrid({
 					);
 				},
 			}),
+			columnHelper.display({
+				id: "__rowNumber",
+				header: () => "#",
+				enableHiding: false,
+				enableSorting: false,
+				cell: (context) => {
+					if (context.row.id === "__insert__") {
+						return (
+							<span className="font-mono text-muted-foreground/60 select-none">
+								+
+							</span>
+						);
+					}
+					return (
+						<span className="font-mono text-[11px] text-muted-foreground/60 select-none">
+							{context.row.index + 1}
+						</span>
+					);
+				},
+			}),
 			...columns.map((columnName) =>
 				columnHelper.accessor(columnName, {
 					id: columnName,
 					header: () => columnName,
+					enableSorting: true,
+					sortingFn: (rowA, rowB, columnId) => {
+						const valA = resolveCellValue(
+							rowA.id,
+							columnId,
+							rowA.getValue(columnId) as string | null,
+						);
+						const valB = resolveCellValue(
+							rowB.id,
+							columnId,
+							rowB.getValue(columnId) as string | null,
+						);
+						if (valA === valB) return 0;
+						if (valA === null || valA === undefined) return -1;
+						if (valB === null || valB === undefined) return 1;
+						const numA = Number(valA);
+						const numB = Number(valB);
+						if (
+							!isNaN(numA) &&
+							!isNaN(numB) &&
+							valA.trim() !== "" &&
+							valB.trim() !== ""
+						) {
+							return numA < numB ? -1 : 1;
+						}
+						return String(valA).localeCompare(String(valB), undefined, {
+							numeric: true,
+							sensitivity: "base",
+						});
+					},
 					cell: (context) => {
 						const rowId = context.row.id;
 						const columnId = context.column.id;
@@ -514,11 +700,10 @@ export function ResultsGrid({
 
 						if (!isColumnEditable) {
 							return withJsonIcon(
-								<span
-									className={`block min-w-0 truncate ${value === null ? "text-muted-foreground" : ""}`}
-								>
-									{formatValue(value)}
-								</span>,
+								<CellBadgeRenderer
+									value={value}
+									highlightQuery={globalFilter}
+								/>,
 							);
 						}
 
@@ -539,11 +724,14 @@ export function ResultsGrid({
 						return withJsonIcon(
 							<button
 								type="button"
-								className={`w-full min-w-0 truncate text-left ${value === null ? "text-muted-foreground" : ""}`}
+								className="w-full min-w-0 truncate text-left"
 								title={t("editor.clickToEdit")}
 								onClick={() => setEditingCell({ rowId, columnId })}
 							>
-								{formatValue(value)}
+								<CellBadgeRenderer
+									value={value}
+									highlightQuery={globalFilter}
+								/>
 							</button>,
 						);
 					},
@@ -553,15 +741,34 @@ export function ResultsGrid({
 		[
 			applyPendingEdit,
 			canEdit,
+			columnHelper,
 			columns,
 			editableColumnsByLower,
 			editingCell,
+			globalFilter,
 			insertBindingByResultColumn,
 			insertDraft,
 			metaByLowerName,
 			primaryKeyColumnsByLower,
 			resolveCellValue,
+			t,
 		],
+	);
+
+	const globalFilterFn = useCallback(
+		(row: { id: string; getValue: (col: string) => unknown }, _col: string, filterValue: unknown) => {
+			if (row.id === "__insert__") return true;
+			if (!filterValue) return true;
+			const query = String(filterValue).toLowerCase().trim();
+			for (const colId of columns) {
+				const val = resolveCellValue(row.id, colId, row.getValue(colId) as string | null);
+				if (val && String(val).toLowerCase().includes(query)) {
+					return true;
+				}
+			}
+			return false;
+		},
+		[columns, resolveCellValue],
 	);
 
 	// TanStack Table: React Compiler skips memoizing this hook by design.
@@ -570,6 +777,9 @@ export function ResultsGrid({
 		data,
 		columns: columnDefs,
 		getCoreRowModel: getCoreRowModel(),
+		getSortedRowModel: getCustomSortedRowModel(),
+		getFilteredRowModel: getCustomFilteredRowModel(),
+		globalFilterFn,
 		getRowId: (_row, index) => {
 			if (appendInsertRow && index === indexedRows.length) {
 				return "__insert__";
@@ -579,9 +789,13 @@ export function ResultsGrid({
 		state: {
 			rowSelection,
 			columnVisibility,
+			sorting,
+			globalFilter,
 		},
 		onRowSelectionChange: setRowSelection,
 		onColumnVisibilityChange: setColumnVisibility,
+		onSortingChange: setSorting,
+		onGlobalFilterChange: setGlobalFilter,
 		enableRowSelection: (row) => row.id !== "__insert__",
 	});
 
@@ -594,8 +808,12 @@ export function ResultsGrid({
 
 	const visibleColumns = table.getVisibleLeafColumns();
 	const selectColumn = visibleColumns.find((column) => column.id === "__select");
+	const rowNumberColumn = visibleColumns.find((column) => column.id === "__rowNumber");
 	const dataVisibleColumns = useMemo(
-		() => visibleColumns.filter((column) => column.id !== "__select"),
+		() =>
+			visibleColumns.filter(
+				(column) => column.id !== "__select" && column.id !== "__rowNumber",
+			),
 		[visibleColumns],
 	);
 
@@ -604,17 +822,11 @@ export function ResultsGrid({
 			columnWidths[columnId] ??
 			(columnId === "__select"
 				? SELECT_COLUMN_WIDTH_PX
-				: DEFAULT_DATA_COLUMN_WIDTH_PX),
+				: columnId === "__rowNumber"
+					? ROW_NUMBER_COLUMN_WIDTH_PX
+					: DEFAULT_DATA_COLUMN_WIDTH_PX),
 		[columnWidths],
 	);
-
-	const templateColumns =
-		visibleColumns.length > 0
-			? visibleColumns
-					.map((column) => `${getColumnWidthPx(column.id)}px`)
-					.join(" ")
-			: "minmax(0, 1fr)";
-	void templateColumns;
 
 	const columnVirtualizer = useVirtualizer({
 		horizontal: true,
@@ -636,8 +848,14 @@ export function ResultsGrid({
 	const selectColumnWidthPx = selectColumn
 		? getColumnWidthPx(selectColumn.id)
 		: SELECT_COLUMN_WIDTH_PX;
+	const rowNumberColumnWidthPx = rowNumberColumn
+		? getColumnWidthPx(rowNumberColumn.id)
+		: ROW_NUMBER_COLUMN_WIDTH_PX;
 	const totalDataColumnsWidthPx = columnVirtualizer.getTotalSize();
-	const totalGridWidthPx = selectColumnWidthPx + totalDataColumnsWidthPx;
+	const totalGridWidthPx =
+		selectColumnWidthPx +
+		(rowNumberColumn ? rowNumberColumnWidthPx : 0) +
+		totalDataColumnsWidthPx;
 
 	const handleColumnResizePointerDown = useCallback(
 		(columnId: string, event: PointerEvent<HTMLElement>) => {
@@ -685,25 +903,50 @@ export function ResultsGrid({
 		[getColumnWidthPx],
 	);
 
-	const renderBodyCell = useCallback((cell: Cell<ResultRow, unknown>) => {
-		const cellDef = cell.column.columnDef.cell;
-		if (cellDef) {
-			return flexRender(cellDef, cell.getContext());
-		}
-		return formatValue(cell.getValue() as string | null);
-	}, []);
+	const handleColumnAutoFit = useCallback(
+		(columnId: string, event: React.MouseEvent) => {
+			event.preventDefault();
+			event.stopPropagation();
+			let maxLen = columnId.length;
+			for (const item of indexedRows.slice(0, 100)) {
+				const val = item.row[columnId];
+				if (val != null && val.length > maxLen) {
+					maxLen = Math.min(val.length, 50);
+				}
+			}
+			const estimatedWidth = Math.min(
+				MAX_COLUMN_WIDTH_PX,
+				Math.max(MIN_COLUMN_WIDTH_PX, Math.round(maxLen * 8.5 + 32)),
+			);
+			setColumnWidths((prev) => ({ ...prev, [columnId]: estimatedWidth }));
+		},
+		[indexedRows],
+	);
+
+	const renderBodyCell = useCallback(
+		(cell: Cell<ResultRow, unknown>) => {
+			const cellDef = cell.column.columnDef.cell;
+			if (cellDef) {
+				return flexRender(cellDef, cell.getContext());
+			}
+			return formatValue(cell.getValue() as string | null);
+		},
+		[],
+	);
 
 	const hasEdits = Object.keys(pendingEdits).length > 0 || editingCell !== null;
 
 	useEffect(() => {
 		setColumnWidths((previous) => {
-			const identifiers = ["__select", ...columns];
+			const identifiers = ["__select", "__rowNumber", ...columns];
 			const next: Record<string, number> = {};
 			for (const id of identifiers) {
 				const fallback =
 					id === "__select"
 						? SELECT_COLUMN_WIDTH_PX
-						: DEFAULT_DATA_COLUMN_WIDTH_PX;
+						: id === "__rowNumber"
+							? ROW_NUMBER_COLUMN_WIDTH_PX
+							: DEFAULT_DATA_COLUMN_WIDTH_PX;
 				next[id] = previous[id] ?? fallback;
 			}
 			return next;
@@ -714,6 +957,9 @@ export function ResultsGrid({
 		void queryResultEditResetKey;
 		setPendingEdits({});
 		setRowSelection({});
+		setSorting([]);
+		setGlobalFilter("");
+		setInspectedCell(null);
 		setEditingCell(null);
 		setGridError(null);
 		setShowInsertRow(false);
@@ -738,11 +984,9 @@ export function ResultsGrid({
 			return;
 		}
 		if (columns.length === 0) {
-			setGridError(
-				t("editor.insertNoColumns"),
-			);
+			setGridError(t("editor.insertNoColumns"));
 		}
-	}, [insertRowTrigger, canInsertRow, columns.length]);
+	}, [insertRowTrigger, canInsertRow, columns.length, t]);
 
 	useLayoutEffect(() => {
 		if (!appendInsertRow) {
@@ -759,20 +1003,35 @@ export function ResultsGrid({
 			return;
 		}
 		if (!canEdit) {
-			setGridError(
-				saveDisabledReason ?? t("editor.editingDisabled"),
-			);
+			setGridError(saveDisabledReason ?? t("editor.editingDisabled"));
 			return;
 		}
+
+		let edits = pendingEdits;
 		if (editingCell) {
 			const activeElement = document.activeElement;
+			if (
+				activeElement instanceof HTMLInputElement ||
+				activeElement instanceof HTMLTextAreaElement
+			) {
+				const originalValue =
+					originalByRowId[editingCell.rowId]?.[editingCell.columnId] ?? null;
+				edits = mergePendingEdit(
+					edits,
+					editingCell.rowId,
+					editingCell.columnId,
+					activeElement.value,
+					originalValue,
+				);
+			}
 			if (activeElement instanceof HTMLElement) {
 				activeElement.blur();
 			}
-			await Promise.resolve();
+			setEditingCell(null);
+			setPendingEdits(edits);
 		}
 
-		const patches: ResultEditPatch[] = Object.entries(pendingEdits)
+		const patches: ResultEditPatch[] = Object.entries(edits)
 			.map(([rowId, changes]) => {
 				const source = indexedRows.find((row) => row.rowId === rowId);
 				const mappedChanges = Object.entries(changes).reduce<
@@ -803,9 +1062,7 @@ export function ResultsGrid({
 			.filter((patch): patch is ResultEditPatch => patch !== null);
 
 		if (patches.length === 0) {
-		setGridError(
-			t("editor.noEditableChanges"),
-		);
+			setGridError(t("editor.noEditableChanges"));
 			return;
 		}
 
@@ -871,11 +1128,16 @@ export function ResultsGrid({
 			.map((row) => row.original);
 	};
 
+	const exportColumns = useMemo(
+		() =>
+			visibleColumns
+				.filter((column) => column.id !== "__select" && column.id !== "__rowNumber")
+				.map((column) => column.id),
+		[visibleColumns],
+	);
+
 	const handleCopy = async () => {
 		const selectedRows = getRowsForAction();
-		const exportColumns = visibleColumns
-			.filter((column) => column.id !== "__select")
-			.map((column) => column.id);
 		if (exportColumns.length === 0) {
 			setGridError(t("editor.noVisibleColumnsToCopy"));
 			return;
@@ -892,10 +1154,47 @@ export function ResultsGrid({
 		}
 	};
 
+	const handleCopyMarkdown = async () => {
+		const selectedRows = getRowsForAction();
+		if (exportColumns.length === 0) {
+			setGridError(t("editor.noVisibleColumnsToCopy"));
+			return;
+		}
+
+		setGridError(null);
+		try {
+			await copyRowsAsMarkdown(exportColumns, selectedRows);
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : "Failed to copy as Markdown.";
+			setGridError(message);
+		}
+	};
+
+	const handleCopySqlInsert = async () => {
+		const selectedRows = getRowsForAction();
+		if (exportColumns.length === 0) {
+			setGridError(t("editor.noVisibleColumnsToCopy"));
+			return;
+		}
+
+		const tableName = insertTable
+			? insertTable.schema
+				? `"${insertTable.schema}"."${insertTable.name}"`
+				: `"${insertTable.name}"`
+			: "query_results";
+
+		setGridError(null);
+		try {
+			await copyRowsAsSqlInsert(tableName, exportColumns, selectedRows);
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : "Failed to copy as SQL INSERT.";
+			setGridError(message);
+		}
+	};
+
 	const handleDownloadCsv = async () => {
-		const exportColumns = visibleColumns
-			.filter((column) => column.id !== "__select")
-			.map((column) => column.id);
 		if (exportColumns.length === 0) {
 			setGridError(t("editor.noVisibleColumnsToExport"));
 			return;
@@ -903,11 +1202,7 @@ export function ResultsGrid({
 
 		setGridError(null);
 		try {
-			await downloadRowsAsCsv(
-				"query-results.csv",
-				exportColumns,
-				getRowsForAction(),
-			);
+			await downloadRowsAsCsv("query-results.csv", exportColumns, getRowsForAction());
 		} catch (error) {
 			const message =
 				error instanceof Error ? error.message : t("editor.failedToDownloadCsv");
@@ -917,9 +1212,6 @@ export function ResultsGrid({
 	};
 
 	const handleDownloadJson = async () => {
-		const exportColumns = visibleColumns
-			.filter((column) => column.id !== "__select")
-			.map((column) => column.id);
 		if (exportColumns.length === 0) {
 			setGridError(t("editor.noVisibleColumnsToExport"));
 			return;
@@ -962,7 +1254,9 @@ export function ResultsGrid({
 		}
 
 		if (missing.length > 0) {
-			setGridError(t("editor.requiredValuesMissing", { fields: missing.join(", ") }));
+			setGridError(
+				t("editor.requiredValuesMissing", { fields: missing.join(", ") }),
+			);
 			return;
 		}
 
@@ -978,7 +1272,8 @@ export function ResultsGrid({
 			insertMutation.reset();
 			onInsertRowSuccess();
 		} catch (error) {
-			const message = error instanceof Error ? error.message : t("editor.insertFailed");
+			const message =
+				error instanceof Error ? error.message : t("editor.insertFailed");
 			setGridError(message);
 		}
 	};
@@ -997,8 +1292,9 @@ export function ResultsGrid({
 		columnsForInsert.length === 0;
 
 	const toolbarBusy = isSaving || insertMutation.isPending;
-
 	const hasRowset = result != null && result.columns.length > 0;
+	const filteredRowsCount = table.getRowModel().rows.filter((r) => r.id !== "__insert__").length;
+	const totalDataRowsCount = result?.rowCount ?? 0;
 
 	if (isPending) {
 		return renderLoadingSkeleton();
@@ -1009,7 +1305,12 @@ export function ResultsGrid({
 			<ResultsToolbar
 				columns={table.getAllLeafColumns().map((column) => ({
 					id: column.id,
-					label: column.id === "__select" ? "Select" : column.id,
+					label:
+						column.id === "__select"
+							? "Select"
+							: column.id === "__rowNumber"
+								? "#"
+								: column.id,
 					visible: column.getIsVisible(),
 					canHide: column.getCanHide(),
 				}))}
@@ -1023,6 +1324,12 @@ export function ResultsGrid({
 				onCopy={() => {
 					void handleCopy();
 				}}
+				onCopyMarkdown={() => {
+					void handleCopyMarkdown();
+				}}
+				onCopySqlInsert={() => {
+					void handleCopySqlInsert();
+				}}
 				onDownloadCsv={() => {
 					void handleDownloadCsv();
 				}}
@@ -1034,216 +1341,526 @@ export function ResultsGrid({
 				}}
 				onAddRow={canInsertRow ? onAddRow : undefined}
 				insertRowVisible={insertRowVisible}
-				onInsertRow={
-					insertRowVisible ? () => void handleInsertRow() : undefined
-				}
+				onInsertRow={insertRowVisible ? () => void handleInsertRow() : undefined}
 				onCancelInsert={insertRowVisible ? handleCancelInsert : undefined}
 				insertBusy={insertMutation.isPending}
-            insertDisabled={insertDisabled}
-            selectionCount={Object.keys(rowSelection).length}
-            onDeleteRows={onDeleteRows ? () => void handleDeleteRows() : undefined}
-            deleteBusy={deleteBusy}
-            deleteDisabledReason={
-              !canEdit
-                ? saveDisabledReason
-                : Object.keys(rowSelection).length === 0
-                  ? t("editor.selectRowsToDelete")
-                  : undefined
-            }
-          />
+				insertDisabled={insertDisabled}
+				selectionCount={Object.keys(rowSelection).length}
+				onDeleteRows={onDeleteRows ? () => void handleDeleteRows() : undefined}
+				deleteBusy={deleteBusy}
+				onCreateChart={onCreateChart}
+				canCreateChart={canCreateChart}
+				deleteDisabledReason={
+					!canEdit
+						? saveDisabledReason
+						: Object.keys(rowSelection).length === 0
+							? t("editor.selectRowsToDelete")
+							: undefined
+				}
+				filterQuery={globalFilter}
+				onFilterQueryChange={setGlobalFilter}
+				filterMatchCount={filteredRowsCount}
+				totalRowCount={totalDataRowsCount}
+				filterInputRef={filterInputRef}
+				isInspectorOpen={isInspectorOpen}
+				onToggleInspector={() => setIsInspectorOpen((prev) => !prev)}
+			/>
+
 			{hasRowset ? (
-				<div
-					ref={horizontalScrollRef}
-					className="min-h-0 min-w-0 flex-1 overflow-x-auto"
-				>
-					<div
-						className="flex h-full min-w-full flex-col"
-						style={{ width: `${Math.max(totalGridWidthPx, 0)}px` }}
-					>
-						<div
-							className="sticky top-0 z-10 flex min-w-full shrink-0 border-b border-border bg-muted/30"
-						>
-							{selectColumn ? (
-								<div
-									key={selectColumn.id}
-									className="relative min-w-0 truncate border-r border-border px-3 py-2 pr-2 text-[11px] font-medium text-muted-foreground last:border-r-0"
-									style={{ width: `${selectColumnWidthPx}px` }}
-								>
-									<span className="block truncate">
-										Select
-									</span>
-									<button
-										type="button"
-										tabIndex={-1}
-										aria-label="Resize column Select"
-										className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize select-none border-0 bg-transparent p-0 hover:bg-primary/20"
-										onPointerDown={(event) =>
-											handleColumnResizePointerDown(selectColumn.id, event)
-										}
-									/>
-								</div>
-							) : null}
-							{virtualPaddingLeft > 0 ? (
-								<div
-									aria-hidden
-									style={{ width: `${virtualPaddingLeft}px`, minWidth: `${virtualPaddingLeft}px` }}
-								/>
-							) : null}
-							{virtualDataColumns.map((virtualColumn) => {
-								const column = dataVisibleColumns[virtualColumn.index];
-								if (!column) {
-									return null;
-								}
-								const widthPx = getColumnWidthPx(column.id);
-								return (
-									<div
-										key={column.id}
-										className="relative min-w-0 truncate border-r border-border px-3 py-2 pr-2 text-[11px] font-medium text-muted-foreground last:border-r-0"
-										style={{ width: `${widthPx}px`, minWidth: `${widthPx}px` }}
-									>
-										<span className="block truncate">{column.id}</span>
-										<button
-											type="button"
-											tabIndex={-1}
-											aria-label={`Resize column ${column.id}`}
-											className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize select-none border-0 bg-transparent p-0 hover:bg-primary/20"
-											onPointerDown={(event) =>
-												handleColumnResizePointerDown(column.id, event)
-											}
-										/>
-									</div>
-								);
-							})}
-							{virtualPaddingRight > 0 ? (
-								<div
-									aria-hidden
-									style={{
-										width: `${virtualPaddingRight}px`,
-										minWidth: `${virtualPaddingRight}px`,
-									}}
-								/>
-							) : null}
-						</div>
-						<div
-							ref={parentRef}
-							className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
-						>
+				<div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+					<ContextMenu onOpenChange={(open) => { if (!open) setContextMenuTarget(null); }}>
+						<ContextMenuTrigger asChild>
 							<div
-								className="relative w-max min-w-full"
-								style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+								ref={horizontalScrollRef}
+								className="min-h-0 min-w-0 flex-1 overflow-x-auto"
 							>
-								{rowVirtualizer.getVirtualItems().map((virtualRow) => {
-									const row = table.getRowModel().rows[virtualRow.index];
-									if (!row) {
-										return null;
-									}
+								<div
+									className="flex h-full min-w-full flex-col"
+									style={{ width: `${Math.max(totalGridWidthPx, 0)}px` }}
+								>
+									{/* Column Headers */}
+									<div className="sticky top-0 z-10 flex min-w-full shrink-0 border-b border-border bg-muted/30">
+										{selectColumn ? (
+											<div
+												key={selectColumn.id}
+												className="relative min-w-0 truncate border-r border-border px-3 py-2 pr-2 text-[11px] font-medium text-muted-foreground last:border-r-0"
+												style={{ width: `${selectColumnWidthPx}px` }}
+											>
+												<span className="block truncate">Select</span>
+												<button
+													type="button"
+													tabIndex={-1}
+													aria-label="Resize column Select"
+													className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize select-none border-0 bg-transparent p-0 hover:bg-primary/20"
+													onPointerDown={(event) =>
+														handleColumnResizePointerDown(selectColumn.id, event)
+													}
+												/>
+											</div>
+										) : null}
 
-									const isInsert = row.id === "__insert__";
+										{rowNumberColumn ? (
+											<div
+												key={rowNumberColumn.id}
+												className="relative flex min-w-0 items-center justify-center border-r border-border px-2 py-2 text-[11px] font-medium text-muted-foreground select-none"
+												style={{ width: `${rowNumberColumnWidthPx}px` }}
+											>
+												<span>#</span>
+											</div>
+										) : null}
 
-									return (
+										{virtualPaddingLeft > 0 ? (
+											<div
+												aria-hidden
+												style={{
+													width: `${virtualPaddingLeft}px`,
+													minWidth: `${virtualPaddingLeft}px`,
+												}}
+											/>
+										) : null}
+
+										{virtualDataColumns.map((virtualColumn) => {
+											const column = dataVisibleColumns[virtualColumn.index];
+											if (!column) {
+												return null;
+											}
+											const widthPx = getColumnWidthPx(column.id);
+											const isSorted = column.getIsSorted();
+											const sortIndex = column.getSortIndex();
+											const isPrimaryKey = primaryKeyColumnsByLower.has(
+												normalizeColumnId(column.id),
+											);
+											const colMeta = metaByLowerName.get(
+												normalizeColumnId(column.id),
+											);
+
+											return (
+												<div
+													key={column.id}
+													onClick={column.getToggleSortingHandler()}
+													className="group relative flex min-w-0 items-center justify-between border-r border-border px-3 py-2 pr-2 text-[11px] font-medium text-muted-foreground last:border-r-0 cursor-pointer select-none hover:bg-muted/50 hover:text-foreground"
+													style={{ width: `${widthPx}px`, minWidth: `${widthPx}px` }}
+													title="Click to sort (Shift+Click for multi-sort)"
+												>
+													<div className="flex min-w-0 items-center gap-1.5 truncate">
+														{isPrimaryKey ? (
+															<span title="Primary Key" className="inline-flex shrink-0">
+																<KeyIcon className="size-3 text-amber-500" />
+															</span>
+														) : null}
+														<span className="truncate">{column.id}</span>
+														{colMeta?.dataType ? (
+															<span className="shrink-0 px-1 py-0.2 rounded-xs bg-muted/60 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70 select-none">
+																{colMeta.dataType}
+															</span>
+														) : null}
+													</div>
+													<div className="flex items-center gap-0.5 ml-1 shrink-0">
+														{isSorted === "asc" ? (
+															<CaretUpIcon className="size-3 text-primary" />
+														) : isSorted === "desc" ? (
+															<CaretDownIcon className="size-3 text-primary" />
+														) : (
+															<ArrowsDownUpIcon className="size-2.5 opacity-0 group-hover:opacity-60 text-muted-foreground transition-opacity" />
+														)}
+														{table.getState().sorting.length > 1 && isSorted ? (
+															<span className="rounded-xs bg-muted px-1 font-mono text-[9px] text-muted-foreground">
+																{sortIndex + 1}
+															</span>
+														) : null}
+													</div>
+													<button
+														type="button"
+														tabIndex={-1}
+														aria-label={`Resize column ${column.id}`}
+														title="Drag to resize, double-click to auto-fit"
+														className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize select-none border-0 bg-transparent p-0 hover:bg-primary/20"
+														onDoubleClick={(event) =>
+															handleColumnAutoFit(column.id, event)
+														}
+														onPointerDown={(event) => {
+															event.stopPropagation();
+															handleColumnResizePointerDown(column.id, event);
+														}}
+													/>
+												</div>
+											);
+										})}
+
+										{virtualPaddingRight > 0 ? (
+											<div
+												aria-hidden
+												style={{
+													width: `${virtualPaddingRight}px`,
+													minWidth: `${virtualPaddingRight}px`,
+												}}
+											/>
+										) : null}
+									</div>
+
+									{/* Body Rows */}
+									<div
+										ref={parentRef}
+										className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
+									>
 										<div
-											key={row.id}
-											className={`absolute left-0 top-0 flex w-max min-w-full border-b border-border/60 text-xs ${
-												isInsert
-													? "bg-muted/25"
-													: row.getIsSelected()
-														? "bg-muted/40"
-														: "bg-background"
-											}`}
-											style={{
-												height: `${virtualRow.size}px`,
-												top: `${virtualRow.start}px`,
-												width: `${Math.max(totalGridWidthPx, 0)}px`,
-											}}
+											className="relative w-max min-w-full"
+											style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
 										>
-											{(() => {
-												const rowCells = row.getVisibleCells();
-												const rowCellByColumn = new Map(
-													rowCells.map((cell) => [cell.column.id, cell]),
-												);
-												const selectCell = selectColumn
-													? rowCellByColumn.get(selectColumn.id)
-													: undefined;
+											{rowVirtualizer.getVirtualItems().map((virtualRow) => {
+												const row = table.getRowModel().rows[virtualRow.index];
+												if (!row) {
+													return null;
+												}
+
+												const isInsert = row.id === "__insert__";
+
 												return (
-													<>
-														{selectCell ? (
-															<div
-																key={selectCell.id}
-																className="min-w-0 truncate border-r border-border/60 px-3 py-2"
-																style={{
-																	width: `${selectColumnWidthPx}px`,
-																	minWidth: `${selectColumnWidthPx}px`,
-																}}
-															>
-																{renderBodyCell(selectCell)}
-															</div>
-														) : null}
-														{virtualPaddingLeft > 0 ? (
-															<div
-																aria-hidden
-																style={{
-																	width: `${virtualPaddingLeft}px`,
-																	minWidth: `${virtualPaddingLeft}px`,
-																}}
-															/>
-														) : null}
-														{virtualDataColumns.map((virtualColumn) => {
-															const column =
-																dataVisibleColumns[virtualColumn.index];
-															if (!column) {
-																return null;
-															}
-															const cell = rowCellByColumn.get(column.id);
-															if (!cell) {
-																return null;
-															}
-															const widthPx = getColumnWidthPx(column.id);
-															const cellValue = resolveCellValue(
-																row.id,
-																column.id,
-																cell.getValue() as string | null | undefined,
+													<div
+														key={row.id}
+														className={`absolute left-0 top-0 flex w-max min-w-full border-b border-border/60 text-xs ${
+															isInsert
+																? "bg-muted/25"
+																: row.getIsSelected()
+																	? "bg-muted/40"
+																	: "bg-background"
+														}`}
+														style={{
+															height: `${virtualRow.size}px`,
+															top: `${virtualRow.start}px`,
+															width: `${Math.max(totalGridWidthPx, 0)}px`,
+														}}
+													>
+														{(() => {
+															const rowCells = row.getVisibleCells();
+															const rowCellByColumn = new Map(
+																rowCells.map((cell) => [cell.column.id, cell]),
 															);
+															const selectCell = selectColumn
+																? rowCellByColumn.get(selectColumn.id)
+																: undefined;
+															const rowNumberCell = rowNumberColumn
+																? rowCellByColumn.get(rowNumberColumn.id)
+																: undefined;
+
 															return (
-																<div
-																	key={cell.id}
-																	className={`min-w-0 truncate border-r border-border/60 px-3 py-2 ${clickToCopy ? 'cursor-copy hover:bg-accent/30 active:bg-accent/50' : ''} ${copiedCellId === cell.id ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : ''}`}
-																	style={{
-																		width: `${widthPx}px`,
-																		minWidth: `${widthPx}px`,
-																	}}
-																	title={`${formatValue(cellValue)}${copiedCellId === cell.id ? ' — Copied!' : clickToCopy ? '\nClick to copy' : ''}`}
-																	onClick={() => {
-																		if (!clickToCopy) return
-																		const text = formatValue(cellValue)
-																		if (!text) return
-																		navigator.clipboard.writeText(text)
-																		setCopiedCellId(cell.id)
-																		if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
-																		copyTimeoutRef.current = window.setTimeout(() => setCopiedCellId(null), 1200)
-																	}}
-																>
-																	{renderBodyCell(cell)}
-																</div>
+																<>
+																	{selectCell ? (
+																		<div
+																			key={selectCell.id}
+																			className="min-w-0 truncate border-r border-border/60 px-3 py-2"
+																			style={{
+																				width: `${selectColumnWidthPx}px`,
+																				minWidth: `${selectColumnWidthPx}px`,
+																			}}
+																		>
+																			{renderBodyCell(selectCell)}
+																		</div>
+																	) : null}
+
+																	{rowNumberCell ? (
+																		<div
+																			key={rowNumberCell.id}
+																			className="flex min-w-0 items-center justify-center border-r border-border/60 px-2 py-2"
+																			style={{
+																				width: `${rowNumberColumnWidthPx}px`,
+																				minWidth: `${rowNumberColumnWidthPx}px`,
+																			}}
+																		>
+																			{renderBodyCell(rowNumberCell)}
+																		</div>
+																	) : null}
+
+																	{virtualPaddingLeft > 0 ? (
+																		<div
+																			aria-hidden
+																			style={{
+																				width: `${virtualPaddingLeft}px`,
+																				minWidth: `${virtualPaddingLeft}px`,
+																			}}
+																		/>
+																	) : null}
+
+																	{virtualDataColumns.map((virtualColumn) => {
+																		const column =
+																			dataVisibleColumns[virtualColumn.index];
+																		if (!column) {
+																			return null;
+																		}
+																		const cell = rowCellByColumn.get(column.id);
+																		if (!cell) {
+																			return null;
+																		}
+																		const widthPx = getColumnWidthPx(column.id);
+																		const cellValue = resolveCellValue(
+																			row.id,
+																			column.id,
+																			cell.getValue() as string | null | undefined,
+																		);
+																		const isInspected =
+																			inspectedCell?.rowId === row.id &&
+																			inspectedCell?.columnId === column.id;
+																		const isCellEditing =
+																			editingCell?.rowId === row.id &&
+																			editingCell.columnId === column.id;
+
+																				return (
+																					<div
+																						key={cell.id}
+																						className={`min-w-0 truncate border-r border-border/60 px-3 py-2 ${
+																							clickToCopy && !isCellEditing
+																								? "cursor-copy hover:bg-accent/30 active:bg-accent/50"
+																								: ""
+																						} ${
+																							copiedCellId === cell.id
+																								? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+																								: ""
+																						} ${
+																							isInspected
+																								? "ring-1 ring-inset ring-primary/50 bg-primary/5"
+																								: ""
+																						}`}
+																						style={{
+																							width: `${widthPx}px`,
+																							minWidth: `${widthPx}px`,
+																						}}
+																						title={`${formatValue(cellValue)}${
+																							copiedCellId === cell.id
+																								? " — Copied!"
+																								: clickToCopy && !isCellEditing
+																									? "\nClick to copy"
+																									: ""
+																						}`}
+																						onClick={() => {
+																							if (isCellEditing) return;
+																							if (isInspectorOpen) {
+																								setInspectedCell({
+																									rowId: row.id,
+																									columnId: column.id,
+																									value: cellValue,
+																									rowIndex: virtualRow.index,
+																								});
+																							}
+																							if (!clickToCopy) return;
+																							const text = formatValue(cellValue);
+																							if (!text) return;
+																							navigator.clipboard.writeText(text);
+																							setCopiedCellId(cell.id);
+																							if (copyTimeoutRef.current)
+																								clearTimeout(copyTimeoutRef.current);
+																							copyTimeoutRef.current = window.setTimeout(
+																								() => setCopiedCellId(null),
+																								1200,
+																							);
+																						}}
+																						onDoubleClick={() => {
+																							if (isCellEditing) return;
+																							setInspectedCell({
+																								rowId: row.id,
+																								columnId: column.id,
+																								value: cellValue,
+																								rowIndex: virtualRow.index,
+																							});
+																							setIsInspectorOpen(true);
+																						}}
+																						onContextMenu={() => {
+																							const target = {
+																								rowId: row.id,
+																								columnId: column.id,
+																								value: cellValue,
+																								rowIndex: virtualRow.index,
+																								row: row.original,
+																							};
+																							contextMenuTargetRef.current = target;
+																							setContextMenuTarget(target);
+																						}}
+																					>
+																				{renderBodyCell(cell)}
+																			</div>
+																		);
+																	})}
+
+																	{virtualPaddingRight > 0 ? (
+																		<div
+																			aria-hidden
+																			style={{
+																				width: `${virtualPaddingRight}px`,
+																				minWidth: `${virtualPaddingRight}px`,
+																			}}
+																		/>
+																	) : null}
+																</>
 															);
-														})}
-														{virtualPaddingRight > 0 ? (
-															<div
-																aria-hidden
-																style={{
-																	width: `${virtualPaddingRight}px`,
-																	minWidth: `${virtualPaddingRight}px`,
-																}}
-															/>
-														) : null}
-													</>
+														})()}
+													</div>
 												);
-											})()}
+											})}
 										</div>
-									);
-								})}
+									</div>
+								</div>
 							</div>
-						</div>
-					</div>
+						</ContextMenuTrigger>
+
+						{/* Context Menu */}
+						<ContextMenuContent>
+							{(() => {
+								const target = contextMenuTarget ?? contextMenuTargetRef.current;
+								if (target) {
+									return (
+										<>
+											<ContextMenuItem
+												onClick={() => {
+													const val = formatValue(target.value);
+													if (val) void navigator.clipboard.writeText(val);
+												}}
+											>
+												<CopyIcon className="size-3.5 text-muted-foreground" />
+												<span>{t("editor.copyCellValue", "Copy Cell Value")}</span>
+											</ContextMenuItem>
+
+											<ContextMenuItem
+												onClick={() => {
+													if (target.value === null) return;
+													setGlobalFilter(target.value);
+												}}
+											>
+												<MagnifyingGlassIcon className="size-3.5 text-muted-foreground" />
+												<span>{t("editor.filterByValue", "Filter by This Value")}</span>
+											</ContextMenuItem>
+
+											<ContextMenuItem
+												onClick={() => {
+													setInspectedCell({
+														rowId: target.rowId,
+														columnId: target.columnId,
+														value: target.value,
+														rowIndex: target.rowIndex,
+													});
+													setIsInspectorOpen(true);
+												}}
+											>
+												<SidebarSimpleIcon className="size-3.5 text-muted-foreground" />
+												<span>{t("editor.inspectCell", "Inspect in Cell Drawer")}</span>
+											</ContextMenuItem>
+
+											<ContextMenuSeparator />
+
+											<ContextMenuItem
+												onClick={() => {
+													void copyRows(exportColumns, [target.row]);
+												}}
+											>
+												<span>{t("editor.copyRowTsv", "Copy Row (TSV)")}</span>
+											</ContextMenuItem>
+
+											<ContextMenuItem
+												onClick={() => {
+													void copyRowsAsMarkdown(exportColumns, [target.row]);
+												}}
+											>
+												<span>{t("editor.copyRowMarkdown", "Copy Row as Markdown")}</span>
+											</ContextMenuItem>
+
+											<ContextMenuItem
+												onClick={() => {
+													const tableName = insertTable
+														? insertTable.schema
+															? `"${insertTable.schema}"."${insertTable.name}"`
+															: `"${insertTable.name}"`
+														: "query_results";
+													void copyRowsAsSqlInsert(tableName, exportColumns, [target.row]);
+												}}
+											>
+												<span>{t("editor.copyRowSql", "Copy Row as SQL INSERT")}</span>
+											</ContextMenuItem>
+
+											<ContextMenuItem
+												onClick={() => {
+													const obj: Record<string, string | null> = {};
+													for (const col of exportColumns) {
+														obj[col] = target.row[col] ?? null;
+													}
+													void navigator.clipboard.writeText(JSON.stringify(obj, null, 2));
+												}}
+											>
+												<span>{t("editor.copyRowJson", "Copy Row as JSON")}</span>
+											</ContextMenuItem>
+
+											{canEdit ? (
+												<>
+													<ContextMenuSeparator />
+													<ContextMenuItem
+														onClick={() => {
+															const normalized = normalizeColumnId(target.columnId);
+															if (
+																editableColumnsByLower.has(normalized) &&
+																!primaryKeyColumnsByLower.has(normalized)
+															) {
+																applyPendingEdit(target.rowId, target.columnId, "");
+															}
+														}}
+													>
+														<span>{t("editor.setToNull", "Set Cell to NULL")}</span>
+													</ContextMenuItem>
+												</>
+											) : null}
+
+											{onDeleteRows ? (
+												<>
+													<ContextMenuSeparator />
+													<ContextMenuItem
+														variant="destructive"
+														onClick={() => {
+															const source = indexedRows.find((r) => r.rowId === target.rowId);
+															if (source?.hasCompletePrimaryKey) {
+																void onDeleteRows([source.primaryKey]);
+															}
+														}}
+													>
+														<TrashIcon className="size-3.5" />
+														<span>{t("editor.deleteRow", "Delete Row")}</span>
+													</ContextMenuItem>
+												</>
+											) : null}
+										</>
+									);
+								}
+
+								return (
+									<>
+										<ContextMenuItem onClick={() => void handleCopy()}>
+											<span>{t("editor.copy", "Copy Rows (TSV)")}</span>
+										</ContextMenuItem>
+										<ContextMenuItem onClick={() => void handleCopyMarkdown()}>
+											<span>{t("editor.copyMarkdown", "Copy as Markdown")}</span>
+										</ContextMenuItem>
+										<ContextMenuItem onClick={() => void handleCopySqlInsert()}>
+											<span>{t("editor.copySqlInsert", "Copy as SQL INSERT")}</span>
+										</ContextMenuItem>
+									</>
+								);
+							})()}
+						</ContextMenuContent>
+					</ContextMenu>
+
+					{/* Cell Inspector Drawer */}
+					<CellInspectorDrawer
+						cell={inspectedCell}
+						isOpen={isInspectorOpen}
+						onClose={() => setIsInspectorOpen(false)}
+						canEdit={
+							canEdit &&
+							Boolean(
+								inspectedCell &&
+									editableColumnsByLower.has(normalizeColumnId(inspectedCell.columnId)) &&
+									!primaryKeyColumnsByLower.has(normalizeColumnId(inspectedCell.columnId)),
+							)
+						}
+						onSaveEdit={(rowId, columnId, newValue) =>
+							applyPendingEdit(rowId, columnId, newValue)
+						}
+						isSaving={isSaving}
+					/>
 				</div>
 			) : (
 				<div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
@@ -1251,9 +1868,7 @@ export function ResultsGrid({
 						<>
 							<span>{t("editor.runQueryToSeeResults")}</span>
 							{canInsertRow ? (
-								<span className="max-w-md">
-									{t("editor.addRowHint")}
-								</span>
+								<span className="max-w-md">{t("editor.addRowHint")}</span>
 							) : null}
 						</>
 					) : (
@@ -1265,19 +1880,44 @@ export function ResultsGrid({
 									: t("editor.noRowsReturned")}
 							</span>
 							{canInsertRow ? (
-								<span className="max-w-md">
-									{t("editor.inlineAddRowHint")}
-								</span>
+								<span className="max-w-md">{t("editor.inlineAddRowHint")}</span>
 							) : null}
 						</>
 					)}
 				</div>
 			)}
-			<div className="border-t border-border bg-muted/10 px-3 py-1.5 text-[11px] text-muted-foreground">
-				{saveDisabledReason && !canEdit
-					? saveDisabledReason
-					: t("editor.rowsSelected", { count: Object.keys(rowSelection).length })}
+
+			{/* Status Bar */}
+			<div className="flex items-center justify-between border-t border-border bg-muted/10 px-3 py-1.5 text-[11px] text-muted-foreground">
+				<div>
+					{saveDisabledReason && !canEdit
+						? saveDisabledReason
+						: t("editor.rowsSelected", { count: Object.keys(rowSelection).length })}
+				</div>
+				{result ? (
+					<div className="flex items-center gap-3 font-mono text-[10px]">
+						{globalFilter ? (
+							<span>
+								Filtered: {filteredRowsCount} of {result.rowCount} rows
+							</span>
+						) : (
+							<span>{result.rowCount} rows</span>
+						)}
+						<span>⚡ {result.executionMs} ms</span>
+						{sorting.length > 0 ? (
+							<button
+								type="button"
+								onClick={() => setSorting([])}
+								className="text-muted-foreground hover:text-foreground underline decoration-dotted cursor-pointer"
+								title="Reset column sorting"
+							>
+								Sorted ({sorting.length}) [Reset]
+							</button>
+						) : null}
+					</div>
+				) : null}
 			</div>
+
 			{gridError ? (
 				<div className="border-t border-border bg-destructive/10 px-3 py-1.5 text-[11px] text-destructive">
 					{gridError}

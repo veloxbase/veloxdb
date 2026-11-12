@@ -8,6 +8,8 @@
   "permissions": [
     "core:default",
     "store:default",
-    "dialog:default"
+    "dialog:default",
+    "deep-link:default",
+    "opener:default"
   ]
 }

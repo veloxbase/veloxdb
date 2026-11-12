@@ -12,7 +12,7 @@ use crate::models::{
 use crate::pg_error::map_pg_err;
 
 use super::{
-    MAX_TABLE_INDEX_ROWS, MAX_FOREIGN_KEY_ROWS,
+    CATALOG_STATEMENT_TIMEOUT, MAX_TABLE_INDEX_ROWS, MAX_FOREIGN_KEY_ROWS,
     mysql_get_string, mysql_get_optional_string, mysql_get_idx,
     sqlite_get_name, sqlite_get_idx,
     veloxdb_unique_constraint_name,
@@ -464,7 +464,12 @@ pub async fn get_foreign_keys(
     }
 
     with_pool_client_retry(&app, &state, &connection_id, (), |client, ()| async move {
-        let rows = client.query(
+        client
+            .batch_execute(&format!("SET statement_timeout = '{}'", CATALOG_STATEMENT_TIMEOUT))
+            .await
+            .map_err(|error| error.to_string())?;
+        let result = async {
+            let rows = client.query(
             "select src_ns.nspname::text as from_schema, src_cls.relname::text as from_table, \
              src_att.attname::text as from_column, tgt_ns.nspname::text as to_schema, \
              tgt_cls.relname::text as to_table, tgt_att.attname::text as to_column \
@@ -485,10 +490,13 @@ pub async fn get_foreign_keys(
             &[&MAX_FOREIGN_KEY_ROWS],
         ).await.map_err(|error| error.to_string())?;
 
-        Ok(rows.into_iter().map(|row| ForeignKeyEdge {
-            from_schema: row.get(0), from_table: row.get(1), from_column: row.get(2),
-            to_schema: row.get(3), to_table: row.get(4), to_column: row.get(5),
-        }).collect())
+            Ok(rows.into_iter().map(|row| ForeignKeyEdge {
+                from_schema: row.get(0), from_table: row.get(1), from_column: row.get(2),
+                to_schema: row.get(3), to_table: row.get(4), to_column: row.get(5),
+            }).collect())
+        }.await;
+        let _ = client.batch_execute("SET statement_timeout = '0'").await;
+        result
     }).await.map_err(String::from)
 }
 
@@ -581,6 +589,11 @@ pub async fn get_table_indexes(
     }
 
     with_pool_client_retry(&app, &state, &connection_id, ctx, |client, input| async move {
+        client
+            .batch_execute(&format!("SET statement_timeout = '{}'", CATALOG_STATEMENT_TIMEOUT))
+            .await
+            .map_err(|error| error.to_string())?;
+        let result = async {
         let table_schema = input.table_schema;
         let table_name = input.table_name;
         let fetch_limit = MAX_TABLE_INDEX_ROWS + 1;
@@ -622,5 +635,8 @@ pub async fn get_table_indexes(
             });
         }
         Ok(TableIndexesResult { indexes, truncated })
+        }.await;
+        let _ = client.batch_execute("SET statement_timeout = '0'").await;
+        result
     }).await.map_err(String::from)
 }

@@ -23,9 +23,12 @@ use crate::sql_split::split_sql_statements;
 
 pub(crate) const MAX_FOREIGN_KEY_ROWS: i64 = 5000;
 pub(crate) const MAX_TABLE_INDEX_ROWS: i64 = 500;
-pub(crate) const MAX_EDITOR_TABLES: i64 = 150;
+pub(crate) const MAX_EDITOR_TABLES: i64 = 500;
 pub(crate) const MAX_EDITOR_COLUMNS_PER_TABLE: i64 = 60;
+pub(crate) const MAX_EDITOR_ENUMS: i64 = 200;
 pub(crate) const MAX_EDITOR_FUNCTIONS: i64 = 200;
+/// Bound catalog reads (metadata, foreign keys, indexes) so Veloxy cannot pin a pool client.
+pub(crate) const CATALOG_STATEMENT_TIMEOUT: &str = "8000";
 pub(crate) const MAX_LINT_SQL_BYTES: usize = 65_536;
 pub(crate) const ASK_VELOXY_MAX_CONTEXT_TABLES: usize = 8;
 pub(crate) const ASK_VELOXY_MAX_CONTEXT_COLUMNS: usize = 18;
@@ -1035,6 +1038,7 @@ pub(crate) fn veloxdb_unique_constraint_name(table_name: &str, column_name: &str
 // --- Sub-modules ---
 
 mod connections;
+mod dashboards;
 mod query;
 mod table_props;
 mod ddl;
@@ -1044,8 +1048,12 @@ mod lint;
 pub(crate) mod mongo;
 pub(crate) mod duckdb;
 mod export_cmds;
+mod auth_cmds;
 pub(crate) mod redis;
+mod saved_queries;
+mod veloxy_chats;
 mod updater;
+pub(crate) mod reports;
 
 // --- Re-exports ---
 
@@ -1068,15 +1076,18 @@ pub use editor_meta::{
 };
 pub use veloxy::{
     cancel_veloxy_request, chat_with_db, clear_veloxy_conversation, generate_sql_from_nl,
-    load_veloxy_conversation,
+    load_veloxy_conversation, veloxy_run_readonly,
 };
 pub use lint::{
     lint_sql,
 };
+pub use auth_cmds::{
+    start_desktop_auth_callback,
+};
 pub use export_cmds::{
     export_diagram_png, export_results_csv_command, export_results_json_command,
-    save_base64_png, save_text_file, store_openrouter_api_key, get_openrouter_api_key,
-    delete_openrouter_api_key,
+    save_base64_png, save_text_file, read_text_file, store_openrouter_api_key, get_openrouter_api_key,
+    delete_openrouter_api_key, store_cloud_api_key, get_cloud_api_key, delete_cloud_api_key,
 };
 pub use mongo::{
     mongo_run_query, mongo_get_collections, mongo_get_schema,
@@ -1171,3 +1182,18 @@ mod mysql_json_tests {
         assert!(meta.starts_with('['));
     }
 }
+pub use saved_queries::{
+    list_saved_queries, get_saved_query, save_saved_query, delete_saved_query,
+    duplicate_saved_query,
+};
+pub use dashboards::{
+    list_dashboards, get_dashboard, save_dashboard, delete_dashboard, duplicate_dashboard,
+};
+pub use veloxy_chats::{
+    list_veloxy_threads, load_veloxy_thread, save_veloxy_thread, touch_veloxy_thread,
+    delete_veloxy_thread,
+};
+pub use reports::{
+    compile_and_publish_report, revoke_published_report, generate_report_pdf,
+    agent_run_widgets, agent_eval_alerts, agent_render_pdf,
+};

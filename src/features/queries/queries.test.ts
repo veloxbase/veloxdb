@@ -33,6 +33,18 @@ describe('engine-aware explain sql', () => {
     expect(buildExplainSql('sqlite', 'select 1')).toContain('EXPLAIN QUERY PLAN')
   })
 
+  it('builds postgres plan-only explain without analyze', () => {
+    expect(buildExplainSql('postgres', 'select 1', { analyze: false })).toBe(
+      'EXPLAIN (FORMAT TEXT)\nselect 1',
+    )
+  })
+
+  it('builds duckdb plan-only explain without analyze', () => {
+    expect(buildExplainSql('duckdb', 'select 1', { analyze: false })).toBe(
+      'EXPLAIN\nselect 1',
+    )
+  })
+
   it('builds clickhouse explain wrapper', () => {
     expect(buildExplainSql('clickhouse', 'select 1')).toContain('EXPLAIN SYNTAX')
   })

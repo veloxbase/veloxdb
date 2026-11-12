@@ -55,3 +55,10 @@ dist-ssr
 
 # Local macOS disk images
 *.dmg
+
+# Local env and private planning docs
+.env
+.env.*
+!.env.example
+*.plan.md
+.cursor/
