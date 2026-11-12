@@ -224,6 +224,98 @@ export function normalizeAiBaseUrl(baseUrl: string): string {
 export const aiFetch: typeof fetch = (input, init) =>
   isTauri() ? tauriFetch(input, init) : globalThis.fetch(input, init)
 
+/**
+ * The chat client validates every streamed chunk against OpenRouter's schema,
+ * which only allows many fields to be absent, not `null`. OpenAI-style APIs
+ * (DeepSeek, OpenAI, Groq, ...) send `"usage": null` on every chunk but the
+ * last, plus null `system_fingerprint`, `tool_calls` and so on. Drop nulls
+ * everywhere except `finish_reason` (required, and null until the end), and
+ * fill the few required fields some providers leave out.
+ */
+export function normalizeChatChunk(chunk: unknown): unknown {
+  const strip = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(strip)
+    if (value === null || typeof value !== 'object') return value
+    const out: Record<string, unknown> = {}
+    for (const [key, child] of Object.entries(value)) {
+      if (child === null && key !== 'finish_reason') continue
+      out[key] = strip(child)
+    }
+    return out
+  }
+  const normalized = strip(chunk)
+  if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) return normalized
+  const record = normalized as Record<string, unknown>
+  if (Array.isArray(record.choices)) {
+    record.id ??= 'chatcmpl-veloxdb'
+    record.created ??= Math.floor(Date.now() / 1000)
+    record.model ??= ''
+    for (const choice of record.choices as Array<Record<string, unknown>>) {
+      if (choice && typeof choice === 'object') {
+        choice.index ??= 0
+        if (!('finish_reason' in choice)) choice.finish_reason = null
+      }
+    }
+  }
+  return record
+}
+
+/** Rewrites each `data: {...}` line of a server-sent-events stream. */
+function normalizeEventStream(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const decoder = new TextDecoder()
+  const encoder = new TextEncoder()
+  let buffer = ''
+  const rewriteLine = (line: string): string => {
+    const match = line.match(/^data:\s?(.*)$/)
+    if (!match || match[1].trim() === '[DONE]' || !match[1].trim()) return line
+    try {
+      return `data: ${JSON.stringify(normalizeChatChunk(JSON.parse(match[1])))}`
+    } catch {
+      return line
+    }
+  }
+  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      buffer += decoder.decode(chunk, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      if (lines.length) controller.enqueue(encoder.encode(lines.map(rewriteLine).join('\n') + '\n'))
+    },
+    flush(controller) {
+      buffer += decoder.decode()
+      if (buffer) controller.enqueue(encoder.encode(rewriteLine(buffer)))
+    },
+  }))
+}
+
+/**
+ * `aiFetch` for the chat client: normalizes streamed and JSON chat responses
+ * from any OpenAI-compatible provider into the shape its schema expects.
+ */
+export const aiChatFetch: typeof fetch = async (input, init) => {
+  const response = await aiFetch(input, init)
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!response.ok || !response.body) return response
+  const headers = new Headers(response.headers)
+  headers.delete('content-length')
+  if (contentType.includes('text/event-stream')) {
+    return new Response(normalizeEventStream(response.body), {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    })
+  }
+  if (contentType.includes('application/json')) {
+    const payload = normalizeChatChunk(await response.json())
+    return new Response(JSON.stringify(payload), {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    })
+  }
+  return response
+}
+
 /** Request headers for an OpenAI-compatible call. */
 export function aiRequestHeaders(
   apiKey: string | null | undefined,

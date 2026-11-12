@@ -8,7 +8,7 @@ import { useChat } from "@tanstack/ai-react";
 import { queryKeys } from "@/data/query-keys";
 import type { DatabaseEngine } from "@/data/types";
 import { HTTPClient } from "@openrouter/sdk";
-import { aiFetch, getAiProvider, isLocalAiEndpoint } from "@/lib/ai-providers";
+import { aiChatFetch, getAiProvider, isLocalAiEndpoint } from "@/lib/ai-providers";
 import { useSettings } from "@/lib/settings";
 import { createVeloxySqlitePersistence } from "@/features/queries/veloxy/sqlite-persistence";
 import {
@@ -113,7 +113,7 @@ export function useVeloxyChat({
 		const openRouterConfig: Record<string, unknown> = {
 			httpReferer: "https://github.com/veloxbase/veloxdb",
 			appTitle: "VeloxDB",
-			httpClient: new HTTPClient({ fetcher: aiFetch }),
+			httpClient: new HTTPClient({ fetcher: aiChatFetch }),
 		};
 		if (current.baseUrl?.trim()) {
 			openRouterConfig.serverURL = current.baseUrl.trim().replace(/\/+$/, "");
