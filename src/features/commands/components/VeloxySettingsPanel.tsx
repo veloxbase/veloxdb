@@ -78,33 +78,63 @@ function FormField({
   )
 }
 
-function ProviderPicker({ value, onChange }: { value: AiProviderId; onChange: (id: AiProviderId) => void }) {
+const CLOUD_PROVIDERS = AI_PROVIDERS.filter((provider) => !provider.local && provider.id !== 'custom')
+const SELF_HOSTED_PROVIDERS = AI_PROVIDERS.filter((provider) => provider.local || provider.id === 'custom')
+
+function ProviderTile({ provider, selected, onSelect }: { provider: AiProvider; selected: boolean; onSelect: () => void }) {
   return (
-    <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4" role="radiogroup" aria-label="AI provider">
-      {AI_PROVIDERS.map((provider) => {
-        const selected = provider.id === value
-        return (
-          <button
-            key={provider.id}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            onClick={() => onChange(provider.id)}
-            className={cn(
-              'flex h-9 items-center justify-between gap-2 border px-3 text-left text-xs transition-colors',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              selected
-                ? 'border-primary bg-primary/10 font-medium text-foreground'
-                : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground',
-            )}
-          >
-            <span className="truncate">{shortLabel(provider)}</span>
-            {provider.local || provider.id === 'custom' ? (
-              <span className="shrink-0 text-[10px] text-muted-foreground">{provider.id === 'custom' ? 'any' : 'local'}</span>
-            ) : null}
-          </button>
-        )
-      })}
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={cn(
+        'group flex h-10 min-w-0 items-center gap-2.5 border px-3 text-left transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+        selected
+          ? 'border-primary bg-primary/[0.08]'
+          : 'border-border hover:border-foreground/25',
+      )}
+    >
+      {/* Radio mark: the selected tile is the one with the filled dot. */}
+      <span
+        aria-hidden
+        className={cn(
+          'flex size-3.5 shrink-0 items-center justify-center rounded-full border transition-colors',
+          selected ? 'border-primary' : 'border-muted-foreground/40 group-hover:border-muted-foreground/70',
+        )}
+      >
+        <span className={cn('size-1.5 rounded-full bg-primary transition-transform', selected ? 'scale-100' : 'scale-0')} />
+      </span>
+      <span className={cn('min-w-0 truncate text-xs', selected ? 'font-semibold text-foreground' : 'font-medium text-foreground/80 group-hover:text-foreground')}>
+        {shortLabel(provider)}
+      </span>
+    </button>
+  )
+}
+
+function ProviderPicker({ value, onChange }: { value: AiProviderId; onChange: (id: AiProviderId) => void }) {
+  const groups = [
+    { title: 'Cloud provider (your API key)', providers: CLOUD_PROVIDERS },
+    { title: 'On your machine or server', providers: SELF_HOSTED_PROVIDERS },
+  ]
+  return (
+    <div className="space-y-3" role="radiogroup" aria-label="AI provider">
+      {groups.map((group) => (
+        <div key={group.title} className="space-y-1.5">
+          <p className="text-xs font-medium text-foreground">{group.title}</p>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+            {group.providers.map((provider) => (
+              <ProviderTile
+                key={provider.id}
+                provider={provider}
+                selected={provider.id === value}
+                onSelect={() => onChange(provider.id)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -471,14 +501,16 @@ export function VeloxySettingsPanel() {
         </Button>
       </div>
 
-      <FormField label="Provider" hint={provider.local
+      <div className="space-y-2">
+        <ProviderPicker value={providerId} onChange={(id) => { void selectProvider(id) }} />
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          {provider.local
         ? `Runs on this computer. Start ${shortLabel(provider)} and load a model first.`
         : provider.id === 'custom'
           ? 'Any server that speaks the OpenAI chat API, such as vLLM, LiteLLM or a company gateway.'
           : `Uses your own ${shortLabel(provider)} account. You pay ${shortLabel(provider)} directly for what you use.`}
-      >
-        <ProviderPicker value={providerId} onChange={(id) => { void selectProvider(id) }} />
-      </FormField>
+        </p>
+      </div>
 
       {selfHosted ? endpointField : null}
 
