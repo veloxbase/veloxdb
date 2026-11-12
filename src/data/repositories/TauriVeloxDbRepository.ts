@@ -271,7 +271,7 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
     )
   }
 
-  // BI (Pro): saved queries + dashboards
+  // BI: saved queries + dashboards
 
   async listSavedQueries(connectionId?: string | null): Promise<SavedQuery[]> {
     return invokeCommand('list_saved_queries', () =>

@@ -28,7 +28,7 @@ type CommandPaletteProps = {
   onSwitchToDashboard?: () => void
   onOpenSettings?: () => void
   onToggleVeloxy?: () => void
-  /** Pro-only: hidden when omitted. */
+  /** Hidden when omitted. */
   onCreateChartFromLastResult?: () => void
   canCreateChartFromLastResult?: boolean
   onGenerateDashboardWithAi?: () => void

@@ -60,22 +60,14 @@ describe('isLocalAiEndpoint', () => {
 })
 
 describe('isVeloxyConfigured', () => {
-  it('handles cloud mode correctly', () => {
-    expect(isVeloxyConfigured({ authMode: 'cloud', hasSession: true, cloudModel: 'deepseek' })).toBe(true)
-    expect(isVeloxyConfigured({ authMode: 'cloud', hasSession: false, cloudModel: 'deepseek' })).toBe(false)
-    expect(isVeloxyConfigured({ authMode: 'cloud', hasSession: true, cloudModel: '' })).toBe(false)
-  })
-
-  it('handles BYOK OpenRouter mode requiring an API key', () => {
+  it('requires an API key for hosted endpoints such as OpenRouter', () => {
     expect(isVeloxyConfigured({
-      authMode: 'byok',
       apiKey: 'sk-123',
       model: 'deepseek/deepseek-chat',
       baseUrl: 'https://openrouter.ai/api/v1',
     })).toBe(true)
 
     expect(isVeloxyConfigured({
-      authMode: 'byok',
       apiKey: '',
       model: 'deepseek/deepseek-chat',
       baseUrl: 'https://openrouter.ai/api/v1',
@@ -84,14 +76,12 @@ describe('isVeloxyConfigured', () => {
 
   it('handles local AI mode without requiring an API key', () => {
     expect(isVeloxyConfigured({
-      authMode: 'byok',
       apiKey: '',
       model: 'qwen2.5-coder:latest',
       baseUrl: 'http://localhost:11434/v1',
     })).toBe(true)
 
     expect(isVeloxyConfigured({
-      authMode: 'byok',
       apiKey: '',
       model: '',
       baseUrl: 'http://localhost:11434/v1',

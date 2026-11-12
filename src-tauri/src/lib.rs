@@ -12,19 +12,18 @@ mod ssh_tunnel;
 use commands::{
   apply_table_properties, cancel_veloxy_request, chat_with_db, check_for_updates, clear_veloxy_conversation,
   connect_db, delete_connection,
-  delete_cloud_api_key, delete_openrouter_api_key, disconnect_db, duckdb_get_schema, duckdb_get_tables, duckdb_run_query,
+  delete_openrouter_api_key, disconnect_db, duckdb_get_schema, duckdb_get_tables, duckdb_run_query,
   execute_ddl_statement, execute_ddl_transaction, export_diagram_png,
-  export_results_csv_command, export_results_json_command,   generate_sql_from_nl, veloxy_run_readonly, get_cloud_api_key, get_foreign_keys,
+  export_results_csv_command, export_results_json_command,   generate_sql_from_nl, veloxy_run_readonly, get_foreign_keys,
   get_openrouter_api_key, get_query_editor_metadata, get_schema, get_table_indexes, get_table_properties, get_tables,
   lint_sql, list_connections_command, list_databases, load_veloxy_conversation, mongo_get_collections,
   mongo_get_schema, mongo_run_query, ping_connection, redis_get_keys, redis_get_schema, redis_run_query,
   refresh_connection, rename_connection, run_query, save_base64_png, save_text_file, read_text_file, set_active_connection,
-  start_desktop_auth_callback, store_cloud_api_key, store_openrouter_api_key, switch_database,
+  store_openrouter_api_key, switch_database,
   list_saved_queries, get_saved_query, save_saved_query, delete_saved_query, duplicate_saved_query,
   list_dashboards, get_dashboard, save_dashboard, delete_dashboard, duplicate_dashboard,
   list_veloxy_threads, load_veloxy_thread, save_veloxy_thread, touch_veloxy_thread, delete_veloxy_thread,
-  compile_and_publish_report, revoke_published_report, generate_report_pdf,
-  agent_run_widgets, agent_eval_alerts, agent_render_pdf,
+  generate_report_pdf,
 };
 use db::AppState;
 use tauri::Manager;
@@ -33,17 +32,9 @@ use tauri::Manager;
 pub fn run() {
   tauri::Builder::default()
     .manage(AppState::default())
-    .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}))
     .plugin(tauri_plugin_store::Builder::default().build())
     .plugin(tauri_plugin_dialog::init())
-    .plugin(tauri_plugin_deep_link::init())
-    .plugin(tauri_plugin_opener::init())
     .setup(|app| {
-      #[cfg(any(windows, target_os = "linux"))]
-      {
-        use tauri_plugin_deep_link::DeepLinkExt;
-        let _ = app.deep_link().register_all();
-      }
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
@@ -105,10 +96,6 @@ pub fn run() {
       store_openrouter_api_key,
       get_openrouter_api_key,
       delete_openrouter_api_key,
-      store_cloud_api_key,
-      get_cloud_api_key,
-      delete_cloud_api_key,
-      start_desktop_auth_callback,
       mongo_run_query,
       mongo_get_collections,
       mongo_get_schema,
@@ -134,12 +121,7 @@ pub fn run() {
       touch_veloxy_thread,
       delete_veloxy_thread,
       read_text_file,
-      compile_and_publish_report,
-      revoke_published_report,
       generate_report_pdf,
-      agent_run_widgets,
-      agent_eval_alerts,
-      agent_render_pdf,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

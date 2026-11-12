@@ -8,7 +8,7 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
@@ -43,11 +43,6 @@ import type { OpenSqlInEditorOptions } from "@/features/dashboards/components/Da
 import { GenerateDashboardDialog } from "@/features/dashboards/components/GenerateDashboardDialog";
 import { canUseDashboards } from "@/features/dashboards/engine-guard";
 import { SaveQueryDialog } from "@/features/dashboards/components/SaveQueryDialog";
-import { useCloudAuth } from "@/features/auth/AuthProvider";
-import { UpgradeDialog, type UpgradeFeature } from "@/features/auth/components/UpgradeDialog";
-import { fetchAiModels } from "@/features/auth/cloud-client";
-import { useEntitlements } from "@/features/entitlements/useEntitlements";
-import { isProBuild } from "@/lib/build-config";
 import { isVeloxyConfigured, useSettings } from "@/lib/settings";
 import { useAppHotkey } from "@/lib/shortcuts/use-app-hotkey";
 import { ActivityRail } from "@/features/workspace/components/ActivityRail";
@@ -74,18 +69,7 @@ export function VeloxApp() {
 
 	const queryClient = useQueryClient();
 	const app = useAppState(queryWorkspaceRef);
-	const entitlements = useEntitlements();
-	const { hasSession, signIn } = useCloudAuth();
-	const veloxyCloudModel = useSettings((s) => s.veloxyCloudModel);
 	const veloxyBaseUrl = useSettings((s) => s.veloxyBaseUrl);
-	const cloudModelsQuery = useQuery({
-		queryKey: queryKeys.cloudModels(),
-		queryFn: fetchAiModels,
-		enabled: isProBuild && hasSession,
-	});
-	const showDashboardTab = isProBuild;
-	const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
-	const [upgradeFeature, setUpgradeFeature] = useState<UpgradeFeature | undefined>();
 	const [saveQueryDialog, setSaveQueryDialog] = useState<{ sql: string; connectionId: string | null } | null>(null);
 	const [generateDashboardOpen, setGenerateDashboardOpen] = useState(false);
 	const [chartBuilderDialog, setChartBuilderDialog] = useState<{
@@ -225,11 +209,11 @@ export function VeloxApp() {
 
 
 	useEffect(() => {
-		const fallback = resolveWorkspaceFallback(mainWorkspace, { showDashboardTab, connection });
+		const fallback = resolveWorkspaceFallback(mainWorkspace, { showDashboardTab: true, connection });
 		if (!fallback) return;
 		setMainWorkspace(fallback);
 		if (connection) saveLastWorkspaceMode(connection.id, fallback);
-	}, [mainWorkspace, showDashboardTab, connection, setMainWorkspace]);
+	}, [mainWorkspace, connection, setMainWorkspace]);
 
 	const handleOpenDashboard = useCallback((dashboardId: string) => {
 		void (async () => {
@@ -266,11 +250,6 @@ export function VeloxApp() {
 		defaultTitle?: string;
 		defaultEncodings?: ChartEncodings;
 	}) => {
-		if (!entitlements.bi) {
-			setUpgradeFeature("chartBuilder");
-			setUpgradeDialogOpen(true);
-			return;
-		}
 		const chartConnectionId = options.connectionId ?? connection?.id;
 		if (!chartConnectionId) return;
 		setChartBuilderDialog({
@@ -285,11 +264,6 @@ export function VeloxApp() {
 	};
 
 	const openGenerateDashboard = () => {
-		if (!entitlements.bi) {
-			setUpgradeFeature("aiDashboard");
-			setUpgradeDialogOpen(true);
-			return;
-		}
 		setGenerateDashboardOpen(true);
 	};
 
@@ -318,7 +292,7 @@ export function VeloxApp() {
 				mainWorkspace={mainWorkspace}
 				onChange={handleWorkspaceChange}
 				showModel={connection?.engine === "postgres"}
-				showDashboard={showDashboardTab}
+				showDashboard
 			/>
 
 			{!isSidebarCollapsed ? (
@@ -461,20 +435,15 @@ export function VeloxApp() {
 							canInsertRow={Boolean(connection?.id && selectedTable)}
 							onInsertRowSuccess={handleInsertRowSuccess}
 							onOpenAddRow={connection?.id && selectedTable ? requestInsertRow : undefined}
-							onSaveQuery={showDashboardTab ? () => {
-								if (!entitlements.bi) {
-									setUpgradeFeature("savedQueries");
-									setUpgradeDialogOpen(true);
-									return;
-								}
+							onSaveQuery={() => {
 								setSaveQueryDialog({
 									sql: queryWorkspaceRef.current?.getActiveTabSql()?.trim() ?? "",
 									connectionId: queryWorkspaceRef.current?.getActiveTabConnectionId() ?? null,
 								});
-							} : undefined}
-							onCreateChart={showDashboardTab ? (sql, chartConnectionId) => {
+							}}
+							onCreateChart={(sql, chartConnectionId) => {
 								handleOpenChartBuilder({ sql, connectionId: chartConnectionId });
-							} : undefined}
+							}}
 							onFixQueryError={(sql, errorMessage) => {
 								setPendingFixContext({ sql, errorMessage });
 								setIsVeloxyOpen(true);
@@ -484,34 +453,32 @@ export function VeloxApp() {
 						/>
 					</div>
 
-					{showDashboardTab ? (
-						<div className={cn("h-full w-full min-h-0 min-w-0 flex flex-col", mainWorkspace !== "dashboard" && "hidden")}>
-							<ErrorBoundary>
-								<DashboardWorkspace
-									key={openDashboardId ?? "none"}
-									openDashboardId={openDashboardId}
-									isDark={isDark}
-									onCloseDashboard={() => setOpenDashboardId(null)}
-									onOpenChartBuilder={handleOpenChartBuilder}
-									onOpenSqlInEditor={handleOpenSqlInEditor}
-									onOpenConnection={() => setConnectionDialogOpen(true)}
-									onGenerateWithAi={openGenerateDashboard}
-									onAskVeloxyAboutWidget={(context) => {
-										setPendingChartContext({
-											title: context.widget.title,
-											sql: context.sql,
-											columns: context.columns,
-											sampleRows: context.sampleRows,
-											rowCount: context.rowCount,
-											activeFilters: context.activeFilters,
-											requestId: crypto.randomUUID(),
-										});
-										setIsVeloxyOpen(true);
-									}}
-								/>
-							</ErrorBoundary>
-						</div>
-					) : null}
+					<div className={cn("h-full w-full min-h-0 min-w-0 flex flex-col", mainWorkspace !== "dashboard" && "hidden")}>
+						<ErrorBoundary>
+							<DashboardWorkspace
+								key={openDashboardId ?? "none"}
+								openDashboardId={openDashboardId}
+								isDark={isDark}
+								onCloseDashboard={() => setOpenDashboardId(null)}
+								onOpenChartBuilder={handleOpenChartBuilder}
+								onOpenSqlInEditor={handleOpenSqlInEditor}
+								onOpenConnection={() => setConnectionDialogOpen(true)}
+								onGenerateWithAi={openGenerateDashboard}
+								onAskVeloxyAboutWidget={(context) => {
+									setPendingChartContext({
+										title: context.widget.title,
+										sql: context.sql,
+										columns: context.columns,
+										sampleRows: context.sampleRows,
+										rowCount: context.rowCount,
+										activeFilters: context.activeFilters,
+										requestId: crypto.randomUUID(),
+									});
+									setIsVeloxyOpen(true);
+								}}
+							/>
+						</ErrorBoundary>
+					</div>
 
 					<div className={cn("h-full w-full min-h-0 min-w-0 flex flex-col", mainWorkspace !== "model" && "hidden")}>
 						{connection?.id ? (
@@ -571,19 +538,11 @@ export function VeloxApp() {
 							}}
 							onNewConnection={() => setConnectionDialogOpen(true)}
 							activeWorkspace={mainWorkspace}
-							modelLabel={
-								hasSession
-									? (veloxyCloudModel || cloudModelsQuery.data?.[0]?.slug || "")
-									: veloxyModel
-							}
+							modelLabel={veloxyModel}
 							apiKey={veloxyOpenRouterApiKey}
-							authMode={hasSession ? "cloud" : "byok"}
 							isConfigured={isVeloxyConfigured({
-								authMode: hasSession ? "cloud" : "byok",
-								hasSession,
 								apiKey: veloxyOpenRouterApiKey,
 								model: veloxyModel,
-								cloudModel: veloxyCloudModel || cloudModelsQuery.data?.[0]?.slug,
 								baseUrl: veloxyBaseUrl,
 							})}
 							fixErrorContext={pendingFixContext}
@@ -592,7 +551,6 @@ export function VeloxApp() {
 							onClearChartContext={() => setPendingChartContext(null)}
 							onClose={() => setIsVeloxyOpen(false)}
 							onOpenSettings={() => { setSettingsOpen(true); }}
-							onSignIn={isProBuild && !hasSession ? () => { void signIn(); } : undefined}
 							onConfirmRun={async (sql) => {
 								if (mainWorkspace !== "query") {
 									handleWorkspaceChange("query");
@@ -643,15 +601,13 @@ export function VeloxApp() {
 				onConfirm={handleRenameConnectionConfirm}
 				onCancel={() => app.setRenamingConnection(null)}
 			/>
-			{showDashboardTab ? (
-				<SaveQueryDialog
-					open={saveQueryDialog !== null}
-					onOpenChange={(open) => { if (!open) setSaveQueryDialog(null); }}
-					sql={saveQueryDialog?.sql ?? ""}
-					connectionId={saveQueryDialog?.connectionId ?? null}
-				/>
-			) : null}
-			{showDashboardTab && chartBuilderDialog ? (
+			<SaveQueryDialog
+				open={saveQueryDialog !== null}
+				onOpenChange={(open) => { if (!open) setSaveQueryDialog(null); }}
+				sql={saveQueryDialog?.sql ?? ""}
+				connectionId={saveQueryDialog?.connectionId ?? null}
+			/>
+			{chartBuilderDialog ? (
 				<ChartBuilderDialog
 					key={chartBuilderDialog.openKey}
 					open
@@ -690,7 +646,7 @@ export function VeloxApp() {
 				onSelectTable={handleSelectTable}
 				onSwitchToQuery={() => handleWorkspaceChange("query")}
 				onSwitchToModel={connection?.engine === "postgres" ? () => handleWorkspaceChange("model") : undefined}
-				onSwitchToDashboard={showDashboardTab ? () => handleWorkspaceChange("dashboard") : undefined}
+				onSwitchToDashboard={() => handleWorkspaceChange("dashboard")}
 				onOpenSettings={() => setSettingsOpen(true)}
 				onToggleVeloxy={() => {
 					if (!connection) {
@@ -699,16 +655,16 @@ export function VeloxApp() {
 					}
 					setIsVeloxyOpen((prev) => !prev);
 				}}
-				onCreateChartFromLastResult={showDashboardTab ? () => {
+				onCreateChartFromLastResult={() => {
 					const sql = queryWorkspaceRef.current?.getActiveTabLastExecutedSql();
 					const chartConnectionId = queryWorkspaceRef.current?.getActiveTabConnectionId();
 					if (sql && chartConnectionId) handleOpenChartBuilder({ sql, connectionId: chartConnectionId });
-				} : undefined}
+				}}
 				canCreateChartFromLastResult={
 					focusedQueryCaps.hasLastQuery
 					&& Boolean(connection?.engine && canUseDashboards(connection.engine))
 				}
-				onGenerateDashboardWithAi={showDashboardTab ? openGenerateDashboard : undefined}
+				onGenerateDashboardWithAi={openGenerateDashboard}
 			/>
 			<ShortcutSheet />
 			<SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
@@ -721,12 +677,6 @@ export function VeloxApp() {
 					handleWorkspaceChange("dashboard");
 				}}
 				onOpenSettings={() => setSettingsOpen(true)}
-				onSignIn={isProBuild && !hasSession ? () => { void signIn(); } : undefined}
-			/>
-			<UpgradeDialog
-				open={upgradeDialogOpen}
-				onOpenChange={setUpgradeDialogOpen}
-				feature={upgradeFeature}
 			/>
 		</div>
 	);

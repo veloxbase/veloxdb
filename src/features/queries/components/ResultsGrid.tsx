@@ -90,7 +90,7 @@ type ResultsGridProps = {
 	canInsertRow?: boolean;
 	onInsertRowSuccess?: () => void;
 	onDeleteRows?: (primaryKeys: Record<string, string | null>[]) => Promise<void>;
-	/** Pro-only: opens the Chart Builder for this result. Hidden when omitted. */
+	/** opens the Chart Builder for this result. Hidden when omitted. */
 	onCreateChart?: () => void;
 	canCreateChart?: boolean;
 };

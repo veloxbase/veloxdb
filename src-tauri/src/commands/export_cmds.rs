@@ -68,21 +68,3 @@ pub async fn get_openrouter_api_key() -> Result<Option<String>, String> {
 pub async fn delete_openrouter_api_key() -> Result<(), String> {
     credentials::delete_openrouter_api_key()
 }
-
-#[tauri::command]
-pub async fn store_cloud_api_key(api_key: String) -> Result<(), String> {
-    if api_key.trim().is_empty() {
-        return credentials::delete_cloud_api_key();
-    }
-    credentials::store_cloud_api_key(&api_key)
-}
-
-#[tauri::command]
-pub async fn get_cloud_api_key() -> Result<Option<String>, String> {
-    credentials::get_cloud_api_key()
-}
-
-#[tauri::command]
-pub async fn delete_cloud_api_key() -> Result<(), String> {
-    credentials::delete_cloud_api_key()
-}

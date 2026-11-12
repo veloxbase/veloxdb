@@ -181,7 +181,6 @@ export async function generateAutonomousDashboard(
     model,
     apiKey,
     baseUrl,
-    authMode,
     onStepChange,
   } = params
 
@@ -221,7 +220,7 @@ Goal: ${prompt.trim()}
 Schema profile:
 ${renderSchemaProfile(profile)}`
 
-  const complete = bindLlmCompletion({ model, apiKey, baseUrl, authMode })
+  const complete = bindLlmCompletion({ model, apiKey, baseUrl })
   const rawCompletion = await complete(systemPrompt, userPrompt)
   const spec = parseGeneratedDashboardJson(rawCompletion)
 

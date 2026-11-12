@@ -104,7 +104,6 @@ type AskVeloxySidebarProps = {
 	connections?: ConnectionSummary[];
 	modelLabel: string;
 	apiKey: string;
-	authMode: "cloud" | "byok";
 	isConfigured: boolean;
 	activeWorkspace?: "query" | "dashboard" | "model";
 	fixErrorContext?: VeloxyFixErrorContext | null;
@@ -115,7 +114,6 @@ type AskVeloxySidebarProps = {
 	onNewConnection?: () => void;
 	onClose: () => void;
 	onOpenSettings: () => void;
-	onSignIn?: () => void;
 	onConfirmRun: (sql: string) => Promise<void>;
 	onInsertSql: (sql: string) => void;
 	onReplaceSql: (sql: string) => void;
@@ -303,7 +301,6 @@ export function AskVeloxySidebar({
 	connections,
 	modelLabel,
 	apiKey,
-	authMode,
 	isConfigured,
 	activeWorkspace = "query",
 	fixErrorContext,
@@ -314,7 +311,6 @@ export function AskVeloxySidebar({
 	onNewConnection,
 	onClose,
 	onOpenSettings,
-	onSignIn,
 	onConfirmRun,
 	onInsertSql,
 	onReplaceSql,
@@ -362,7 +358,6 @@ export function AskVeloxySidebar({
 		model: modelLabel,
 		apiKey,
 		baseUrl: veloxyBaseUrl,
-		authMode,
 	});
 
 	const isPending = chat.isLoading;
@@ -547,16 +542,6 @@ export function AskVeloxySidebar({
 										{t("veloxy.configureDesc")}
 									</p>
 									<div className="mt-3 flex flex-wrap gap-2">
-										{onSignIn ? (
-											<Button
-												variant="outline"
-												size="sm"
-												className="h-7 border-amber-500/40 bg-background/60 text-[11px] hover:bg-background"
-												onClick={onSignIn}
-											>
-												{t("veloxy.signIn")}
-											</Button>
-										) : null}
 										<Button
 											variant="outline"
 											size="sm"
@@ -780,19 +765,6 @@ export function AskVeloxySidebar({
 							role="alert"
 						>
 							<p>{errorMessage}</p>
-							{authMode === "cloud" ? (
-								<div className="pt-1 flex items-center gap-2">
-									<Button
-										type="button"
-										variant="outline"
-										size="sm"
-										className="h-6 text-[10px] border-destructive/40 bg-background/80 hover:bg-background text-foreground"
-										onClick={onOpenSettings}
-									>
-										Switch to BYOK OpenRouter in Settings…
-									</Button>
-								</div>
-							) : null}
 						</div>
 					) : null}
 				</div>

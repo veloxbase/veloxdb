@@ -1,4 +1,3 @@
-import { chatWithCloudStream } from '@/features/auth/cloud-client'
 import { isLocalAiEndpoint } from '@/lib/settings'
 
 export type InlineRefactorParams = {
@@ -10,7 +9,6 @@ export type InlineRefactorParams = {
   model: string
   apiKey: string
   baseUrl?: string | null
-  authMode: 'cloud' | 'byok'
 }
 
 export function cleanInlineSqlResponse(raw: string): string {
@@ -38,7 +36,6 @@ export async function requestInlineRefactor(params: InlineRefactorParams): Promi
     model,
     apiKey,
     baseUrl,
-    authMode,
   } = params
 
   const systemPrompt = `You are Veloxy, an expert inline SQL pair-programmer embedded in the Monaco code editor.
@@ -65,31 +62,14 @@ Rules:
     { role: 'user' as const, content: userPrompt },
   ]
 
-  if (authMode === 'cloud') {
-    let accumulated = ''
-    for await (const event of chatWithCloudStream({
-      task: 'general',
-      model,
-      prompt: userPrompt,
-      messages,
-    })) {
-      if (event.type === 'token') {
-        accumulated += event.text
-      } else if (event.type === 'error') {
-        throw new Error(event.error)
-      }
-    }
-    return cleanInlineSqlResponse(accumulated)
-  }
-
-  // BYOK (OpenRouter, Ollama, or OpenAI-compatible custom endpoint)
+  // Bring your own key: OpenRouter, Ollama, or any OpenAI-compatible endpoint.
   const isLocal = isLocalAiEndpoint(baseUrl)
   const rawBaseUrl = baseUrl?.trim() || 'https://openrouter.ai/api/v1'
   const endpoint = `${rawBaseUrl.replace(/\/+$/, '')}/chat/completions`
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'HTTP-Referer': 'https://veloxdb.dev',
+    'HTTP-Referer': 'https://github.com/veloxbase/veloxdb',
     'X-Title': 'VeloxDB',
   }
 

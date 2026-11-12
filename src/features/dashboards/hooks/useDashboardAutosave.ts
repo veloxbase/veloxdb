@@ -1,8 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-import { toast } from '@/components/ui/use-toast'
 import type { Dashboard } from '@/data/types'
-import { pushCloudDashboard } from '@/features/dashboards/cloud-sync'
 import { useSaveDashboardMutation } from '@/features/dashboards/queries'
 
 const AUTOSAVE_DEBOUNCE_MS = 500
@@ -22,15 +20,6 @@ export function useDashboardAutosave(dashboard: Dashboard | null): void {
 
     const timer = setTimeout(() => {
       saveMutationRef.current.mutate(dashboard)
-      void pushCloudDashboard(dashboard).then((result) => {
-        if (result === 'conflict') {
-          toast({
-            variant: 'default',
-            title: 'Dashboard conflict',
-            description: 'This dashboard was updated on another machine. Reload to pull the latest copy.',
-          })
-        }
-      })
     }, AUTOSAVE_DEBOUNCE_MS)
 
     return () => clearTimeout(timer)

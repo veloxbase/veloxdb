@@ -47,9 +47,6 @@ export const queryKeys = {
     ['chartPreview', connectionId, sqlHash] as const,
 
   session: () => ['session'] as const,
-  entitlements: () => ['entitlements'] as const,
-  cloudUsage: () => ['cloudUsage'] as const,
-  cloudModels: () => ['cloudModels'] as const,
 } as const
 
 export type QueryKeys = typeof queryKeys

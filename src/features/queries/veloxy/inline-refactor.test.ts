@@ -42,7 +42,6 @@ describe('requestInlineRefactor', () => {
         model: 'deepseek/deepseek-chat',
         apiKey: 'test-key',
         baseUrl: 'https://custom-ai.internal/v1',
-        authMode: 'byok',
       })
 
       expect(capturedUrl).toBe('https://custom-ai.internal/v1/chat/completions')
@@ -76,7 +75,6 @@ describe('requestInlineRefactor', () => {
         model: 'qwen2.5-coder:latest',
         apiKey: '',
         baseUrl: 'http://localhost:11434/v1',
-        authMode: 'byok',
       })
 
       expect(capturedUrl).toBe('http://localhost:11434/v1/chat/completions')

@@ -7,15 +7,11 @@ import {
 } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery } from '@tanstack/react-query'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
-import { queryKeys } from '@/data/query-keys'
 import type { Dashboard, DatabaseEngine } from '@/data/types'
-import { useCloudAuth } from '@/features/auth/AuthProvider'
-import { fetchAiModels } from '@/features/auth/cloud-client'
 import { useConnectionsQuery } from '@/features/connections/queries'
 import { generateAutonomousDashboard } from '@/features/dashboards/ai/generate-dashboard'
 import type {
@@ -24,7 +20,6 @@ import type {
 } from '@/features/dashboards/ai/dashboard-generator-types'
 import { canUseDashboards } from '@/features/dashboards/engine-guard'
 import { useSaveDashboardMutation } from '@/features/dashboards/queries'
-import { isProBuild } from '@/lib/build-config'
 
 const STEP_ORDER: Record<DashboardGenerationStep, number> = {
   idle: 0,
@@ -54,7 +49,6 @@ type GenerateDashboardDialogProps = {
   connectionId: string | null
   onDashboardCreated: (dashboard: Dashboard) => void
   onOpenSettings: () => void
-  onSignIn?: () => void
 }
 
 const STARTER_PROMPTS = [
@@ -70,10 +64,8 @@ export function GenerateDashboardDialog({
   connectionId: initialConnectionId,
   onDashboardCreated,
   onOpenSettings,
-  onSignIn,
 }: GenerateDashboardDialogProps) {
   const { t } = useTranslation()
-  const { hasSession, signIn } = useCloudAuth()
   const settings = useSettings()
 
   const [prompt, setPrompt] = useState('')
@@ -91,25 +83,12 @@ export function GenerateDashboardDialog({
     (c) => c.id === (selectedConnectionId || initialConnectionId),
   ) ?? validConnections[0]
 
-  const cloudModelsQuery = useQuery({
-    queryKey: queryKeys.cloudModels(),
-    queryFn: fetchAiModels,
-    enabled: open && hasSession,
-  })
-
-  const modelLabel = hasSession
-    ? (settings.veloxyCloudModel || cloudModelsQuery.data?.[0]?.slug || '')
-    : settings.veloxyModel
-
-  const authMode: 'cloud' | 'byok' = hasSession ? 'cloud' : 'byok'
+  const modelLabel = settings.veloxyModel
   const apiKey = settings.veloxyOpenRouterApiKey
 
   const isConfigured = isVeloxyConfigured({
-    authMode,
-    hasSession,
     apiKey,
     model: settings.veloxyModel,
-    cloudModel: settings.veloxyCloudModel || cloudModelsQuery.data?.[0]?.slug,
     baseUrl: settings.veloxyBaseUrl,
   })
 
@@ -134,7 +113,6 @@ export function GenerateDashboardDialog({
         model: modelLabel,
         apiKey,
         baseUrl: settings.veloxyBaseUrl,
-        authMode,
         onStepChange: (newStep, detail) => {
           setStep(newStep)
           if (detail) setStepDetail(detail)
@@ -229,19 +207,9 @@ export function GenerateDashboardDialog({
                 <div className="space-y-2">
                   <p className="font-medium">Veloxy AI is not configured</p>
                   <p className="text-[11px] opacity-80">
-                    Sign in to Velox Cloud or add your OpenRouter API key in Settings to use autonomous dashboard generation.
+                    Add an API key (or point Veloxy at a local model) in Settings to generate dashboards with AI.
                   </p>
                   <div className="flex gap-2">
-                    {isProBuild && !hasSession ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 border-amber-500/40 bg-background/60 text-xs"
-                        onClick={() => { onSignIn?.(); void signIn(); }}
-                      >
-                        Sign in
-                      </Button>
-                    ) : null}
                     <Button
                       size="sm"
                       variant="outline"

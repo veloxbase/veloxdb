@@ -10,7 +10,7 @@ import { DashboardEmptyState } from '@/features/dashboards/components/DashboardE
 import { DashboardGrid } from '@/features/dashboards/components/DashboardGrid'
 import { LogicView } from '@/features/dashboards/components/logic/LogicView'
 import { DashboardSettingsDialog } from '@/features/dashboards/components/DashboardSettingsDialog'
-import { ShareReportDialog } from '@/features/dashboards/components/ShareReportDialog'
+import { ExportReportDialog } from '@/features/dashboards/components/ExportReportDialog'
 import { DashboardToolbar } from '@/features/dashboards/components/DashboardToolbar'
 import { VariablesBar } from '@/features/dashboards/components/VariablesBar'
 import { NoteEditorDialog } from '@/features/dashboards/components/notes/NoteEditorDialog'
@@ -336,12 +336,13 @@ export function DashboardCanvas({
         onSave={handleSaveSettings}
       />
 
-      <ShareReportDialog
-        open={shareOpen}
-        onOpenChange={setShareOpen}
-        dashboard={draft}
-        variableValues={variableValues}
-      />
+      {shareOpen ? (
+        <ExportReportDialog
+          open
+          onOpenChange={setShareOpen}
+          dashboard={draft}
+        />
+      ) : null}
 
       {editingWidget?.kind === 'text' ? (
         <NoteEditorDialog

@@ -26,7 +26,6 @@ export type AppSettings = {
   pingIntervalSec: number
   veloxyOpenRouterApiKey: string
   veloxyModel: string
-  veloxyCloudModel: string
   veloxyBaseUrl: string
   toastLevels: ToastLevels
 }
@@ -47,7 +46,6 @@ const defaults: AppSettings = {
   pingIntervalSec: 30,
   veloxyOpenRouterApiKey: '',
   veloxyModel: 'deepseek/deepseek-chat',
-  veloxyCloudModel: '',
   veloxyBaseUrl: 'https://openrouter.ai/api/v1',
   toastLevels: { success: true, error: true },
 }
@@ -79,18 +77,12 @@ export function isLocalAiEndpoint(baseUrl: string | null | undefined): boolean {
 }
 
 export type IsVeloxyConfiguredOptions = {
-  authMode?: 'cloud' | 'byok';
-  hasSession?: boolean;
   apiKey?: string | null;
   model?: string | null;
-  cloudModel?: string | null;
   baseUrl?: string | null;
 };
 
 export function isVeloxyConfigured(options: IsVeloxyConfiguredOptions): boolean {
-  if (options.authMode === 'cloud') {
-    return Boolean(options.hasSession && options.cloudModel?.trim());
-  }
   const isLocal = isLocalAiEndpoint(options.baseUrl);
   const hasModel = Boolean(options.model?.trim());
   if (isLocal) {

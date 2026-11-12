@@ -59,7 +59,6 @@ export type GenerateDashboardParams = {
   model: string
   apiKey: string
   baseUrl?: string | null
-  authMode: 'cloud' | 'byok'
   onStepChange?: (step: DashboardGenerationStep, detail?: string) => void
 }
 

@@ -7,7 +7,7 @@ import {
   NotePencilIcon,
   PencilSimpleIcon,
   PlusIcon,
-  ShareNetworkIcon,
+  ExportIcon,
   TableIcon,
 } from '@phosphor-icons/react'
 
@@ -155,10 +155,10 @@ export function DashboardToolbar({
           size="sm"
           className="h-7 gap-1.5 text-xs text-foreground"
           onClick={onOpenShare}
-          title="Share public report snapshot"
+          title="Export dashboard as a report"
         >
-          <ShareNetworkIcon className="size-3.5 text-primary" />
-          Share
+          <ExportIcon className="size-3.5 text-primary" />
+          Export
         </Button>
       )}
 

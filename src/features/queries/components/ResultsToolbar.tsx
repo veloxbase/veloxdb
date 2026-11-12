@@ -40,7 +40,7 @@ type ResultsToolbarProps = {
 	onDeleteRows?: () => void;
 	deleteBusy?: boolean;
 	deleteDisabledReason?: string;
-	/** Pro-only: opens the Chart Builder for this result. Hidden when omitted. */
+	/** opens the Chart Builder for this result. Hidden when omitted. */
 	onCreateChart?: () => void;
 	/** Disables the Create chart button while shown (no result, non-SQL engine, etc.). */
 	canCreateChart?: boolean;

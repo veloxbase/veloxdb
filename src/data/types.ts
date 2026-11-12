@@ -356,16 +356,7 @@ export type ExportQueryRequest = {
   outputPath: string
 }
 
-export type Entitlements = {
-  bi: boolean
-  ai: boolean
-  teamSharing: boolean
-  plan: 'free' | 'cloud' | 'pro' | 'team' | null
-  status: 'active' | 'trialing' | 'canceled' | 'inactive' | null
-  currentPeriodEnd: string | null
-}
-
-// ── BI: saved queries + dashboards (Pro) ──────────────────────────
+// ── BI: saved queries + dashboards ──────────────────────────
 
 export type SavedQuery = {
   id: string

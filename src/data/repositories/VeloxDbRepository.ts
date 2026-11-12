@@ -72,7 +72,7 @@ export interface VeloxDbRepository {
   saveBase64Png(data: string, outputPath: string): Promise<void>
   saveTextFile(content: string, outputPath: string): Promise<void>
   readTextFile(inputPath: string): Promise<string>
-  // BI (Pro): saved queries + dashboards
+  // BI: saved queries + dashboards
   listSavedQueries(connectionId?: string | null): Promise<SavedQuery[]>
   getSavedQuery(id: string): Promise<SavedQuery | null>
   saveSavedQuery(input: SavedQueryInput): Promise<SavedQuery>

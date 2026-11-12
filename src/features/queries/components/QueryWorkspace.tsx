@@ -134,9 +134,9 @@ type QueryWorkspaceProps = {
 	onFixQueryError?: (sql: string, errorMessage: string) => void;
 	onToggleAskVeloxy?: () => void;
 	isVeloxyOpen?: boolean;
-	/** Pro-only: opens the Save Query dialog for the focused tab's SQL. Hidden when omitted. */
+	/** opens the Save Query dialog for the focused tab's SQL. Hidden when omitted. */
 	onSaveQuery?: () => void;
-	/** Pro-only: opens the Chart Builder for the focused tab's last executed SQL. Hidden when omitted. */
+	/** opens the Chart Builder for the focused tab's last executed SQL. Hidden when omitted. */
 	onCreateChart?: (sql: string, connectionId: string) => void;
 };
 
@@ -212,7 +212,7 @@ type QueryPaneProps = {
 	canInsertRow: boolean;
 	onInsertRowSuccess: () => void;
 	onFixQueryError?: (sql: string, errorMessage: string) => void;
-	/** Pro-only: opens the Chart Builder for the focused tab's last executed SQL. Hidden when omitted. */
+	/** opens the Chart Builder for the focused tab's last executed SQL. Hidden when omitted. */
 	onCreateChart?: (sql: string, connectionId: string) => void;
 };
 

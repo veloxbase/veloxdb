@@ -1048,7 +1048,6 @@ mod lint;
 pub(crate) mod mongo;
 pub(crate) mod duckdb;
 mod export_cmds;
-mod auth_cmds;
 pub(crate) mod redis;
 mod saved_queries;
 mod veloxy_chats;
@@ -1081,13 +1080,10 @@ pub use veloxy::{
 pub use lint::{
     lint_sql,
 };
-pub use auth_cmds::{
-    start_desktop_auth_callback,
-};
 pub use export_cmds::{
     export_diagram_png, export_results_csv_command, export_results_json_command,
     save_base64_png, save_text_file, read_text_file, store_openrouter_api_key, get_openrouter_api_key,
-    delete_openrouter_api_key, store_cloud_api_key, get_cloud_api_key, delete_cloud_api_key,
+    delete_openrouter_api_key,
 };
 pub use mongo::{
     mongo_run_query, mongo_get_collections, mongo_get_schema,
@@ -1193,7 +1189,4 @@ pub use veloxy_chats::{
     list_veloxy_threads, load_veloxy_thread, save_veloxy_thread, touch_veloxy_thread,
     delete_veloxy_thread,
 };
-pub use reports::{
-    compile_and_publish_report, revoke_published_report, generate_report_pdf,
-    agent_run_widgets, agent_eval_alerts, agent_render_pdf,
-};
+pub use reports::generate_report_pdf;

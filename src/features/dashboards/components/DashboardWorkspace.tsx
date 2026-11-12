@@ -3,7 +3,6 @@ import { useMemo } from 'react'
 import type { BuilderChartType } from '@/features/dashboards/chart-builder-state'
 import { useConnectionsQuery } from '@/features/connections/queries'
 import { DashboardCanvas } from '@/features/dashboards/components/DashboardCanvas'
-import { DashboardGate } from '@/features/dashboards/components/DashboardGate'
 import type { WidgetAskContext } from '@/features/dashboards/components/widget-tile-actions'
 import {
   DashboardEmptyState,
@@ -13,7 +12,6 @@ import {
 import { canUseDashboards, dashboardGuardMessage } from '@/features/dashboards/engine-guard'
 import { useDashboardQuery } from '@/features/dashboards/queries'
 import { resolveConnectionById } from '@/features/dashboards/resolve-dashboard-connection'
-import { useEntitlements } from '@/features/entitlements/useEntitlements'
 
 export type OpenSqlInEditorOptions = {
   sql: string
@@ -42,13 +40,8 @@ export function DashboardWorkspace({
   onGenerateWithAi,
   onAskVeloxyAboutWidget,
 }: DashboardWorkspaceProps) {
-  const entitlements = useEntitlements()
   const connectionsQuery = useConnectionsQuery()
   const dashboardQuery = useDashboardQuery(openDashboardId)
-
-  if (!entitlements.bi) {
-    return <DashboardGate />
-  }
 
   const connections = connectionsQuery.data ?? []
 

@@ -8,25 +8,18 @@ import {
   PlugIcon,
   DatabaseIcon,
   SparkleIcon,
-  UserIcon,
   InfoIcon,
   ArrowSquareOutIcon,
   ArrowsClockwiseIcon,
   BellIcon,
 } from '@phosphor-icons/react'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { useQuery } from '@tanstack/react-query'
 
-import { AccountSettingsPanel } from '@/features/auth/components/AccountSettingsPanel'
-import { useCloudAuth } from '@/features/auth/AuthProvider'
-import { fetchAiModels } from '@/features/auth/cloud-client'
-import { queryKeys } from '@/data/query-keys'
-import { isProBuild } from '@/lib/build-config'
 import { saveOpenRouterApiKey } from '@/lib/openrouter-credentials'
 import { fetchOpenRouterModels, OPENROUTER_POPULAR_MODELS, OLLAMA_POPULAR_MODELS, type OpenRouterModelOption } from '@/lib/openrouter-models'
 import { cn } from '@/lib/utils'
@@ -41,14 +34,12 @@ const VELOXDB_SITE = 'https://veloxdb.dev'
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const settings = useSettings()
   const { t, i18n } = useTranslation()
-  const { hasSession } = useCloudAuth()
 
   const tabs = [
     { id: 'appearance', label: t("settings.appearance"), Icon: PaintBrushIcon },
     { id: 'editor', label: t("settings.editor"), Icon: CodeIcon },
     { id: 'results', label: t("settings.results"), Icon: TableIcon },
     { id: 'connections', label: t("settings.connections"), Icon: PlugIcon },
-    ...(isProBuild ? [{ id: 'account', label: t("settings.account"), Icon: UserIcon }] : []),
     { id: 'veloxy', label: t("settings.veloxy"), Icon: SparkleIcon },
     { id: 'notifications', label: t("settings.notifications"), Icon: BellIcon },
     { id: 'data', label: t("settings.data"), Icon: DatabaseIcon },
@@ -91,12 +82,6 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     { enabled: open },
   )
 
-  const cloudModelsQuery = useQuery({
-    queryKey: queryKeys.cloudModels(),
-    queryFn: fetchAiModels,
-    enabled: open && hasSession && tab === 'veloxy',
-  })
-
   const refreshOpenRouterModels = useCallback(async () => {
     setModelsStatus('loading')
     setModelsError(null)
@@ -125,17 +110,6 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     },
     [refreshOpenRouterModels],
   )
-
-  const cloudModels = useMemo(() => {
-    const models = [...(cloudModelsQuery.data ?? [])]
-    models.sort((left, right) => Number(Boolean(right.supportsTools)) - Number(Boolean(left.supportsTools)))
-    return models
-  }, [cloudModelsQuery.data])
-  const preferredCloudModel = cloudModels.find((model) => model.supportsTools) ?? cloudModels[0]
-  const selectedCloudModel = settings.veloxyCloudModel || preferredCloudModel?.slug || ''
-  const selectedCloudSupportsTools = cloudModels.find((model) => model.slug === selectedCloudModel)?.supportsTools
-  const showCloudToolsHint =
-    hasSession && selectedCloudModel.length > 0 && selectedCloudSupportsTools === false
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -288,38 +262,8 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               </Field>
             </Section>}
 
-            {tab === 'account' && isProBuild && <Section title={t("settings.account")}>
-              <AccountSettingsPanel />
-            </Section>}
-
             {tab === 'veloxy' && <Section title={t("settings.veloxy")}>
-              <Field label={t("settings.provider")} desc={hasSession ? t("settings.providerCloudDesc") : t("settings.providerDesc")}>
-                <span className="inline-flex items-center h-8 px-3 rounded-md border border-border bg-muted/50 text-xs text-foreground">
-                  {hasSession ? t("settings.veloxCloud") : 'OpenRouter'}
-                </span>
-              </Field>
-              {hasSession ? (
-                <>
-                  <Field label={t("settings.cloudModel")} desc={t("settings.cloudModelDesc")}>
-                    <Select
-                      value={selectedCloudModel}
-                      onChange={(v) => useSettings.setState({ veloxyCloudModel: v })}
-                      opts={cloudModels.map((model) => ({
-                        v: model.slug,
-                        l: model.supportsTools === false
-                          ? `${model.displayName} (text only)`
-                          : model.displayName,
-                      }))}
-                    />
-                  </Field>
-                  {showCloudToolsHint ? (
-                    <p className="text-[11px] leading-snug text-amber-800 dark:text-amber-200">
-                      {t("settings.cloudToolsHint")}
-                    </p>
-                  ) : null}
-                </>
-              ) : null}
-              <Field label="AI Provider" desc="Select Cloud OpenRouter or Local Ollama/LM Studio.">
+              <Field label="AI Provider" desc="Use your own key with OpenRouter, or a local Ollama / LM Studio server.">
                 <div className="flex items-center gap-1.5">
                   <Button
                     type="button"

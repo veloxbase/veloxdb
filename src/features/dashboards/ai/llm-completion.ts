@@ -1,11 +1,9 @@
-import { chatWithCloudStream } from '@/features/auth/cloud-client'
 import { isLocalAiEndpoint } from '@/lib/settings'
 
 export type LlmAuth = {
   model: string
   apiKey: string
   baseUrl?: string | null
-  authMode: 'cloud' | 'byok'
 }
 
 export type LlmCompletion = (systemPrompt: string, userPrompt: string) => Promise<string>
@@ -19,31 +17,14 @@ export async function requestLlmCompletion(input: LlmAuth & {
     { role: 'user' as const, content: input.userPrompt },
   ]
 
-  if (input.authMode === 'cloud') {
-    let accumulated = ''
-    for await (const event of chatWithCloudStream({
-      task: 'general',
-      model: input.model,
-      prompt: input.userPrompt,
-      messages,
-    })) {
-      if (event.type === 'token') {
-        accumulated += event.text
-      } else if (event.type === 'error') {
-        throw new Error(event.error)
-      }
-    }
-    return accumulated
-  }
-
-  // BYOK (OpenRouter, Ollama, or OpenAI-compatible custom endpoint)
+  // Bring your own key: OpenRouter, Ollama, or any OpenAI-compatible endpoint.
   const isLocal = isLocalAiEndpoint(input.baseUrl)
   const rawBaseUrl = input.baseUrl?.trim() || 'https://openrouter.ai/api/v1'
   const endpoint = `${rawBaseUrl.replace(/\/+$/, '')}/chat/completions`
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'HTTP-Referer': 'https://veloxdb.dev',
+    'HTTP-Referer': 'https://github.com/veloxbase/veloxdb',
     'X-Title': 'VeloxDB',
   }
 

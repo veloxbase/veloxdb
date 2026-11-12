@@ -8,7 +8,6 @@ import { useChat } from "@tanstack/ai-react";
 import { queryKeys } from "@/data/query-keys";
 import type { DatabaseEngine } from "@/data/types";
 import { isLocalAiEndpoint } from "@/lib/settings";
-import { createVeloxCloudText } from "@/features/queries/veloxy/cloud-adapter";
 import { createVeloxySqlitePersistence } from "@/features/queries/veloxy/sqlite-persistence";
 import {
 	peekVeloxyForeignKeys,
@@ -35,8 +34,6 @@ function loadSchemaBrief(connectionId: string): string | null {
 	});
 }
 
-export type VeloxyAuthMode = "cloud" | "byok";
-
 export type UseVeloxyChatOptions = {
 	threadId: string;
 	connectionId: string | null;
@@ -46,7 +43,6 @@ export type UseVeloxyChatOptions = {
 	model: string;
 	apiKey: string;
 	baseUrl?: string | null;
-	authMode: VeloxyAuthMode;
 };
 
 export function useVeloxyChat({
@@ -58,7 +54,6 @@ export function useVeloxyChat({
 	model,
 	apiKey,
 	baseUrl,
-	authMode,
 }: UseVeloxyChatOptions) {
 	const queryClient = useQueryClient();
 	const ctxRef = useRef({
@@ -69,7 +64,6 @@ export function useVeloxyChat({
 		model,
 		apiKey,
 		baseUrl,
-		authMode,
 	});
 	useEffect(() => {
 		ctxRef.current = {
@@ -80,9 +74,8 @@ export function useVeloxyChat({
 			model,
 			apiKey,
 			baseUrl,
-			authMode,
 		};
-	}, [connectionId, engine, databaseName, targetTable, model, apiKey, baseUrl, authMode]);
+	}, [connectionId, engine, databaseName, targetTable, model, apiKey, baseUrl]);
 
 	useEffect(() => {
 		if (!connectionId) return;
@@ -102,9 +95,9 @@ export function useVeloxyChat({
 			throw new Error("Select a database connection first.");
 		}
 		const isLocal = isLocalAiEndpoint(current.baseUrl);
-		if (current.authMode === "byok" && !isLocal && !current.apiKey.trim()) {
+		if (!isLocal && !current.apiKey.trim()) {
 			clearTimeout(turnTimer);
-			throw new Error("Sign in to Velox Cloud or add an API key in Settings.");
+			throw new Error("Add an API key in Settings, or point Veloxy at a local model.");
 		}
 		if (!current.model.trim()) {
 			clearTimeout(turnTimer);
@@ -113,7 +106,7 @@ export function useVeloxyChat({
 
 		const effectiveApiKey = current.apiKey.trim() || (isLocal ? "ollama" : "");
 		const openRouterConfig: Record<string, unknown> = {
-			httpReferer: "https://veloxdb.dev",
+			httpReferer: "https://github.com/veloxbase/veloxdb",
 			appTitle: "VeloxDB",
 		};
 		if (current.baseUrl?.trim()) {
@@ -121,19 +114,11 @@ export function useVeloxyChat({
 			openRouterConfig.baseURL = current.baseUrl.trim();
 		}
 
-		const adapter =
-			current.authMode === "cloud"
-				? createVeloxCloudText(current.model, {
-						dialect: current.engine ?? undefined,
-						onUsage: () => {
-							void queryClient.invalidateQueries({ queryKey: queryKeys.cloudUsage() });
-						},
-					})
-				: createOpenRouterText(
-						current.model as Parameters<typeof createOpenRouterText>[0],
-						effectiveApiKey,
-						openRouterConfig as Parameters<typeof createOpenRouterText>[2],
-					);
+		const adapter = createOpenRouterText(
+			current.model as Parameters<typeof createOpenRouterText>[0],
+			effectiveApiKey,
+			openRouterConfig as Parameters<typeof createOpenRouterText>[2],
+		);
 
 		const schemaBrief = loadSchemaBrief(current.connectionId);
 

@@ -7,12 +7,8 @@ import { autocompletion } from "@codemirror/autocomplete";
 import { setDiagnostics, type Diagnostic } from "@codemirror/lint";
 import type { Extension } from "@codemirror/state";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
 
-import { queryKeys } from "@/data/query-keys";
 import type { DatabaseEngine, QueryEditorMetadata, SqlDiagnostic } from "@/data/types";
-import { useCloudAuth } from "@/features/auth/AuthProvider";
-import { fetchAiModels } from "@/features/auth/cloud-client";
 import { SparkleIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { MonacoInlineDiffBar } from "@/features/queries/components/MonacoInlineDiffBar";
@@ -201,7 +197,6 @@ export function SqlEditor({
 	connectionEngine,
 }: SqlEditorProps) {
 	const { t } = useTranslation();
-	const { hasSession } = useCloudAuth();
 	const settings = useSettings();
 
 	const cmRef = useRef<ReactCodeMirrorRef>(null);
@@ -211,25 +206,12 @@ export function SqlEditor({
 	const [inlineDiffState, setInlineDiffState] = useState<InlineDiffState | null>(null);
 	const [overlayPosition, setOverlayPosition] = useState<{ top: number; left: number } | null>(null);
 
-	const cloudModelsQuery = useQuery({
-		queryKey: queryKeys.cloudModels(),
-		queryFn: fetchAiModels,
-		enabled: hasSession,
-	});
-
-	const modelLabel = hasSession
-		? (settings.veloxyCloudModel || cloudModelsQuery.data?.[0]?.slug || "")
-		: settings.veloxyModel;
-
-	const authMode: "cloud" | "byok" = hasSession ? "cloud" : "byok";
+	const modelLabel = settings.veloxyModel;
 	const apiKey = settings.veloxyOpenRouterApiKey;
 
 	const isConfigured = isVeloxyConfigured({
-		authMode,
-		hasSession,
 		apiKey,
 		model: settings.veloxyModel,
-		cloudModel: settings.veloxyCloudModel || cloudModelsQuery.data?.[0]?.slug,
 		baseUrl: settings.veloxyBaseUrl,
 	});
 
@@ -302,7 +284,6 @@ export function SqlEditor({
 				model: modelLabel,
 				apiKey,
 				baseUrl: settings.veloxyBaseUrl,
-				authMode,
 			});
 
 			const from = inlinePromptState.from;
