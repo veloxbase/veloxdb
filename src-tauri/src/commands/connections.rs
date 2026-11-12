@@ -39,6 +39,32 @@ pub async fn connect_db(
     Ok(stored_connection.summary())
 }
 
+/// Result of a connection test: how long connecting took.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionTestResult {
+    pub elapsed_ms: u128,
+}
+
+/// Connects with the form's details, without saving anything, then closes the
+/// connection. Uses a throwaway id so it never touches a saved connection's
+/// pools or SSH tunnel.
+#[tauri::command]
+pub async fn test_connection(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: ConnectionInput,
+) -> Result<ConnectionTestResult, String> {
+    let probe_id = format!("connection-test-{}", Uuid::new_v4());
+    let ops = engines::get_engine(input.engine);
+    let started = std::time::Instant::now();
+    let result = ops.connect(&app, &state, &input, &probe_id).await;
+    let elapsed_ms = started.elapsed().as_millis();
+    disconnect_connection(&state, &probe_id).await;
+    result.map_err(String::from)?;
+    Ok(ConnectionTestResult { elapsed_ms })
+}
+
 #[tauri::command]
 pub async fn list_connections_command(app: AppHandle) -> Result<Vec<ConnectionSummary>, String> {
     crate::db::list_connections(&app).map_err(String::from)

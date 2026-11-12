@@ -37,6 +37,8 @@ import type {
  */
 export interface VeloxDbRepository {
   connectDb(input: ConnectionInput): Promise<ConnectionSummary>
+  /** Connects without saving, then disconnects; resolves with how long it took. */
+  testConnection(input: ConnectionInput): Promise<{ elapsedMs: number }>
   disconnectDb(connectionId: string): Promise<void>
   deleteConnection(connectionId: string): Promise<void>
   renameConnection(connectionId: string, newName: string): Promise<ConnectionSummary>

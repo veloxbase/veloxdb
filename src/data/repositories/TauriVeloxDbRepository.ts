@@ -57,6 +57,12 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
     )
   }
 
+  async testConnection(input: ConnectionInput): Promise<{ elapsedMs: number }> {
+    return invokeCommand('test_connection', () =>
+      invoke<{ elapsedMs: number }>('test_connection', { input }),
+    )
+  }
+
   async disconnectDb(connectionId: string): Promise<void> {
     return invokeCommand('disconnect_db', () =>
       invoke<void>('disconnect_db', { connectionId }),

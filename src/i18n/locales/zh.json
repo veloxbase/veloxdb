@@ -127,7 +127,10 @@
     "sqliteFilePlaceholder": "/absolute/path/to/database.db 或 :memory:",
     "sshHostPlaceholder": "bastion.example.com",
     "recommendedDefault": "推荐首选",
-    "localDatabase": "本地数据库"
+    "localDatabase": "本地数据库",
+    "authMethod": "认证方式",
+    "databaseFile": "数据库文件",
+    "sshKey": "私钥"
   },
   "sidebar": {
     "open": "打开侧边栏",

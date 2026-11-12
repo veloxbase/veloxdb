@@ -5,7 +5,10 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useTranslation } from 'react-i18next'
 
 import { open as openFilePicker } from '@tauri-apps/plugin-dialog'
-import { FolderOpenIcon, PlugsConnectedIcon } from '@phosphor-icons/react'
+import {
+  CaretRightIcon, CheckCircleIcon, FolderOpenIcon, LinkIcon, PlugsConnectedIcon,
+  SpinnerGapIcon, TextAlignLeftIcon, WarningCircleIcon, XIcon,
+} from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -19,12 +22,20 @@ import {
 import type { ConnectionInput, DatabaseEngine } from '@/data/types'
 import { cn } from '@/lib/utils'
 import { parseConnectionString, buildConnectionString } from '@/lib/connection-string'
+import { veloxDbRepository } from '@/data/repositories'
 import { ENGINE_FORM_CONFIG, type EngineFormConfig } from './engine-form-config'
+import { EngineLogo } from './EngineLogo'
 
 type InputMode = 'string' | 'fields'
 type SshAuthMethodForm = 'keyfile' | 'password'
 
-const PRIMARY_ENGINES: DatabaseEngine[] = ['postgres', 'mysql', 'sqlite']
+/** Every engine, grouped by kind so the full list is easy to scan. */
+const ENGINE_GROUPS: { title: string; engines: DatabaseEngine[] }[] = [
+  { title: 'Relational', engines: ['postgres', 'mysql', 'sqlite', 'mssql', 'azuresql'] },
+  { title: 'Analytics', engines: ['clickhouse', 'duckdb'] },
+  { title: 'Edge SQLite', engines: ['libsql', 'turso'] },
+  { title: 'NoSQL', engines: ['mongo', 'redis', 'cassandra', 'scylladb'] },
+]
 
 const engineOptions: { value: DatabaseEngine; label: string }[] = [
   { value: 'postgres',   label: 'PostgreSQL' },
@@ -196,6 +207,12 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
 
   const cfg: EngineFormConfig = ENGINE_FORM_CONFIG[engine]
 
+  // A test result only describes the details it ran with.
+  useEffect(() => {
+    const subscription = form.watch(() => setTest((prev) => (prev.status === 'idle' ? prev : { status: 'idle' })))
+    return () => subscription.unsubscribe()
+  }, [form])
+
   // ── Engine change handler (synchronous, no useEffect) ──────
 
   const handleEngineChange = useCallback((next: DatabaseEngine) => {
@@ -237,16 +254,16 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
   const [inputMode, setInputMode] = useState<InputMode>('fields')
   const [connString, setConnString] = useState('')
   const [connStringError, setConnStringError] = useState<string | null>(null)
-  const [showMoreEngines, setShowMoreEngines] = useState(false)
-  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false)
+  const [test, setTest] = useState<
+    { status: 'idle' } | { status: 'running' } | { status: 'ok'; ms: number } | { status: 'error'; message: string }
+  >({ status: 'idle' })
 
   useEffect(() => {
     if (open) {
       setInputMode('fields')
       setConnString('')
       setConnStringError(null)
-      setShowMoreEngines(false)
-      setMoreOptionsOpen(false)
+      setTest({ status: 'idle' })
       form.reset(defaultValues)
     }
   }, [open, form, defaultValues])
@@ -348,21 +365,12 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
     setCustomParams((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: val } : p)))
   }
 
-  // ── Submit ──────────────────────────────────────────────────
+  // ── Submit & test ────────────────────────────────────────
 
-  const handleSubmit = form.handleSubmit((values) => {
-    if (inputMode === 'string') {
-      if (!connString.trim()) {
-        setConnStringError(t("connection.invalidConnectionString"))
-        return
-      }
-      if (connStringError) {
-        return
-      }
-    }
+  const buildInput = (values: z.infer<typeof connectionSchema>): ConnectionInput => {
     const extraParams = collectExtraParams()
     const isSqlEngine = values.engine === 'postgres' || values.engine === 'mysql'
-    const input: ConnectionInput = {
+    return {
       name: values.name,
       engine: values.engine,
       host: cfg.showFilePicker ? '' : values.host,
@@ -388,387 +396,454 @@ export function ConnectionDialog({ open, onOpenChange, onSubmit, isPending = fal
         passphrase: values.sshPassphrase || null,
       } : null,
     }
-    void onSubmit(input)
+  }
+
+  const connectionStringIsInvalid = () => {
+    if (inputMode !== 'string') return false
+    if (!connString.trim()) {
+      setConnStringError(t("connection.invalidConnectionString"))
+      return true
+    }
+    return Boolean(connStringError)
+  }
+
+  const handleSubmit = form.handleSubmit((values) => {
+    if (connectionStringIsInvalid()) return
+    void onSubmit(buildInput(values))
+  })
+
+  const handleTest = form.handleSubmit(async (values) => {
+    if (connectionStringIsInvalid()) return
+    setTest({ status: 'running' })
+    try {
+      const { elapsedMs } = await veloxDbRepository.testConnection(buildInput(values))
+      setTest({ status: 'ok', ms: elapsedMs })
+    } catch (error) {
+      setTest({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+    }
   })
 
   const showHostPort = !cfg.showFilePicker
-  const showSecondCol = cfg.showSsl || cfg.showSrv
+  const engineLabel = engineOptions.find((option) => option.value === engine)?.label ?? engine
+  const flavors = cfg.showFlavors ? (FLAVORS_BY_ENGINE[engine] ?? []) : []
+  const fieldError = (name: keyof z.infer<typeof connectionSchema>) => form.formState.errors[name]?.message as string | undefined
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl border border-border p-0 sm:max-w-4xl">
-        <DialogHeader className="border-b border-border px-6 py-4">
-          <DialogTitle>{t("connection.newConnection")}</DialogTitle>
-          <DialogDescription>{t("connection.credentialsInfo")}</DialogDescription>
+      <DialogContent
+        className="flex h-[min(720px,90vh)] flex-col gap-0 overflow-hidden border-border p-0 sm:max-w-[940px]"
+      >
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-4 text-left">
+          <DialogTitle className="text-[15px] font-semibold tracking-tight">{t("connection.newConnection")}</DialogTitle>
+          <DialogDescription className="text-xs">
+            Choose a database, enter its details and test them before saving. Passwords are kept in your system keychain.
+          </DialogDescription>
         </DialogHeader>
 
-        <form className="flex flex-col max-h-[75vh]" onSubmit={handleSubmit}>
-          <div className="overflow-y-auto space-y-4 px-6 py-4">
-
-            {/* Connection name */}
-            <Field label={t("connection.name")} inputId="veloxdb-connection-name" error={form.formState.errors.name?.message}>
-              <Input id="veloxdb-connection-name" {...form.register('name')} placeholder={t("connection.connectionNamePlaceholder")} />
-            </Field>
-
-            {/* Mode toggle */}
-            <div className="flex rounded-lg border border-border/60 bg-muted/40 p-0.5">
-              {(['fields', 'string'] as const).map((mode) => (
-                <button key={mode} type="button" onClick={() => handleModeToggle(mode)}
-                  className={cn(
-                    'flex-1 rounded-md px-4 py-2 text-sm font-medium transition-all',
-                    inputMode === mode
-                      ? 'bg-background text-foreground shadow-sm ring-1 ring-border/50'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}>
-                  {mode === 'string' ? t("connection.connectionStringMode") : t("connection.individualFields")}
-                </button>
-              ))}
-            </div>
-
-            {/* Connection string mode */}
-            {inputMode === 'string' && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label htmlFor="veloxdb-connection-string" className="block text-xs font-medium text-muted-foreground">
-                    {t("connection.connectionUriLabel")}
-                  </label>
-                  {detectedEngine && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                      Detected: {engineOptions.find((o) => o.value === detectedEngine)?.label ?? detectedEngine}
-                    </span>
-                  )}
-                </div>
-                <Input id="veloxdb-connection-string" value={connString}
-                  onChange={(e) => handleConnStringChange(e.target.value)}
-                  placeholder={t("connection.connectionUriPlaceholder")}
-                  className={cn('font-mono text-xs', connStringError && 'border-destructive')} />
-                {connStringError && <span className="block text-xs text-destructive">{connStringError}</span>}
-                <p className="text-[11px] text-muted-foreground/80">{t("connection.connectionUriDesc")}</p>
-              </div>
-            )}
-
-            {/* Fields mode */}
-            <div className={cn('space-y-5', inputMode === 'string' && 'hidden')}>
-
-              {/* Engine selector */}
-              <div>
-                <span className="block text-left text-xs font-medium text-muted-foreground mb-2.5">{t("connection.databaseEngine")}</span>
-                <div className="flex flex-wrap gap-1.5" role="radiogroup">
-                  {engineOptions
-                    .filter((option) => PRIMARY_ENGINES.includes(option.value) || showMoreEngines || engine === option.value)
-                    .map((option) => {
-                    const selected = engine === option.value
-                    return (
-                      <label key={option.value} className="cursor-pointer">
-                        <input type="radio" value={option.value} className="sr-only"
-                          checked={selected}
-                          onChange={() => handleEngineChange(option.value)} />
-                        <div className={cn(
-                          'flex flex-col items-center justify-center gap-1 rounded-md border px-1.5 py-1.5 transition-all select-none w-[72px] h-[58px]',
-                          selected
-                            ? 'border-emerald-500/50 bg-emerald-500/10 ring-1 ring-emerald-500/30'
-                            : 'border-border bg-background hover:border-primary/30 hover:bg-muted/20',
-                        )}>
-                          <div className="flex h-5 w-5 items-center justify-center">
-                            {option.value === 'postgres' && <img src="/postgresql.svg" alt="PG" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
-                            {option.value === 'mysql' && (
-                              <>
-                                <img src="/mysql-wordmark-light.svg" alt="MySQL" className="h-3.5 w-auto max-w-[26px] object-contain dark:hidden" />
-                                <img src="/mysql-wordmark-dark.svg" alt="MySQL" className="hidden h-3.5 w-auto max-w-[26px] object-contain dark:block" />
-                              </>
+        <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
+          <div className="flex min-h-0 flex-1">
+            {/* Database list: every engine, always visible. */}
+            <aside className="w-[210px] shrink-0 overflow-y-auto border-r border-border bg-muted/25 px-2.5 py-3" aria-label={t("connection.databaseEngine")}>
+              <div className="space-y-4" role="radiogroup">
+                {ENGINE_GROUPS.map((group) => (
+                  <div key={group.title}>
+                    <p className="px-2 pb-1 text-[11px] text-muted-foreground">{group.title}</p>
+                    <div className="space-y-0.5">
+                      {group.engines.map((value) => {
+                        const selected = engine === value
+                        const label = engineOptions.find((option) => option.value === value)?.label ?? value
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            role="radio"
+                            aria-checked={selected}
+                            onClick={() => { if (!selected) handleEngineChange(value) }}
+                            className={cn(
+                              'flex w-full items-center gap-2.5 px-2 py-1.5 text-left text-xs transition-colors',
+                              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                              selected
+                                ? 'bg-background font-medium text-foreground ring-1 ring-border'
+                                : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
                             )}
-                            {option.value === 'sqlite' && <img src="/sqlite.svg" alt="SQLite" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
-                            {option.value === 'mongo' && <img src="/mongodb-icon-light.svg" alt="MongoDB" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
-                            {option.value === 'duckdb' && <img src="/DuckDB_icon-darkmode.svg" alt="DuckDB" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
-                            {option.value === 'redis' && <img src="/redis.svg" alt="Redis" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
-                            {option.value === 'clickhouse' && <img src="/clickhouse.svg" alt="ClickHouse" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
-                            {option.value === 'libsql' && <img src="/libsql.svg" alt="libSQL" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
-                            {option.value === 'turso' && <img src="/turso.svg" alt="Turso" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
-                            {option.value === 'mssql' && <img src="/mssql.svg" alt="SQL Server" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
-                            {option.value === 'azuresql' && <img src="/azuresql.svg" alt="Azure SQL" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
-                            {option.value === 'scylladb' && <img src="/scylladb.svg" alt="ScyllaDB" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
-                            {option.value === 'cassandra' && <img src="/cassandra.svg" alt="Cassandra" className="h-[18px] w-auto max-h-[18px] max-w-[20px] object-contain" />}
-                          </div>
-                          <span className="text-[10px] font-medium text-foreground leading-tight text-center truncate w-full">{option.label}</span>
-                        </div>
-                      </label>
-                    )
-                  })}
-                </div>
-                {!showMoreEngines ? (
-                  <button
-                    type="button"
-                    className="mt-2 text-xs font-medium text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowMoreEngines(true)}
-                  >
-                    {t("connection.moreEngines")}
-                  </button>
-                ) : null}
+                          >
+                            <EngineLogo engine={value} />
+                            <span className="truncate">{label}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
+            </aside>
 
-              {/* File picker (SQLite, DuckDB) */}
-              {cfg.showFilePicker && (
-                <Field label={engine === 'duckdb' ? 'Database File' : t("connection.databaseFile")}
-                  inputId="veloxdb-file-path" error={form.formState.errors.filePath?.message}>
-                  <InputGroup>
-                    <InputGroupInput id="veloxdb-file-path" {...form.register('filePath')}
-                      placeholder={engine === 'duckdb' ? ':memory: or /path/to/database.duckdb' : '/path/to/database.db'} />
-                    <InputGroupAddon align="inline-end">
-                      <InputGroupButton size="icon-xs" title={t("connection.browse")}
-                        onClick={() => pickFile((p) => form.setValue('filePath', p),
-                          [{ name: engine === 'duckdb' ? 'DuckDB' : 'SQLite', extensions: engine === 'duckdb' ? ['duckdb', 'db'] : ['db', 'sqlite', 'sqlite3'] }])}>
-                        <FolderOpenIcon />
-                      </InputGroupButton>
-                    </InputGroupAddon>
-                  </InputGroup>
-                  {engine === 'duckdb' && <p className="text-[10px] text-muted-foreground/70 mt-1">Leave empty or use ":memory:" for in-memory database</p>}
-                </Field>
-              )}
-
-              {/* Network fields */}
-              {showHostPort && (
-                <div className="grid gap-4 sm:grid-cols-4">
-                  <Field label={cfg.fields.host.label} inputId="veloxdb-host" error={form.formState.errors.host?.message}>
-                    <Input id="veloxdb-host" {...form.register('host')} placeholder={cfg.fields.host.placeholder} />
-                  </Field>
-                  <Field label={cfg.fields.port.label} inputId="veloxdb-port" error={form.formState.errors.port?.message}>
-                    <Input id="veloxdb-port" {...form.register('port', { valueAsNumber: true })} inputMode="numeric" placeholder={String(cfg.defaultPort)} />
-                  </Field>
-                  <Field label={cfg.fields.database.label} inputId="veloxdb-database" error={form.formState.errors.database?.message}>
-                    <Input id="veloxdb-database" {...form.register('database')} placeholder={cfg.fields.database.placeholder} />
-                  </Field>
-                  <Field label={cfg.fields.user.label} inputId="veloxdb-user" error={form.formState.errors.user?.message}>
-                    <Input id="veloxdb-user" {...form.register('user')} placeholder={cfg.fields.user.placeholder} />
-                  </Field>
+            {/* Form for the selected engine. */}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="mx-auto max-w-[620px] space-y-6 px-7 py-6">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <EngineLogo engine={engine} className="size-6" />
+                    <h3 className="truncate text-sm font-semibold text-foreground">{engineLabel}</h3>
+                  </div>
+                  {!cfg.showFilePicker ? (
+                    <div className="flex shrink-0 border border-border p-0.5" role="tablist" aria-label="How to enter details">
+                      {(['fields', 'string'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          role="tab"
+                          aria-selected={inputMode === mode}
+                          onClick={() => handleModeToggle(mode)}
+                          className={cn(
+                            'flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium transition-colors',
+                            inputMode === mode ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
+                          )}
+                        >
+                          {mode === 'string' ? <LinkIcon className="size-3.5" /> : <TextAlignLeftIcon className="size-3.5" />}
+                          {mode === 'string' ? 'URL' : 'Fields'}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-              )}
 
-              {showHostPort && (
-                <Field label={cfg.fields.password.label} inputId="veloxdb-password" error={form.formState.errors.password?.message}>
-                  <Input id="veloxdb-password" {...form.register('password')} type="password" placeholder={cfg.fields.password.placeholder} />
+                {/* Hosted presets fill in sensible defaults for that service. */}
+                {flavors.length > 1 && inputMode === 'fields' ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-foreground">Where it runs</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {flavors.map((f) => (
+                        <button
+                          key={f.key}
+                          type="button"
+                          onClick={() => handleFlavorChange(f.key)}
+                          aria-pressed={flavor === f.key}
+                          title={f.description}
+                          className={cn(
+                            'border px-2.5 py-1 text-[11px] transition-colors',
+                            flavor === f.key
+                              ? 'border-primary bg-primary/10 font-medium text-foreground'
+                              : 'border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground',
+                          )}
+                        >
+                          {f.key === engine ? 'Self-hosted' : f.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <Field label={t("connection.name")} inputId="veloxdb-connection-name" error={fieldError('name')}>
+                  <Input id="veloxdb-connection-name" {...form.register('name')} placeholder={t("connection.connectionNamePlaceholder")} className="h-9" />
                 </Field>
-              )}
 
-              <button
-                type="button"
-                onClick={() => setMoreOptionsOpen((open) => !open)}
-                className="text-xs font-medium text-muted-foreground hover:text-foreground"
-              >
-                {t("connection.moreOptions")}
-              </button>
-
-              {moreOptionsOpen ? (
-              <div className="space-y-5">
-              {cfg.showFlavors && (
-                <div>
-                  <span className="block text-left text-xs font-medium text-muted-foreground mb-2">Provider</span>
-                  <select
-                    value={flavor}
-                    onChange={(e) => handleFlavorChange(e.target.value)}
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  >
-                    {(FLAVORS_BY_ENGINE[engine] ?? []).map((f) => (
-                      <option key={f.key} value={f.key}>{f.label}</option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-[10px] text-muted-foreground/60">
-                    {DATABASE_FLAVORS.find((f) => f.key === flavor)?.description}
-                  </p>
-                </div>
-              )}
-
-              {showHostPort && showSecondCol ? (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {cfg.showSsl && (
-                    <Field label={t("connection.sslMode")} inputId="veloxdb-ssl-mode" error={form.formState.errors.sslMode?.message}>
-                      <select id="veloxdb-ssl-mode" {...form.register('sslMode')}
-                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-                        <option value="prefer">{t("connection.prefer")} ({t("connection.default")})</option>
-                        <option value="require">{t("connection.require")}</option>
-                        <option value="disable">{t("connection.disable")}</option>
-                      </select>
-                    </Field>
-                  )}
-                  {cfg.showSrv && (
-                    <Field label="Use SRV (Atlas)" inputId="veloxdb-mongo-srv">
-                      <label className="flex items-center gap-2 cursor-pointer pt-2">
-                        <input id="veloxdb-mongo-srv" type="checkbox" {...form.register('srv')} className="h-4 w-4 rounded" />
-                        <span className="text-xs text-muted-foreground">SRV connection</span>
+                {/* Connection string mode */}
+                {inputMode === 'string' && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label htmlFor="veloxdb-connection-string" className="block text-xs font-medium text-foreground">
+                        {t("connection.connectionUriLabel")}
                       </label>
-                    </Field>
-                  )}
-                </div>
-              ) : null}
-
-              {/* SSH toggle */}
-              {cfg.showSsh && (
-                <div className="border-t border-border pt-4">
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input type="checkbox" {...form.register('sshEnabled')} className="h-4 w-4 rounded border-input accent-emerald-500" />
-                    <span className="text-sm font-medium text-foreground">{t("connection.sshTunnel")}</span>
-                  </label>
-
-                  {sshEnabled && (
-                    <div className="mt-4 space-y-4 rounded-lg border border-border/60 bg-muted/20 p-4">
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <Field label={t("connection.sshHost")} inputId="veloxdb-ssh-host" error={form.formState.errors.sshHost?.message}>
-                          <Input id="veloxdb-ssh-host" {...form.register('sshHost')} placeholder="192.168.1.100" />
-                        </Field>
-                        <Field label={t("connection.sshPort")} inputId="veloxdb-ssh-port" error={form.formState.errors.sshPort?.message}>
-                          <Input id="veloxdb-ssh-port" {...form.register('sshPort', { valueAsNumber: true })} inputMode="numeric" placeholder="22" />
-                        </Field>
-                      </div>
-                      <Field label={t("connection.sshUser")} inputId="veloxdb-ssh-user" error={form.formState.errors.sshUser?.message}>
-                        <Input id="veloxdb-ssh-user" {...form.register('sshUser')} placeholder="root" />
-                      </Field>
-                      <div>
-                        <span className="text-xs text-muted-foreground mb-1.5 block">{t("connection.authMethod")}</span>
-                        <div className="flex gap-2">
-                          {(['keyfile', 'password'] as const).map((method) => (
-                            <label key={method} className={cn(
-                              'flex-1 rounded-md border px-3 py-2 text-center text-xs font-medium cursor-pointer transition-all',
-                              sshAuthMethod === method
-                                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                                : 'border-border bg-background text-muted-foreground hover:border-primary/30',
-                            )}>
-                              <input type="radio" value={method} className="sr-only" {...form.register('sshAuthMethod')} />
-                              {method === 'keyfile' ? t("connection.sshKey") : t("connection.sshPassword")}
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                      {sshAuthMethod === 'password' && (
-                        <Field label={t("connection.sshPassword")} inputId="veloxdb-ssh-password" error={form.formState.errors.sshPassword?.message}>
-                          <Input id="veloxdb-ssh-password" {...form.register('sshPassword')} type="password" placeholder={t("connection.sshPasswordPlaceholder")} />
-                        </Field>
-                      )}
-                      {sshAuthMethod === 'keyfile' && (
-                        <>
-                          <Field label={t("connection.privateKeyPath")} inputId="veloxdb-ssh-key-path" error={form.formState.errors.sshPrivateKeyPath?.message}>
-                            <Input id="veloxdb-ssh-key-path" {...form.register('sshPrivateKeyPath')} placeholder={t("connection.privateKeyPlaceholder")} />
-                          </Field>
-                          <Field label={t("connection.passphrase")} inputId="veloxdb-ssh-passphrase" error={form.formState.errors.sshPassphrase?.message}>
-                            <Input id="veloxdb-ssh-passphrase" {...form.register('sshPassphrase')} type="password" placeholder={t("connection.passphrasePlaceholder")} />
-                          </Field>
-                        </>
+                      {detectedEngine && (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">
+                          <CheckCircleIcon className="size-3.5" weight="fill" />
+                          {engineOptions.find((o) => o.value === detectedEngine)?.label ?? detectedEngine}
+                        </span>
                       )}
                     </div>
-                  )}
-                </div>
-              )}
+                    <Input id="veloxdb-connection-string" value={connString}
+                      onChange={(e) => handleConnStringChange(e.target.value)}
+                      placeholder={t("connection.connectionUriPlaceholder")}
+                      className={cn('h-9 font-mono text-xs', connStringError && 'border-destructive')} />
+                    {connStringError && <span className="block text-[11px] text-destructive">{connStringError}</span>}
+                    <p className="text-[11px] text-muted-foreground">{t("connection.connectionUriDesc")}</p>
+                  </div>
+                )}
 
-              {/* Advanced (Postgres only) */}
-              {cfg.showAdvanced && (
-                <div className="border-t border-border pt-4">
-                  <button type="button" onClick={() => setAdvancedOpen((o) => !o)}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 -mx-2 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none"
-                      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                      className={cn('shrink-0 transition-transform', advancedOpen && 'rotate-90')}>
-                      <path d="m9 18 6-6-6-6" />
-                    </svg>
-                    {t("connection.advancedParameters")}
-                  </button>
-                  {advancedOpen && (
-                    <div className="mt-4 space-y-4 pl-6">
-                      <div className="grid gap-4 sm:grid-cols-3">
-                        <div className="space-y-1.5 text-xs text-muted-foreground">
-                          <span className="block">{t("connection.connectTimeoutLabel")}</span>
-                          <Input value={advancedConnectTimeout} onChange={(e) => setAdvancedConnectTimeout(e.target.value)}
-                            placeholder={t("connection.connectTimeoutPlaceholder")} inputMode="numeric" />
-                        </div>
-                        <div className="space-y-1.5 text-xs text-muted-foreground">
-                          <span className="block">{t("connection.applicationNameLabel")}</span>
-                          <Input value={advancedAppName} onChange={(e) => setAdvancedAppName(e.target.value)}
-                            placeholder={t("connection.applicationNamePlaceholder")} />
-                        </div>
-                        <div className="space-y-1.5 text-xs text-muted-foreground">
-                          <span className="block">{t("connection.keepalivesIdleLabel")}</span>
-                          <Input value={advancedKeepalivesIdle} onChange={(e) => setAdvancedKeepalivesIdle(e.target.value)}
-                            placeholder={t("connection.keepalivesIdlePlaceholder")} inputMode="numeric" />
-                        </div>
-                        <div className="space-y-1.5 text-xs text-muted-foreground col-span-full sm:col-span-2">
-                          <span className="block">{t("connection.optionsLabel")}</span>
-                          <Input value={advancedOptions} onChange={(e) => setAdvancedOptions(e.target.value)}
-                            placeholder={t("connection.optionsPlaceholder")} />
-                        </div>
-                        <label className="flex items-center gap-2 pt-7 text-xs text-muted-foreground cursor-pointer">
-                          <input type="checkbox" checked={advancedKeepalives} onChange={(e) => setAdvancedKeepalives(e.target.checked)}
-                            className="h-4 w-4 rounded border-input" />
-                          {t("connection.keepalivesLabel")}
-                        </label>
+                <div className={cn('space-y-6', inputMode === 'string' && 'hidden')}>
+                  {/* File picker (SQLite, DuckDB) */}
+                  {cfg.showFilePicker && (
+                    <Field label={engine === 'duckdb' ? 'Database file' : t("connection.databaseFile")}
+                      inputId="veloxdb-file-path" error={fieldError('filePath')}>
+                      <InputGroup>
+                        <InputGroupInput id="veloxdb-file-path" {...form.register('filePath')}
+                          placeholder={engine === 'duckdb' ? ':memory: or /path/to/database.duckdb' : '/path/to/database.db'} />
+                        <InputGroupAddon align="inline-end">
+                          <InputGroupButton size="icon-xs" title={t("connection.browse")}
+                            onClick={() => pickFile((p) => form.setValue('filePath', p),
+                              [{ name: engine === 'duckdb' ? 'DuckDB' : 'SQLite', extensions: engine === 'duckdb' ? ['duckdb', 'db'] : ['db', 'sqlite', 'sqlite3'] }])}>
+                            <FolderOpenIcon />
+                          </InputGroupButton>
+                        </InputGroupAddon>
+                      </InputGroup>
+                      {engine === 'duckdb' && <p className="mt-1 text-[11px] text-muted-foreground">Use :memory: for a temporary in-memory database.</p>}
+                    </Field>
+                  )}
+
+                  {showHostPort && (
+                    <FormSection title="Server">
+                      <div className="grid gap-3 sm:grid-cols-[1fr_112px]">
+                        <Field label={cfg.fields.host.label} inputId="veloxdb-host" error={fieldError('host')}>
+                          <Input id="veloxdb-host" {...form.register('host')} placeholder={cfg.fields.host.placeholder} className="h-9" />
+                        </Field>
+                        <Field label={cfg.fields.port.label} inputId="veloxdb-port" error={fieldError('port')}>
+                          <Input id="veloxdb-port" {...form.register('port', { valueAsNumber: true })} inputMode="numeric" placeholder={String(cfg.defaultPort)} className="h-9" />
+                        </Field>
                       </div>
-                      {/* TLS certs */}
-                      <div className="border-t border-border/50 pt-4">
-                        <span className="block text-xs text-muted-foreground mb-3">{t("connection.tlsCertificates")}</span>
-                        <div className="grid gap-4 sm:grid-cols-3">
-                          {([['rootCert', advancedSslRootCert, setAdvancedSslRootCert, ['pem', 'crt', 'cer']],
-                            ['clientCert', advancedSslCert, setAdvancedSslCert, ['pem', 'crt', 'cer']],
-                            ['clientKey', advancedSslKey, setAdvancedSslKey, ['pem', 'key']]] as const).map(([label, value, setter, exts]) => (
-                            <div key={label} className="space-y-1.5 text-xs text-muted-foreground">
-                              <span className="block">{t(`connection.${label}Label` as any)}</span>
-                              <InputGroup>
-                                <InputGroupInput value={value} onChange={(e) => setter(e.target.value)}
-                                  placeholder={t(`connection.${label}Placeholder` as any)} />
-                                <InputGroupAddon align="inline-end">
-                                  <InputGroupButton size="icon-xs" title={t("connection.browse")}
-                                    onClick={() => pickFile(setter, [{ name: 'Certificate', extensions: [...exts] }])}>
-                                    <FolderOpenIcon />
-                                  </InputGroupButton>
-                                </InputGroupAddon>
-                              </InputGroup>
-                            </div>
-                          ))}
-                        </div>
+                      {cfg.fields.database.label ? (
+                        <Field label={cfg.fields.database.label} inputId="veloxdb-database" error={fieldError('database')}>
+                          <Input id="veloxdb-database" {...form.register('database')} placeholder={cfg.fields.database.placeholder} className="h-9" />
+                        </Field>
+                      ) : null}
+                    </FormSection>
+                  )}
+
+                  {showHostPort && (cfg.fields.user.label || cfg.fields.password.label) ? (
+                    <FormSection title="Sign in">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {cfg.fields.user.label ? (
+                          <Field label={cfg.fields.user.label} inputId="veloxdb-user" error={fieldError('user')}>
+                            <Input id="veloxdb-user" {...form.register('user')} placeholder={cfg.fields.user.placeholder} className="h-9" autoComplete="off" />
+                          </Field>
+                        ) : null}
+                        {cfg.fields.password.label ? (
+                          <Field label={cfg.fields.password.label} inputId="veloxdb-password" error={fieldError('password')}>
+                            <Input id="veloxdb-password" {...form.register('password')} type="password" placeholder={cfg.fields.password.placeholder} className="h-9" autoComplete="off" />
+                          </Field>
+                        ) : null}
                       </div>
-                      {/* Custom params */}
-                      <div className="border-t border-border/50 pt-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="text-xs text-muted-foreground">{t("connection.customParamsLabel")}</span>
-                          <Button type="button" variant="ghost" size="sm" onClick={addCustomParam} className="h-auto px-2 py-0.5 text-xs">
-                            {t("connection.addCustomParam")}
-                          </Button>
-                        </div>
-                        {customParams.length > 0 ? (
-                          <div className="space-y-2">
-                            {customParams.map((param) => (
-                              <div key={param.id} className="flex gap-2">
-                                <Input value={param.key} onChange={(e) => updateCustomParam(param.id, 'key', e.target.value)}
-                                  placeholder={t("connection.paramNamePlaceholder")} className="flex-1" />
-                                <Input value={param.value} onChange={(e) => updateCustomParam(param.id, 'value', e.target.value)}
-                                  placeholder={t("connection.paramValuePlaceholder")} className="flex-1" />
-                                <Button type="button" variant="ghost" size="sm" onClick={() => removeCustomParam(param.id)}
-                                  className="h-9 w-9 p-0 text-muted-foreground hover:text-destructive shrink-0">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"
-                                    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-                                  </svg>
-                                </Button>
-                              </div>
+                    </FormSection>
+                  ) : null}
+
+                  {showHostPort && (cfg.showSsl || cfg.showSrv || cfg.showSsh) ? (
+                    <FormSection title="Security">
+                      {cfg.showSsl ? (
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-xs font-medium text-foreground">{t("connection.sslMode")}</p>
+                            <p className="mt-0.5 text-[11px] text-muted-foreground">Encrypt traffic to the server. Hosted databases usually need Require.</p>
+                          </div>
+                          <div className="flex shrink-0 border border-border p-0.5" role="radiogroup" aria-label={t("connection.sslMode")}>
+                            {(['prefer', 'require', 'disable'] as const).map((mode) => (
+                              <label
+                                key={mode}
+                                className={cn(
+                                  'cursor-pointer px-2.5 py-1 text-[11px] font-medium transition-colors',
+                                  form.watch('sslMode') === mode ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
+                                )}
+                              >
+                                <input type="radio" value={mode} className="sr-only" {...form.register('sslMode')} />
+                                {mode === 'prefer' ? 'Prefer' : mode === 'require' ? 'Require' : 'Off'}
+                              </label>
                             ))}
                           </div>
-                        ) : <p className="text-[11px] text-muted-foreground/60">{t("connection.noCustomParams")}</p>}
-                      </div>
+                        </div>
+                      ) : null}
+
+                      {cfg.showSrv ? (
+                        <label className="flex cursor-pointer items-center justify-between gap-4">
+                          <span>
+                            <span className="block text-xs font-medium text-foreground">Use SRV record</span>
+                            <span className="mt-0.5 block text-[11px] text-muted-foreground">For MongoDB Atlas and other mongodb+srv:// hosts.</span>
+                          </span>
+                          <input id="veloxdb-mongo-srv" type="checkbox" {...form.register('srv')} className="size-4 accent-primary" />
+                        </label>
+                      ) : null}
+
+                      {cfg.showSsh ? (
+                        <div className="space-y-4">
+                          <label className="flex cursor-pointer items-center justify-between gap-4">
+                            <span>
+                              <span className="block text-xs font-medium text-foreground">{t("connection.sshTunnel")}</span>
+                              <span className="mt-0.5 block text-[11px] text-muted-foreground">Reach a database that is only open to a bastion or jump host.</span>
+                            </span>
+                            <input type="checkbox" {...form.register('sshEnabled')} className="size-4 accent-primary" />
+                          </label>
+
+                          {sshEnabled && (
+                            <div className="space-y-3 border-l-2 border-border pl-4">
+                              <div className="grid gap-3 sm:grid-cols-[1fr_112px]">
+                                <Field label={t("connection.sshHost")} inputId="veloxdb-ssh-host" error={fieldError('sshHost')}>
+                                  <Input id="veloxdb-ssh-host" {...form.register('sshHost')} placeholder="bastion.example.com" className="h-9" />
+                                </Field>
+                                <Field label={t("connection.sshPort")} inputId="veloxdb-ssh-port" error={fieldError('sshPort')}>
+                                  <Input id="veloxdb-ssh-port" {...form.register('sshPort', { valueAsNumber: true })} inputMode="numeric" placeholder="22" className="h-9" />
+                                </Field>
+                              </div>
+                              <Field label={t("connection.sshUser")} inputId="veloxdb-ssh-user" error={fieldError('sshUser')}>
+                                <Input id="veloxdb-ssh-user" {...form.register('sshUser')} placeholder="ubuntu" className="h-9" />
+                              </Field>
+                              <div className="flex border border-border p-0.5" role="radiogroup" aria-label={t("connection.authMethod")}>
+                                {(['keyfile', 'password'] as const).map((method) => (
+                                  <label key={method} className={cn(
+                                    'flex-1 cursor-pointer px-3 py-1.5 text-center text-[11px] font-medium transition-colors',
+                                    sshAuthMethod === method ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
+                                  )}>
+                                    <input type="radio" value={method} className="sr-only" {...form.register('sshAuthMethod')} />
+                                    {method === 'keyfile' ? t("connection.sshKey") : t("connection.sshPassword")}
+                                  </label>
+                                ))}
+                              </div>
+                              {sshAuthMethod === 'password' && (
+                                <Field label={t("connection.sshPassword")} inputId="veloxdb-ssh-password" error={fieldError('sshPassword')}>
+                                  <Input id="veloxdb-ssh-password" {...form.register('sshPassword')} type="password" placeholder={t("connection.sshPasswordPlaceholder")} className="h-9" />
+                                </Field>
+                              )}
+                              {sshAuthMethod === 'keyfile' && (
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                  <Field label={t("connection.privateKeyPath")} inputId="veloxdb-ssh-key-path" error={fieldError('sshPrivateKeyPath')}>
+                                    <InputGroup>
+                                      <InputGroupInput id="veloxdb-ssh-key-path" {...form.register('sshPrivateKeyPath')} placeholder={t("connection.privateKeyPlaceholder")} />
+                                      <InputGroupAddon align="inline-end">
+                                        <InputGroupButton size="icon-xs" title={t("connection.browse")}
+                                          onClick={() => pickFile((p) => form.setValue('sshPrivateKeyPath', p), [{ name: 'Private key', extensions: ['pem', 'key', 'ppk', '*'] }])}>
+                                          <FolderOpenIcon />
+                                        </InputGroupButton>
+                                      </InputGroupAddon>
+                                    </InputGroup>
+                                  </Field>
+                                  <Field label={t("connection.passphrase")} inputId="veloxdb-ssh-passphrase" error={fieldError('sshPassphrase')}>
+                                    <Input id="veloxdb-ssh-passphrase" {...form.register('sshPassphrase')} type="password" placeholder={t("connection.passphrasePlaceholder")} className="h-9" />
+                                  </Field>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </FormSection>
+                  ) : null}
+
+                  {/* Advanced (PostgreSQL / MySQL parameters) */}
+                  {cfg.showAdvanced && (
+                    <div>
+                      <button type="button" onClick={() => setAdvancedOpen((o) => !o)} aria-expanded={advancedOpen}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+                        <CaretRightIcon className={cn('size-3.5 transition-transform', advancedOpen && 'rotate-90')} />
+                        {t("connection.advancedParameters")}
+                      </button>
+                      {advancedOpen && (
+                        <div className="mt-4 space-y-5 border-l-2 border-border pl-4">
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <Field label={t("connection.connectTimeoutLabel")} inputId="veloxdb-adv-timeout">
+                              <Input id="veloxdb-adv-timeout" value={advancedConnectTimeout} onChange={(e) => setAdvancedConnectTimeout(e.target.value)}
+                                placeholder={t("connection.connectTimeoutPlaceholder")} inputMode="numeric" className="h-9" />
+                            </Field>
+                            <Field label={t("connection.applicationNameLabel")} inputId="veloxdb-adv-app">
+                              <Input id="veloxdb-adv-app" value={advancedAppName} onChange={(e) => setAdvancedAppName(e.target.value)}
+                                placeholder={t("connection.applicationNamePlaceholder")} className="h-9" />
+                            </Field>
+                            <Field label={t("connection.keepalivesIdleLabel")} inputId="veloxdb-adv-idle">
+                              <Input id="veloxdb-adv-idle" value={advancedKeepalivesIdle} onChange={(e) => setAdvancedKeepalivesIdle(e.target.value)}
+                                placeholder={t("connection.keepalivesIdlePlaceholder")} inputMode="numeric" className="h-9" />
+                            </Field>
+                          </div>
+                          <Field label={t("connection.optionsLabel")} inputId="veloxdb-adv-options">
+                            <Input id="veloxdb-adv-options" value={advancedOptions} onChange={(e) => setAdvancedOptions(e.target.value)}
+                              placeholder={t("connection.optionsPlaceholder")} className="h-9" />
+                          </Field>
+                          <label className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
+                            <input type="checkbox" checked={advancedKeepalives} onChange={(e) => setAdvancedKeepalives(e.target.checked)}
+                              className="size-4 accent-primary" />
+                            {t("connection.keepalivesLabel")}
+                          </label>
+                          <div className="space-y-3">
+                            <p className="text-xs font-medium text-foreground">{t("connection.tlsCertificates")}</p>
+                            <div className="grid gap-3 sm:grid-cols-3">
+                              {([['rootCert', advancedSslRootCert, setAdvancedSslRootCert, ['pem', 'crt', 'cer']],
+                                ['clientCert', advancedSslCert, setAdvancedSslCert, ['pem', 'crt', 'cer']],
+                                ['clientKey', advancedSslKey, setAdvancedSslKey, ['pem', 'key']]] as const).map(([label, value, setter, exts]) => (
+                                <Field key={label} label={t(`connection.${label}Label` as never)} inputId={`veloxdb-adv-${label}`}>
+                                  <InputGroup>
+                                    <InputGroupInput id={`veloxdb-adv-${label}`} value={value} onChange={(e) => setter(e.target.value)}
+                                      placeholder={t(`connection.${label}Placeholder` as never)} />
+                                    <InputGroupAddon align="inline-end">
+                                      <InputGroupButton size="icon-xs" title={t("connection.browse")}
+                                        onClick={() => pickFile(setter, [{ name: 'Certificate', extensions: [...exts] }])}>
+                                        <FolderOpenIcon />
+                                      </InputGroupButton>
+                                    </InputGroupAddon>
+                                  </InputGroup>
+                                </Field>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-medium text-foreground">{t("connection.customParamsLabel")}</p>
+                              <Button type="button" variant="ghost" size="sm" onClick={addCustomParam} className="h-7 px-2 text-xs">
+                                {t("connection.addCustomParam")}
+                              </Button>
+                            </div>
+                            {customParams.length > 0 ? (
+                              <div className="space-y-2">
+                                {customParams.map((param) => (
+                                  <div key={param.id} className="flex gap-2">
+                                    <Input value={param.key} onChange={(e) => updateCustomParam(param.id, 'key', e.target.value)}
+                                      placeholder={t("connection.paramNamePlaceholder")} className="h-9 flex-1" aria-label="Parameter name" />
+                                    <Input value={param.value} onChange={(e) => updateCustomParam(param.id, 'value', e.target.value)}
+                                      placeholder={t("connection.paramValuePlaceholder")} className="h-9 flex-1" aria-label="Parameter value" />
+                                    <Button type="button" variant="ghost" size="sm" onClick={() => removeCustomParam(param.id)}
+                                      className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-destructive" aria-label="Remove parameter">
+                                      <XIcon className="size-3.5" />
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : <p className="text-[11px] text-muted-foreground">{t("connection.noCustomParams")}</p>}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              )}
               </div>
-              ) : null}
             </div>
           </div>
 
-          <DialogFooter className="border-t border-border px-6 py-4 shrink-0">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
-              {t("connection.cancel")}
-            </Button>
-            <Button type="submit" disabled={isPending}>
-              <PlugsConnectedIcon className={cn('size-4', isPending && 'animate-spin')} />
-              {isPending ? t("connection.testing") : t("connection.connect")}
-            </Button>
+          <DialogFooter className="shrink-0 items-center border-t border-border px-6 py-3 sm:justify-between">
+            <div className="min-w-0 flex-1 text-[11px] leading-snug" role="status">
+              {test.status === 'idle' && <span className="text-muted-foreground">Test the details before you save them.</span>}
+              {test.status === 'running' && <span className="text-muted-foreground">Connecting to {engineLabel}…</span>}
+              {test.status === 'ok' && (
+                <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                  <CheckCircleIcon className="size-4 shrink-0" weight="fill" />
+                  Connected in {test.ms} ms.
+                </span>
+              )}
+              {test.status === 'error' && (
+                <span className="flex items-start gap-1.5 text-destructive">
+                  <WarningCircleIcon className="mt-px size-4 shrink-0" />
+                  <span className="line-clamp-3 min-w-0 break-words">{test.message}</span>
+                </span>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button type="button" variant="outline" onClick={() => { void handleTest() }} disabled={isPending || test.status === 'running'}>
+                {test.status === 'running' ? <SpinnerGapIcon className="size-4 animate-spin" /> : null}
+                Test connection
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={isPending}>
+                {t("connection.cancel")}
+              </Button>
+              <Button type="submit" disabled={isPending}>
+                <PlugsConnectedIcon className={cn('size-4', isPending && 'animate-spin')} />
+                {isPending ? t("connection.testing") : t("connection.connect")}
+              </Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function FormSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h4 className="border-b border-border pb-1.5 text-xs font-medium text-foreground">{title}</h4>
+      {children}
+    </section>
   )
 }

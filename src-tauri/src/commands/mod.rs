@@ -1059,7 +1059,7 @@ pub(crate) mod reports;
 pub use connections::{
     connect_db, list_connections_command, set_active_connection, ping_connection,
     refresh_connection, disconnect_db, rename_connection, delete_connection,
-    list_databases, switch_database,
+    list_databases, switch_database, test_connection,
 };
 pub use query::{
     run_query, get_tables, get_schema,
