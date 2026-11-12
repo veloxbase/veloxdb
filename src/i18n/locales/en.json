@@ -696,7 +696,7 @@
     "welcomeKicker": "Fast · Secure · Local-first",
     "welcomeTitle": "Talk to your database",
     "welcomeBody": "A local SQL client with Veloxy when you want help. Connect a database, run a query, and stay in flow.",
-    "welcomePrivacy": "Queries run on your machine. Credentials stay in your OS keychain. Cloud sign-in is optional for dashboards and hosted models.",
+    "welcomePrivacy": "Queries run on your machine. Credentials stay in your OS keychain. AI uses your own key or a local model.",
     "connectADatabase": "Connect a database",
     "enginesKicker": "13+ Database Engines",
     "enginesTitle": "One tool, every database",

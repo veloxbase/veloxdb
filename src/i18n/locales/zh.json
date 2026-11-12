@@ -696,7 +696,7 @@
     "welcomeKicker": "快速 · 安全 · 本地优先",
     "welcomeTitle": "与你的数据库自然对话",
     "welcomeBody": "本地 SQL 客户端，需要时再用 Veloxy。连接数据库、运行查询，保持心流。",
-    "welcomePrivacy": "查询在本机运行。凭据保存在系统钥匙串。Cloud 登录仅用于仪表盘和托管模型。",
+    "welcomePrivacy": "查询在本机运行。凭据保存在系统钥匙串。AI 使用你自己的密钥或本地模型。",
     "connectADatabase": "连接数据库",
     "enginesKicker": "13+ 款数据库引擎",
     "enginesTitle": "一个工具，掌控所有数据库",
