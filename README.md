@@ -40,6 +40,7 @@ Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 - **Fast** — Native desktop application powered by Rust and Tauri 2. Direct database connections with zero latency from cloud proxies.
 - **Memory-Efficient** — Virtual scrolling for massive result sets. Only loads what's visible on screen so million-row queries stay fast and responsive.
 - **Developer-Focused** — CodeMirror 6 with dialect-specific parsers, schema-aware autocomplete, multi-tab workspace, keyboard-first design, command palette, and visual ER modeling.
+- **Fully Open Source, Bring Your Own Key** — Every feature is free and MIT-licensed: the Veloxy AI agent, dashboards and notebooks included. AI runs on your own API key or a local model. No account, no cloud, no telemetry.
 
 ---
 
@@ -64,6 +65,31 @@ Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 ---
 
 ## Features
+
+### Veloxy, the AI Database Agent
+- **Ask in Plain English** — Veloxy searches your schema, describes tables, runs read-only queries, explains plans, and proposes charts to answer questions about your data.
+- **Read-Only by Design** — Agent SQL is parsed and rejected if it can write (including `EXPLAIN ANALYZE <write>` and data-modifying CTEs); on PostgreSQL it also runs inside a rolled-back `READ ONLY` transaction. Anything that writes goes to your editor for you to run.
+- **Inline Edits** — Select SQL in the editor and ask Veloxy to rewrite it in place, with a diff before you accept.
+- **Persistent Threads** — Conversations are saved per connection.
+
+### Dashboards & Notebooks
+- **Dashboards** — Drag-and-resize grid of charts, KPIs, tables, and rich-text notes, with variables/filters and multiple pages.
+- **Chart Builder** — Bar, line, combo, pie, scatter, histogram, box plot, heatmap, treemap, gauge, waterfall, KPI, and table from any query.
+- **Logic View (Notebook)** — Build dashboards from SQL and visual cells that feed each other.
+- **AI Dashboard Generation** — Describe what you want and Veloxy profiles your schema and builds a dashboard.
+- **Saved Queries** — Keep and reuse queries per connection.
+- **Export** — Save any dashboard as a PDF or PNG, exactly as it looks on screen. Files stay on your computer.
+
+### Bring Your Own AI Key
+Pick a provider in **Settings → Veloxy** and paste your key (stored in the OS keychain):
+
+| Provider | Notes |
+|----------|-------|
+| DeepSeek (default), OpenAI, Anthropic (Claude), Google Gemini, Groq, Mistral, xAI (Grok), OpenRouter | Hosted, your own API key |
+| Ollama, LM Studio | Local models, no key |
+| Custom | Any OpenAI-compatible endpoint (vLLM, LiteLLM, a proxy, ...) |
+
+AI requests go straight from the app to the provider you choose. Nothing passes through a VeloxDB server.
 
 ### Multi-Tab SQL & Query Workspace
 - **CodeMirror 6-Powered Editor** — Syntax highlighting and native SQL dialect parsers (`MSSQL`, `Cassandra`, `SQLite`, `StandardSQL`, `PostgreSQL`, `MySQL`), MongoDB JavaScript, and Redis CLI.
@@ -97,7 +123,7 @@ Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 ### Developer Experience
 - **Command Palette** (`Cmd+P` / `Ctrl+P`) — Search and execute any command or navigate workspace views instantly.
 - **Keyboard-First Design** — Configurable shortcuts for running queries, formatting SQL, toggling sidebars, and switching tabs.
-- **Themes & Styling** — Sleek dark and light modes with automatic OS system preference matching.
+- **Themes & Styling** — Light, dark, and six tinted themes with live preview, plus automatic OS preference matching.
 - **Internationalization (i18n)** — Built-in localization support via `i18next`.
 - **Persistent Workspace State** — Restores open tabs, query drafts, active connections, and diagram layouts on launch.
 
@@ -210,6 +236,8 @@ docker compose -f docker-compose.pg.yml up -d
 |-------|--------------------------|
 | **UI Framework** | React 19, TypeScript, Tailwind CSS v4, shadcn/ui, Radix UI, Phosphor Icons |
 | **Code Editor** | CodeMirror 6 (`@uiw/react-codemirror`, `@codemirror/lang-sql`) |
+| **AI Agent** | TanStack AI (tool-calling agent loop), any OpenAI-compatible provider |
+| **Charts & Dashboards** | TanStack Charts, dnd-kit, react-moveable |
 | **Diagram Engine** | ReactFlow 12 (`@xyflow/react`), Dagre graph layout |
 | **State Management** | Zustand 5, TanStack Query v5 |
 | **Data Grid & Virtualization** | TanStack Virtual 3, TanStack Table 8 |

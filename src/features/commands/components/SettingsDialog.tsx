@@ -14,7 +14,7 @@ import {
   BellIcon,
 } from '@phosphor-icons/react'
 import { useCallback, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
@@ -24,6 +24,7 @@ import { loadAiApiKey, saveAiApiKey } from '@/lib/ai-credentials'
 import { AI_PROVIDERS, fetchProviderModels, getAiProvider, type AiModelOption, type AiProviderId } from '@/lib/ai-providers'
 import { cn } from '@/lib/utils'
 import { useSettings, isLocalAiEndpoint, type AppTheme, type ChartPaperStrength, type ChartPaperTint, type NullDisplay, themeLabels, resolveFontSizePx } from '@/lib/settings'
+import { getShortcutDisplay } from '@/lib/shortcuts/registry'
 import { useAppHotkey } from '@/lib/shortcuts/use-app-hotkey'
 import { useUpdateCheck } from '@/hooks/useUpdateCheck'
 import pkg from '../../../../package.json'
@@ -136,7 +137,11 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         <div className="border-b border-border px-5 py-3.5">
           <p className="text-sm font-medium text-foreground">{t("settings.title")}</p>
           <p className="text-xs text-muted-foreground">
-            {t("settings.pressShortcut")}
+            <Trans
+              i18nKey="settings.pressShortcut"
+              values={{ shortcut: getShortcutDisplay('openSettings') }}
+              components={{ kbd: <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px] text-foreground" /> }}
+            />
           </p>
         </div>
 

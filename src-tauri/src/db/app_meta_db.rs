@@ -15,7 +15,6 @@ use super::dashboards_store::{dashboards_from_entries, insert_dashboard_row};
 use super::saved_queries_store::{insert_saved_query_row, saved_queries_from_entries};
 
 pub const APP_META_DB_FILE: &str = "veloxdb.sqlite";
-pub const SCHEMA_VERSION: &str = "1";
 
 const META_SCHEMA_VERSION: &str = "schema_version";
 const META_JSON_MIGRATED_AT: &str = "json_migrated_at";
@@ -71,17 +70,16 @@ async fn connect_sqlite_file(path: &Path) -> Result<SqlitePool, VeloxError> {
         .map_err(VeloxError::from)
 }
 
-pub async fn apply_schema(pool: &SqlitePool) -> Result<(), VeloxError> {
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS app_meta (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        )",
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
+/// Ordered schema migrations. Append a new `(version, statements)` entry for
+/// every schema change and never edit a released one: each entry runs once,
+/// in a transaction, on databases below its version.
+///
+/// Version 1 is the schema the first open-source release shipped with. Its
+/// statements use `IF NOT EXISTS` because databases created before this table
+/// existed already have those tables.
+const MIGRATIONS: &[(u32, &[&str])] = &[(
+    1,
+    &[
         "CREATE TABLE IF NOT EXISTS dashboards (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -90,18 +88,8 @@ pub async fn apply_schema(pool: &SqlitePool) -> Result<(), VeloxError> {
             updated_at INTEGER NOT NULL,
             document TEXT NOT NULL
         )",
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_dashboards_connection_updated
          ON dashboards (connection_id, updated_at DESC)",
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
         "CREATE TABLE IF NOT EXISTS saved_queries (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -111,18 +99,8 @@ pub async fn apply_schema(pool: &SqlitePool) -> Result<(), VeloxError> {
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         )",
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_saved_queries_connection_updated
          ON saved_queries (connection_id, updated_at DESC)",
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
         "CREATE TABLE IF NOT EXISTS veloxy_threads (
             id TEXT PRIMARY KEY,
             connection_id TEXT NOT NULL,
@@ -133,25 +111,64 @@ pub async fn apply_schema(pool: &SqlitePool) -> Result<(), VeloxError> {
             opened_at INTEGER NOT NULL,
             state TEXT NOT NULL
         )",
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_veloxy_threads_connection_opened
          ON veloxy_threads (connection_id, opened_at DESC)",
-    )
-    .execute(pool)
-    .await?;
+    ],
+)];
 
+/// Highest schema version this build knows how to create.
+pub fn latest_schema_version() -> u32 {
+    MIGRATIONS.last().map(|(version, _)| *version).unwrap_or(0)
+}
+
+async fn read_schema_version(pool: &SqlitePool) -> Result<u32, VeloxError> {
+    let row = sqlx::query("SELECT value FROM app_meta WHERE key = ?")
+        .bind(META_SCHEMA_VERSION)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row
+        .and_then(|row| row.try_get::<String, _>("value").ok())
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(0))
+}
+
+/// Brings the database up to `latest_schema_version()`. A database written by
+/// a newer build is left as is (its extra columns and tables are ignored)
+/// rather than refusing to start.
+pub async fn apply_schema(pool: &SqlitePool) -> Result<(), VeloxError> {
     sqlx::query(
-        "INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, ?)",
+        "CREATE TABLE IF NOT EXISTS app_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )",
     )
-    .bind(META_SCHEMA_VERSION)
-    .bind(SCHEMA_VERSION)
     .execute(pool)
     .await?;
 
+    let current = read_schema_version(pool).await?;
+    if current > latest_schema_version() {
+        log::warn!(
+            "App database schema v{current} is newer than this build (v{}); opening without migrating.",
+            latest_schema_version()
+        );
+        return Ok(());
+    }
+
+    for (version, statements) in MIGRATIONS.iter().filter(|(version, _)| *version > current) {
+        let mut tx = pool.begin().await?;
+        for statement in statements.iter() {
+            sqlx::query(statement).execute(&mut *tx).await?;
+        }
+        sqlx::query(
+            "INSERT INTO app_meta (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(META_SCHEMA_VERSION)
+        .bind(version.to_string())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+    }
     Ok(())
 }
 
@@ -358,5 +375,47 @@ mod tests {
             .expect("list queries");
         assert_eq!(queries.len(), 1);
         assert_eq!(queries[0].connection_id, "conn-legacy");
+    }
+
+    #[tokio::test]
+    async fn fresh_database_is_migrated_to_the_latest_version() {
+        let db = open_memory_app_meta_db().await.expect("memory db");
+        assert_eq!(read_schema_version(db.pool()).await.unwrap(), latest_schema_version());
+        for table in ["dashboards", "saved_queries", "veloxy_threads"] {
+            let found: Option<(String,)> =
+                sqlx::query_as("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+                    .bind(table)
+                    .fetch_optional(db.pool())
+                    .await
+                    .unwrap();
+            assert!(found.is_some(), "missing table {table}");
+        }
+    }
+
+    #[tokio::test]
+    async fn reapplying_is_idempotent_and_keeps_data() {
+        let db = open_memory_app_meta_db().await.expect("memory db");
+        sqlx::query("INSERT INTO saved_queries (id, name, connection_id, sql, created_at, updated_at) VALUES ('q1', 'n', 'c', 'select 1', 1, 1)")
+            .execute(db.pool())
+            .await
+            .unwrap();
+        apply_schema(db.pool()).await.expect("second run");
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM saved_queries")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1);
+    }
+
+    #[tokio::test]
+    async fn newer_schema_is_left_untouched() {
+        let db = open_memory_app_meta_db().await.expect("memory db");
+        sqlx::query("UPDATE app_meta SET value = '999' WHERE key = ?")
+            .bind(META_SCHEMA_VERSION)
+            .execute(db.pool())
+            .await
+            .unwrap();
+        apply_schema(db.pool()).await.expect("opens");
+        assert_eq!(read_schema_version(db.pool()).await.unwrap(), 999);
     }
 }

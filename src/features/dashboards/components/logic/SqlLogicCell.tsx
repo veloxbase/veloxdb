@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import Editor from '@monaco-editor/react'
+import { sql as sqlLanguage } from '@codemirror/lang-sql'
+import { EditorView } from '@codemirror/view'
+import CodeMirror from '@uiw/react-codemirror'
 import { PlayIcon, SpinnerGapIcon } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
@@ -7,6 +9,8 @@ import { Input } from '@/components/ui/input'
 import type { NotebookCell } from '@/data/types'
 import { useCellData } from '@/features/dashboards/hooks/useCellData'
 import { LogicCell } from './LogicCell'
+
+const SQL_CELL_EXTENSIONS = [sqlLanguage(), EditorView.lineWrapping]
 
 type SqlLogicCellProps = {
   dashboardId: string
@@ -118,26 +122,15 @@ export function SqlLogicCell({
           </div>
         </div>
 
-        {/* Monaco SQL Editor */}
-        <div className="overflow-hidden rounded-md border border-border/80">
-          <Editor
+        {/* SQL editor: CodeMirror, bundled locally like the main query editor */}
+        <div className="overflow-hidden rounded-md border border-border/80 text-xs">
+          <CodeMirror
             height="130px"
-            language="sql"
-            theme={isDark ? 'vs-dark' : 'light'}
+            theme={isDark ? 'dark' : 'light'}
             value={cell.sql}
-            onChange={(val) => onUpdate({ sql: val ?? '' })}
-            options={{
-              minimap: { enabled: false },
-              lineNumbers: 'on',
-              lineNumbersMinChars: 3,
-              scrollBeyondLastLine: false,
-              fontSize: 12,
-              fontFamily: 'JetBrains Mono Variable, monospace',
-              tabSize: 2,
-              automaticLayout: true,
-              wordWrap: 'on',
-              padding: { top: 6, bottom: 6 },
-            }}
+            onChange={(val) => onUpdate({ sql: val })}
+            extensions={SQL_CELL_EXTENSIONS}
+            basicSetup={{ foldGutter: false, highlightActiveLine: false }}
           />
         </div>
 

@@ -2,6 +2,8 @@ import { CommandIcon, GearIcon, RobotIcon, SidebarSimpleIcon } from "@phosphor-i
 import {
 	type CSSProperties,
 	type PointerEvent as ReactPointerEvent,
+	lazy,
+	Suspense,
 	useCallback,
 	useEffect,
 	useRef,
@@ -22,10 +24,9 @@ import { ThemeSelector } from "@/components/ThemeSelector";
 import { ConnectionDialog } from "@/features/connections/components/ConnectionDialog";
 import { RenameConnectionDialog } from "@/features/connections/components/RenameConnectionDialog";
 import { QueryWorkspace } from "@/features/queries/components/QueryWorkspace";
-import {
-	AskVeloxySidebar,
-	type VeloxyChartContext,
-	type VeloxyFixErrorContext,
+import type {
+	VeloxyChartContext,
+	VeloxyFixErrorContext,
 } from "@/features/queries/components/AskVeloxyDialog";
 import {
 	loadVeloxyDrawerOpen,
@@ -34,13 +35,9 @@ import {
 	saveVeloxyDrawerWidth,
 	clampVeloxyWidth,
 } from "@/features/queries/veloxy/veloxy-ui-persistence";
-import { ModelWorkspace } from "@/features/model/components/ModelWorkspace";
 import { TablePropertiesDialog } from "@/features/schema/components/TablePropertiesDialog";
-import { ChartBuilderDialog } from "@/features/dashboards/components/ChartBuilderDialog";
 import type { BuilderChartType, ChartEncodings } from "@/features/dashboards/chart-builder-state";
-import { DashboardWorkspace } from "@/features/dashboards/components/DashboardWorkspace";
 import type { OpenSqlInEditorOptions } from "@/features/dashboards/components/DashboardWorkspace";
-import { GenerateDashboardDialog } from "@/features/dashboards/components/GenerateDashboardDialog";
 import { canUseDashboards } from "@/features/dashboards/engine-guard";
 import { SaveQueryDialog } from "@/features/dashboards/components/SaveQueryDialog";
 import { isVeloxyConfigured, useSettings } from "@/lib/settings";
@@ -62,6 +59,23 @@ import {
 	useAppState,
 } from "@/hooks/useAppState";
 import type { MainWorkspaceId } from "@/features/workspace/types";
+
+// Heavy surfaces load on first use so the query editor starts fast.
+const AskVeloxySidebar = lazy(() =>
+	import("@/features/queries/components/AskVeloxyDialog").then((m) => ({ default: m.AskVeloxySidebar })),
+);
+const DashboardWorkspace = lazy(() =>
+	import("@/features/dashboards/components/DashboardWorkspace").then((m) => ({ default: m.DashboardWorkspace })),
+);
+const ModelWorkspace = lazy(() =>
+	import("@/features/model/components/ModelWorkspace").then((m) => ({ default: m.ModelWorkspace })),
+);
+const ChartBuilderDialog = lazy(() =>
+	import("@/features/dashboards/components/ChartBuilderDialog").then((m) => ({ default: m.ChartBuilderDialog })),
+);
+const GenerateDashboardDialog = lazy(() =>
+	import("@/features/dashboards/components/GenerateDashboardDialog").then((m) => ({ default: m.GenerateDashboardDialog })),
+);
 
 export function VeloxApp() {
 	const { t } = useTranslation();
@@ -173,6 +187,13 @@ export function VeloxApp() {
 		handleInsertRowSuccess,
 		activateConnectionMutation,
 	} = app;
+
+	// Mount the dashboard and model workspaces the first time they are opened,
+	// then keep them mounted (hidden) so switching back keeps their state.
+	const [mountedWorkspaces, setMountedWorkspaces] = useState(() => new Set<MainWorkspaceId>([mainWorkspace]));
+	if (!mountedWorkspaces.has(mainWorkspace)) {
+		setMountedWorkspaces(new Set([...mountedWorkspaces, mainWorkspace]));
+	}
 
 	const openDashboardIdRef = useRef<string | null>(null);
 	useEffect(() => {
@@ -456,28 +477,32 @@ export function VeloxApp() {
 
 					<div className={cn("h-full w-full min-h-0 min-w-0 flex flex-col", mainWorkspace !== "dashboard" && "hidden")}>
 						<ErrorBoundary>
-							<DashboardWorkspace
-								key={openDashboardId ?? "none"}
-								openDashboardId={openDashboardId}
-								isDark={isDark}
-								onCloseDashboard={() => setOpenDashboardId(null)}
-								onOpenChartBuilder={handleOpenChartBuilder}
-								onOpenSqlInEditor={handleOpenSqlInEditor}
-								onOpenConnection={() => setConnectionDialogOpen(true)}
-								onGenerateWithAi={openGenerateDashboard}
-								onAskVeloxyAboutWidget={(context) => {
-									setPendingChartContext({
-										title: context.widget.title,
-										sql: context.sql,
-										columns: context.columns,
-										sampleRows: context.sampleRows,
-										rowCount: context.rowCount,
-										activeFilters: context.activeFilters,
-										requestId: crypto.randomUUID(),
-									});
-									setIsVeloxyOpen(true);
-								}}
-							/>
+							{mountedWorkspaces.has("dashboard") ? (
+								<Suspense fallback={null}>
+									<DashboardWorkspace
+										key={openDashboardId ?? "none"}
+										openDashboardId={openDashboardId}
+										isDark={isDark}
+										onCloseDashboard={() => setOpenDashboardId(null)}
+										onOpenChartBuilder={handleOpenChartBuilder}
+										onOpenSqlInEditor={handleOpenSqlInEditor}
+										onOpenConnection={() => setConnectionDialogOpen(true)}
+										onGenerateWithAi={openGenerateDashboard}
+										onAskVeloxyAboutWidget={(context) => {
+											setPendingChartContext({
+												title: context.widget.title,
+												sql: context.sql,
+												columns: context.columns,
+												sampleRows: context.sampleRows,
+												rowCount: context.rowCount,
+												activeFilters: context.activeFilters,
+												requestId: crypto.randomUUID(),
+											});
+											setIsVeloxyOpen(true);
+										}}
+									/>
+								</Suspense>
+							) : null}
 						</ErrorBoundary>
 					</div>
 
@@ -485,17 +510,21 @@ export function VeloxApp() {
 						{connection?.id ? (
 							<ErrorBoundary>
 								{connection.engine === "postgres" ? (
-									<ModelWorkspace
-										key={connection.id}
-										connectionId={connection.id}
-										connectionEngine={connection.engine}
-										defaultDatabaseName={connection.database}
-										isDark={isDark}
-										tables={tablesForUi}
-										tablesErrorMessage={tablesQuery.isError ? tablesErrorMessage : undefined}
-										isTablesLoading={tablesQuery.isLoading}
-										selectedTable={selectedTable}
-									/>
+									mountedWorkspaces.has("model") ? (
+										<Suspense fallback={null}>
+											<ModelWorkspace
+												key={connection.id}
+												connectionId={connection.id}
+												connectionEngine={connection.engine}
+												defaultDatabaseName={connection.database}
+												isDark={isDark}
+												tables={tablesForUi}
+												tablesErrorMessage={tablesQuery.isError ? tablesErrorMessage : undefined}
+												isTablesLoading={tablesQuery.isLoading}
+												selectedTable={selectedTable}
+											/>
+										</Suspense>
+									) : null
 								) : (
 									<div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
 										{t("model.postgresOnly", { engine: engineLabel(connection.engine) })}
@@ -526,67 +555,69 @@ export function VeloxApp() {
 						className="h-full min-h-0 min-w-0 shrink-0 overflow-hidden border-l border-border bg-background motion-safe:animate-veloxy-drawer motion-reduce:animate-none"
 						style={{ width: veloxyWidth }}
 					>
-						<AskVeloxySidebar
-							key={connection.id}
-							connectionId={connection.id}
-							engine={connection.engine}
-							databaseName={connection.database}
-							selectedTable={selectedTable}
-							connections={connectionsQuery.data ?? []}
-							onSelectConnection={(id) => {
-								const target = (connectionsQuery.data ?? []).find((c) => c.id === id);
-								if (target) handleSelectConnection(target);
-							}}
-							onNewConnection={() => setConnectionDialogOpen(true)}
-							activeWorkspace={mainWorkspace}
-							modelLabel={veloxyModel}
-							apiKey={veloxyApiKey}
-							isConfigured={isVeloxyConfigured({
-								provider: veloxyProvider,
-								apiKey: veloxyApiKey,
-								model: veloxyModel,
-								baseUrl: veloxyBaseUrl,
-							})}
-							fixErrorContext={pendingFixContext}
-							onClearFixErrorContext={() => setPendingFixContext(null)}
-							chartContext={pendingChartContext}
-							onClearChartContext={() => setPendingChartContext(null)}
-							onClose={() => setIsVeloxyOpen(false)}
-							onOpenSettings={() => { setSettingsOpen(true); }}
-							onConfirmRun={async (sql) => {
-								if (mainWorkspace !== "query") {
-									handleWorkspaceChange("query");
-								}
-								queryWorkspaceRef.current?.openTabWithSqlAndRun(sql);
-							}}
-							onInsertSql={(sql) => {
-								if (mainWorkspace !== "query") {
-									handleWorkspaceChange("query");
-								}
-								queryWorkspaceRef.current?.appendQuerySql(sql);
-							}}
-							onReplaceSql={(sql) => {
-								if (mainWorkspace !== "query") {
-									handleWorkspaceChange("query");
-								}
-								queryWorkspaceRef.current?.replaceQuerySql(sql);
-							}}
-							onOpenTabWithSql={(sql) => {
-								if (mainWorkspace !== "query") {
-									handleWorkspaceChange("query");
-								}
-								queryWorkspaceRef.current?.openTabWithSql(sql);
-							}}
-							onPinToDashboard={({ sql, title, defaultChartType, defaultEncodings }) => {
-								handleOpenChartBuilder({
-									sql,
-									connectionId: connection.id,
-									defaultChartType,
-									defaultTitle: title,
-									defaultEncodings,
-								});
-							}}
-						/>
+						<Suspense fallback={null}>
+							<AskVeloxySidebar
+								key={connection.id}
+								connectionId={connection.id}
+								engine={connection.engine}
+								databaseName={connection.database}
+								selectedTable={selectedTable}
+								connections={connectionsQuery.data ?? []}
+								onSelectConnection={(id) => {
+									const target = (connectionsQuery.data ?? []).find((c) => c.id === id);
+									if (target) handleSelectConnection(target);
+								}}
+								onNewConnection={() => setConnectionDialogOpen(true)}
+								activeWorkspace={mainWorkspace}
+								modelLabel={veloxyModel}
+								apiKey={veloxyApiKey}
+								isConfigured={isVeloxyConfigured({
+									provider: veloxyProvider,
+									apiKey: veloxyApiKey,
+									model: veloxyModel,
+									baseUrl: veloxyBaseUrl,
+								})}
+								fixErrorContext={pendingFixContext}
+								onClearFixErrorContext={() => setPendingFixContext(null)}
+								chartContext={pendingChartContext}
+								onClearChartContext={() => setPendingChartContext(null)}
+								onClose={() => setIsVeloxyOpen(false)}
+								onOpenSettings={() => { setSettingsOpen(true); }}
+								onConfirmRun={async (sql) => {
+									if (mainWorkspace !== "query") {
+										handleWorkspaceChange("query");
+									}
+									queryWorkspaceRef.current?.openTabWithSqlAndRun(sql);
+								}}
+								onInsertSql={(sql) => {
+									if (mainWorkspace !== "query") {
+										handleWorkspaceChange("query");
+									}
+									queryWorkspaceRef.current?.appendQuerySql(sql);
+								}}
+								onReplaceSql={(sql) => {
+									if (mainWorkspace !== "query") {
+										handleWorkspaceChange("query");
+									}
+									queryWorkspaceRef.current?.replaceQuerySql(sql);
+								}}
+								onOpenTabWithSql={(sql) => {
+									if (mainWorkspace !== "query") {
+										handleWorkspaceChange("query");
+									}
+									queryWorkspaceRef.current?.openTabWithSql(sql);
+								}}
+								onPinToDashboard={({ sql, title, defaultChartType, defaultEncodings }) => {
+									handleOpenChartBuilder({
+										sql,
+										connectionId: connection.id,
+										defaultChartType,
+										defaultTitle: title,
+										defaultEncodings,
+									});
+								}}
+							/>
+						</Suspense>
 					</aside>
 				</>
 			) : null}
@@ -610,23 +641,25 @@ export function VeloxApp() {
 				connectionId={saveQueryDialog?.connectionId ?? null}
 			/>
 			{chartBuilderDialog ? (
-				<ChartBuilderDialog
-					key={chartBuilderDialog.openKey}
-					open
-					onOpenChange={(open) => { if (!open) setChartBuilderDialog(null); }}
-					connectionId={chartBuilderDialog.connectionId}
-					sql={chartBuilderDialog.sql}
-					isDark={isDark}
-					preferredDashboardId={chartBuilderDialog.preferredDashboardId}
-					defaultChartType={chartBuilderDialog.defaultChartType}
-					defaultTitle={chartBuilderDialog.defaultTitle}
-					defaultEncodings={chartBuilderDialog.defaultEncodings}
-					onChartCreated={(dashboardId) => {
-						setChartBuilderDialog(null);
-						handleOpenDashboard(dashboardId);
-						handleWorkspaceChange("dashboard");
-					}}
-				/>
+				<Suspense fallback={null}>
+					<ChartBuilderDialog
+						key={chartBuilderDialog.openKey}
+						open
+						onOpenChange={(open) => { if (!open) setChartBuilderDialog(null); }}
+						connectionId={chartBuilderDialog.connectionId}
+						sql={chartBuilderDialog.sql}
+						isDark={isDark}
+						preferredDashboardId={chartBuilderDialog.preferredDashboardId}
+						defaultChartType={chartBuilderDialog.defaultChartType}
+						defaultTitle={chartBuilderDialog.defaultTitle}
+						defaultEncodings={chartBuilderDialog.defaultEncodings}
+						onChartCreated={(dashboardId) => {
+							setChartBuilderDialog(null);
+							handleOpenDashboard(dashboardId);
+							handleWorkspaceChange("dashboard");
+						}}
+					/>
+				</Suspense>
 			) : null}
 			<TablePropertiesDialog
 				open={tablePropertiesDialogOpen}
@@ -670,16 +703,20 @@ export function VeloxApp() {
 			/>
 			<ShortcutSheet />
 			<SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-			<GenerateDashboardDialog
-				open={generateDashboardOpen}
-				onOpenChange={setGenerateDashboardOpen}
-				connectionId={connection?.id ?? null}
-				onDashboardCreated={(dashboard) => {
-					handleOpenDashboard(dashboard.id);
-					handleWorkspaceChange("dashboard");
-				}}
-				onOpenSettings={() => setSettingsOpen(true)}
-			/>
+			{generateDashboardOpen ? (
+				<Suspense fallback={null}>
+					<GenerateDashboardDialog
+						open={generateDashboardOpen}
+						onOpenChange={setGenerateDashboardOpen}
+						connectionId={connection?.id ?? null}
+						onDashboardCreated={(dashboard) => {
+							handleOpenDashboard(dashboard.id);
+							handleWorkspaceChange("dashboard");
+						}}
+						onOpenSettings={() => setSettingsOpen(true)}
+					/>
+				</Suspense>
+			) : null}
 		</div>
 	);
 }

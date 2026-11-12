@@ -84,9 +84,7 @@ export async function captureDashboardSnapshot(
   if (!node) {
     throw new Error('Open the dashboard view (not Logic) with at least one widget to export it.')
   }
-  const bodyStyle = getComputedStyle(document.body)
-  const background = resolveCssColor(bodyStyle.backgroundColor, '#ffffff')
-  const foreground = resolveCssColor(bodyStyle.color, '#111111')
+  const { background, foreground } = themeColors()
 
   const longestEdge = Math.max(node.scrollWidth, node.scrollHeight, 1)
   const pixelRatio = Math.min(SNAPSHOT_PIXEL_RATIO, MAX_SNAPSHOT_EDGE_PX / longestEdge)
@@ -104,6 +102,45 @@ export async function captureDashboardSnapshot(
   const { width, height } = await loadImageSize(dataUrl)
   const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
   return { format, base64, width, height, background, foreground }
+}
+
+function themeColors(): { background: string; foreground: string } {
+  const bodyStyle = getComputedStyle(document.body)
+  return {
+    background: resolveCssColor(bodyStyle.backgroundColor, '#ffffff'),
+    foreground: resolveCssColor(bodyStyle.color, '#111111'),
+  }
+}
+
+/**
+ * Turns any image data URL (e.g. a PNG from a canvas export) into a JPEG
+ * snapshot on the theme background, ready for `exportDashboardPdf`.
+ */
+export async function snapshotFromImageDataUrl(dataUrl: string): Promise<DashboardSnapshot> {
+  const { background, foreground } = themeColors()
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Could not read the exported image.'))
+    img.src = dataUrl
+  })
+  const canvas = document.createElement('canvas')
+  canvas.width = image.naturalWidth
+  canvas.height = image.naturalHeight
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Could not prepare the exported image.')
+  ctx.fillStyle = background
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.drawImage(image, 0, 0)
+  const jpeg = canvas.toDataURL('image/jpeg', 0.92)
+  return {
+    format: 'jpeg',
+    base64: jpeg.slice(jpeg.indexOf(',') + 1),
+    width: canvas.width,
+    height: canvas.height,
+    background,
+    foreground,
+  }
 }
 
 /** Writes a PDF of the snapshot to `outputPath` (native, via printpdf). */

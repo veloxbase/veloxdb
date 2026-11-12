@@ -533,7 +533,7 @@
   },
   "settings": {
     "title": "设置",
-    "pressShortcut": "随时按 <kbd>⌘,</kbd>。",
+    "pressShortcut": "随时按 <kbd>{{shortcut}}</kbd>。",
     "appearance": "外观",
     "language": "语言",
     "languageDesc": "界面显示语言。",

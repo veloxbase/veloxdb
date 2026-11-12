@@ -517,10 +517,9 @@ export function ResultsGrid({
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
 				const active = document.activeElement;
-				// Avoid hijacking when inside CodeMirror or Monaco editor
+				// Avoid hijacking when inside a CodeMirror editor
 				if (
 					active?.closest(".cm-editor") ||
-					active?.closest(".monaco-editor") ||
 					active?.tagName === "TEXTAREA"
 				) {
 					return;

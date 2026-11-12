@@ -9,7 +9,11 @@ import type { DatabaseEngine, TableInfo } from '@/data/types';
 import { applyEntireModel } from '@/features/model/apply-entire-model';
 import { CreateTableDialog } from '@/features/model/components/CreateTableDialog';
 import { DdlReviewDialog } from '@/features/model/components/DdlReviewDialog';
+import { save } from '@tauri-apps/plugin-dialog';
 import { DiagramSurfaceAdapter } from '@/features/model/components/DiagramSurfaceAdapter';
+import type { DiagramExportHandle } from '@/features/model/components/diagram-surface-types';
+import { exportDashboardPdf, snapshotFromImageDataUrl } from '@/features/dashboards/reports/reports-client';
+import { veloxDbRepository } from '@/data/repositories';
 import { ModelCatalog } from '@/features/model/components/ModelCatalog';
 import { ModelInspector } from '@/features/model/components/ModelInspector';
 import { ModelWorkspaceToolbar } from '@/features/model/components/ModelWorkspaceToolbar';
@@ -67,6 +71,7 @@ export function ModelWorkspace({
 	}, [connectionId]);
 
 	const diagramWrapRef = useRef<HTMLDivElement>(null);
+	const diagramExportRef = useRef<DiagramExportHandle | null>(null);
 	const hadStoredLayout = boot.snap != null && (boot.snap.onCanvas.length > 0 || Object.keys(boot.snap.positions).length > 0);
 
 	const store = useModelWorkspaceStore();
@@ -208,6 +213,32 @@ export function ModelWorkspace({
 	}, [migrationSummary]);
 
 	const catalogTablesSorted = useMemo(() => [...tables].sort((a, b) => tableKey(a).localeCompare(tableKey(b))), [tables]);
+
+	const handleExportDiagram = useCallback(async (kind: 'png' | 'pdf') => {
+		const exporter = diagramExportRef.current;
+		if (!exporter) return;
+		const baseName = `${defaultDatabaseName || 'diagram'}-diagram`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+		const outputPath = await save({
+			defaultPath: `${baseName}.${kind}`,
+			filters: kind === 'pdf' ? [{ name: 'PDF', extensions: ['pdf'] }] : [{ name: 'PNG image', extensions: ['png'] }],
+		});
+		if (!outputPath) return;
+		try {
+			const dataUrl = await exporter.toDataURL({ pixelRatio: 2 });
+			if (kind === 'png') {
+				await veloxDbRepository.saveBase64Png(dataUrl, outputPath);
+			} else {
+				await exportDashboardPdf({
+					title: `${defaultDatabaseName || 'Database'} diagram`,
+					outputPath,
+					snapshot: await snapshotFromImageDataUrl(dataUrl),
+				});
+			}
+			notifySuccess(t('model.exported', { defaultValue: 'Diagram exported' }), outputPath);
+		} catch (error) {
+			notifyError(error, { title: t('model.exportFailed', { defaultValue: 'Diagram export failed' }) });
+		}
+	}, [defaultDatabaseName, t]);
 
 	// Canvas ops
 	const requestColumns = useCallback((key: TableKey) => { col.requestColumns(key); }, [col.requestColumns]);
@@ -497,7 +528,8 @@ export function ModelWorkspace({
 							onCopySelectedSql={handleCopySelectedSql}
 							onCopyAllTablesSql={handleCopyAllTablesSql}
 							copySqlPending={copySqlPending}
-							onExportPng={() => {}} onExportPdf={() => {}}
+							onExportPng={() => { void handleExportDiagram('png'); }}
+							onExportPdf={() => { void handleExportDiagram('pdf'); }}
 							onSwitchTab={(tab) => store.setModelTab(tab)}
 						/>
 
@@ -510,6 +542,7 @@ export function ModelWorkspace({
 						<div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
 							<div ref={diagramWrapRef} className="relative min-h-0 min-w-0 flex-1 overflow-hidden contain-[layout_paint]">
 								<DiagramSurfaceAdapter
+									exportRef={diagramExportRef}
 									isDark={isDark}
 									connectionEngine={connectionEngine}
 									initialViewport={store.viewport}

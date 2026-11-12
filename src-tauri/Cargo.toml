@@ -1,6 +1,6 @@
 [package]
 name = "veloxdb"
-version = "0.4.1"
+version = "0.5.0"
 description = "Talk to your database. Fast, AI-native, developer-focused desktop database client."
 authors = ["Abenezer"]
 license = "MIT"

@@ -533,7 +533,7 @@
   },
   "settings": {
     "title": "Settings",
-    "pressShortcut": "Press <kbd>⌘,</kbd> anytime.",
+    "pressShortcut": "Press <kbd>{{shortcut}}</kbd> anytime.",
     "appearance": "Appearance",
     "language": "Language",
     "languageDesc": "Display language for the interface.",
