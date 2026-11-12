@@ -33,25 +33,36 @@ import { VeloxySettingsPanel } from './VeloxySettingsPanel'
 const GITHUB_REPO = 'abeni16/veloxdb'
 const VELOXDB_SITE = 'https://veloxdb.dev'
 
-export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+export type SettingsTabId =
+  | 'appearance' | 'editor' | 'results' | 'connections' | 'veloxy' | 'notifications' | 'data' | 'about'
+
+type SettingsDialogProps = {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  /** Controlled tab, so callers can open Settings on a specific page. */
+  tab?: SettingsTabId
+  onTabChange?: (tab: SettingsTabId) => void
+}
+
+export function SettingsDialog({ open, onOpenChange, tab: controlledTab, onTabChange }: SettingsDialogProps) {
   const settings = useSettings()
   const { t, i18n } = useTranslation()
 
   // Grouped by what they affect; groups are separated by space, not labels.
   const tabGroups = [
     [
-      { id: 'appearance', label: t("settings.appearance"), Icon: PaintBrushIcon },
-      { id: 'editor', label: t("settings.editor"), Icon: CodeIcon },
-      { id: 'results', label: t("settings.results"), Icon: TableIcon },
+      { id: 'appearance' as const, label: t("settings.appearance"), Icon: PaintBrushIcon },
+      { id: 'editor' as const, label: t("settings.editor"), Icon: CodeIcon },
+      { id: 'results' as const, label: t("settings.results"), Icon: TableIcon },
     ],
     [
-      { id: 'connections', label: t("settings.connections"), Icon: PlugIcon },
-      { id: 'veloxy', label: 'Veloxy AI', Icon: SparkleIcon },
+      { id: 'connections' as const, label: t("settings.connections"), Icon: PlugIcon },
+      { id: 'veloxy' as const, label: 'Veloxy AI', Icon: SparkleIcon },
     ],
     [
-      { id: 'notifications', label: t("settings.notifications"), Icon: BellIcon },
-      { id: 'data', label: t("settings.data"), Icon: DatabaseIcon },
-      { id: 'about', label: t("settings.about"), Icon: InfoIcon },
+      { id: 'notifications' as const, label: t("settings.notifications"), Icon: BellIcon },
+      { id: 'data' as const, label: t("settings.data"), Icon: DatabaseIcon },
+      { id: 'about' as const, label: t("settings.about"), Icon: InfoIcon },
     ],
   ]
 
@@ -59,7 +70,12 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     onOpenChange(true)
   })
 
-  const [tab, setTab] = useState('appearance')
+  const [uncontrolledTab, setUncontrolledTab] = useState<SettingsTabId>('appearance')
+  const tab = controlledTab ?? uncontrolledTab
+  const setTab = (next: SettingsTabId) => {
+    setUncontrolledTab(next)
+    onTabChange?.(next)
+  }
 
   const handleExport = useCallback(() => {
     const exportable = { ...useSettings.getState() } as Record<string, unknown>

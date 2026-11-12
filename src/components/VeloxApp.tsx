@@ -19,7 +19,7 @@ import { veloxDbRepository } from "@/data/repositories";
 import type { Dashboard } from "@/data/types";
 import { CommandPalette } from "@/features/commands/components/CommandPalette";
 import { ShortcutSheet } from "@/features/commands/components/ShortcutSheet";
-import { SettingsDialog } from "@/features/commands/components/SettingsDialog";
+import { SettingsDialog, type SettingsTabId } from "@/features/commands/components/SettingsDialog";
 import { ThemeSelector } from "@/components/ThemeSelector";
 import { ConnectionDialog } from "@/features/connections/components/ConnectionDialog";
 import { RenameConnectionDialog } from "@/features/connections/components/RenameConnectionDialog";
@@ -187,6 +187,13 @@ export function VeloxApp() {
 		handleInsertRowSuccess,
 		activateConnectionMutation,
 	} = app;
+
+	const [settingsTab, setSettingsTab] = useState<SettingsTabId>("appearance");
+	/** Opens Settings, optionally on a given page (AI prompts open "veloxy"). */
+	const openSettings = (tab?: SettingsTabId) => {
+		if (tab) setSettingsTab(tab);
+		setSettingsOpen(true);
+	};
 
 	// Mount the dashboard and model workspaces the first time they are opened,
 	// then keep them mounted (hidden) so switching back keeps their state.
@@ -582,7 +589,7 @@ export function VeloxApp() {
 								chartContext={pendingChartContext}
 								onClearChartContext={() => setPendingChartContext(null)}
 								onClose={() => setIsVeloxyOpen(false)}
-								onOpenSettings={() => { setSettingsOpen(true); }}
+								onOpenSettings={() => openSettings("veloxy")}
 								onConfirmRun={async (sql) => {
 									if (mainWorkspace !== "query") {
 										handleWorkspaceChange("query");
@@ -702,7 +709,7 @@ export function VeloxApp() {
 				onGenerateDashboardWithAi={openGenerateDashboard}
 			/>
 			<ShortcutSheet />
-			<SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+			<SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} tab={settingsTab} onTabChange={setSettingsTab} />
 			{generateDashboardOpen ? (
 				<Suspense fallback={null}>
 					<GenerateDashboardDialog
@@ -713,7 +720,7 @@ export function VeloxApp() {
 							handleOpenDashboard(dashboard.id);
 							handleWorkspaceChange("dashboard");
 						}}
-						onOpenSettings={() => setSettingsOpen(true)}
+						onOpenSettings={() => openSettings("veloxy")}
 					/>
 				</Suspense>
 			) : null}
