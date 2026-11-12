@@ -25,6 +25,7 @@ import { getShortcutDisplay } from '@/lib/shortcuts/registry'
 import { useAppHotkey } from '@/lib/shortcuts/use-app-hotkey'
 import { useUpdateCheck } from '@/hooks/useUpdateCheck'
 import pkg from '../../../../package.json'
+import { openExternal } from '@/lib/open-external'
 
 import { SettingsGroup, SettingsPage, SettingsRow, SettingsToggle, settingsSelectClass } from './settings-layout'
 import { VeloxySettingsPanel } from './VeloxySettingsPanel'
@@ -303,8 +304,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               <Field label={t("settings.website")} desc={t("settings.websiteDesc")}>
                 <a
                   href={VELOXDB_SITE}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  onClick={(e) => { e.preventDefault(); void openExternal(e.currentTarget.href) }}
                   className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                 >
                   veloxdb.dev
@@ -315,8 +315,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               <Field label={t("settings.github")} desc={t("settings.githubDesc")}>
                 <a
                   href={`https://github.com/${GITHUB_REPO}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  onClick={(e) => { e.preventDefault(); void openExternal(e.currentTarget.href) }}
                   className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                 >
                   github.com/abeni16/veloxdb
@@ -351,8 +350,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   {updateInfo?.hasUpdate && updateInfo.latestVersion && (
                     <a
                       href={updateInfo.downloadUrl || `https://github.com/${GITHUB_REPO}/releases/tag/v${updateInfo.latestVersion}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      onClick={(e) => { e.preventDefault(); void openExternal(e.currentTarget.href) }}
                       className="inline-flex items-center gap-1 text-xs text-amber-500 hover:underline"
                     >
                       {t("settings.available", { version: updateInfo.latestVersion })}

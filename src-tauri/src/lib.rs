@@ -37,6 +37,8 @@ pub fn run() {
     // AI provider calls go through Rust so the webview CSP and provider CORS
     // rules cannot block bring-your-own-key endpoints.
     .plugin(tauri_plugin_http::init())
+    // Opens provider sign-up pages and About links in the default browser.
+    .plugin(tauri_plugin_opener::init())
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

@@ -316,6 +316,24 @@ export const aiChatFetch: typeof fetch = async (input, init) => {
   return response
 }
 
+/**
+ * `aiFetch` that turns a network failure (server down, wrong host, offline)
+ * into a message that says which endpoint could not be reached.
+ */
+async function fetchOrExplain(url: string, init: RequestInit, root: string): Promise<Response> {
+  try {
+    return await aiFetch(url, init)
+  } catch (error) {
+    const local = isLocalAiEndpoint(root)
+    const reason = error instanceof Error && error.message && !/failed to fetch|load failed|network/i.test(error.message)
+      ? ` (${error.message})`
+      : ''
+    throw new Error(
+      `Couldn't reach ${root}${reason}.${local ? " Make sure the server is running." : ' Check the endpoint and your internet connection.'}`,
+    )
+  }
+}
+
 /** Request headers for an OpenAI-compatible call. */
 export function aiRequestHeaders(
   apiKey: string | null | undefined,
@@ -354,7 +372,7 @@ export async function fetchProviderModels(
     headers['x-api-key'] = apiKey.trim()
     headers['anthropic-version'] = '2023-06-01'
   }
-  const response = await aiFetch(`${root}/models`, { headers })
+  const response = await fetchOrExplain(`${root}/models`, { headers }, root)
   if (!response.ok) {
     throw new Error(`Could not list models from ${provider.label} (HTTP ${response.status}).`)
   }
@@ -391,7 +409,7 @@ export type ChatCompletionRequest = {
 export async function requestChatCompletion(request: ChatCompletionRequest): Promise<string> {
   const root = normalizeAiBaseUrl(request.baseUrl ?? '')
   if (!root) throw new Error('Set an AI provider in Settings → Veloxy.')
-  const response = await aiFetch(`${root}/chat/completions`, {
+  const response = await fetchOrExplain(`${root}/chat/completions`, {
     method: 'POST',
     headers: aiRequestHeaders(request.apiKey, root),
     body: JSON.stringify({
@@ -403,7 +421,7 @@ export async function requestChatCompletion(request: ChatCompletionRequest): Pro
         { role: 'user', content: request.userPrompt },
       ],
     }),
-  })
+  }, root)
   if (!response.ok) {
     const text = await response.text()
     throw new Error(`AI request to ${root} failed (${response.status}): ${text.slice(0, 500)}`)
