@@ -620,7 +620,16 @@
     "checkNow": "Check now",
     "upToDate": "Up to date",
     "available": "v{{version}} available",
-    "failedToCheck": "Failed to check"
+    "failedToCheck": "Failed to check",
+    "pageDesc": {
+      "appearance": "Language, theme and type size for the whole app.",
+      "editor": "How the SQL editor formats and checks your queries.",
+      "results": "How query results are fetched and shown in the grid.",
+      "connections": "Keep database connections alive and recover from drops.",
+      "notifications": "Choose which pop-up messages you see.",
+      "data": "Back up, restore or clear the settings and history stored on this computer.",
+      "about": "Version, license and where to get help."
+    }
   },
   "commandPalette": {
     "title": "Command Palette",

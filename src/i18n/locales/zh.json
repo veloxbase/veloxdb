@@ -620,7 +620,16 @@
     "checkNow": "立即检查",
     "upToDate": "已是最新",
     "available": "v{{version}} 可用",
-    "failedToCheck": "检查失败"
+    "failedToCheck": "检查失败",
+    "pageDesc": {
+      "appearance": "整个应用的语言、主题和字号。",
+      "editor": "SQL 编辑器如何格式化和检查你的查询。",
+      "results": "查询结果如何获取并显示在表格中。",
+      "connections": "保持数据库连接，并在断开后自动恢复。",
+      "notifications": "选择要显示哪些弹出提示。",
+      "data": "备份、恢复或清除保存在本机的设置和历史记录。",
+      "about": "版本、许可证以及获取帮助的途径。"
+    }
   },
   "commandPalette": {
     "title": "命令面板",

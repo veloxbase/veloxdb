@@ -10,24 +10,24 @@ import {
   SparkleIcon,
   InfoIcon,
   ArrowSquareOutIcon,
-  ArrowsClockwiseIcon,
   BellIcon,
 } from '@phosphor-icons/react'
 import { useCallback, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 
-import { loadAiApiKey, saveAiApiKey } from '@/lib/ai-credentials'
-import { AI_PROVIDERS, fetchProviderModels, getAiProvider, type AiModelOption, type AiProviderId } from '@/lib/ai-providers'
 import { cn } from '@/lib/utils'
-import { useSettings, isLocalAiEndpoint, type AppTheme, type ChartPaperStrength, type ChartPaperTint, type NullDisplay, themeLabels, resolveFontSizePx } from '@/lib/settings'
+import { useSettings, type AppTheme, type ChartPaperStrength, type ChartPaperTint, type NullDisplay, themeLabels, resolveFontSizePx } from '@/lib/settings'
 import { getShortcutDisplay } from '@/lib/shortcuts/registry'
 import { useAppHotkey } from '@/lib/shortcuts/use-app-hotkey'
 import { useUpdateCheck } from '@/hooks/useUpdateCheck'
 import pkg from '../../../../package.json'
+
+import { SettingsGroup, SettingsPage, SettingsRow, SettingsToggle, settingsSelectClass } from './settings-layout'
+import { VeloxySettingsPanel } from './VeloxySettingsPanel'
 
 const GITHUB_REPO = 'abeni16/veloxdb'
 const VELOXDB_SITE = 'https://veloxdb.dev'
@@ -36,15 +36,22 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const settings = useSettings()
   const { t, i18n } = useTranslation()
 
-  const tabs = [
-    { id: 'appearance', label: t("settings.appearance"), Icon: PaintBrushIcon },
-    { id: 'editor', label: t("settings.editor"), Icon: CodeIcon },
-    { id: 'results', label: t("settings.results"), Icon: TableIcon },
-    { id: 'connections', label: t("settings.connections"), Icon: PlugIcon },
-    { id: 'veloxy', label: t("settings.veloxy"), Icon: SparkleIcon },
-    { id: 'notifications', label: t("settings.notifications"), Icon: BellIcon },
-    { id: 'data', label: t("settings.data"), Icon: DatabaseIcon },
-    { id: 'about', label: t("settings.about"), Icon: InfoIcon },
+  // Grouped by what they affect; groups are separated by space, not labels.
+  const tabGroups = [
+    [
+      { id: 'appearance', label: t("settings.appearance"), Icon: PaintBrushIcon },
+      { id: 'editor', label: t("settings.editor"), Icon: CodeIcon },
+      { id: 'results', label: t("settings.results"), Icon: TableIcon },
+    ],
+    [
+      { id: 'connections', label: t("settings.connections"), Icon: PlugIcon },
+      { id: 'veloxy', label: 'Veloxy AI', Icon: SparkleIcon },
+    ],
+    [
+      { id: 'notifications', label: t("settings.notifications"), Icon: BellIcon },
+      { id: 'data', label: t("settings.data"), Icon: DatabaseIcon },
+      { id: 'about', label: t("settings.about"), Icon: InfoIcon },
+    ],
   ]
 
   useAppHotkey('openSettings', () => {
@@ -75,99 +82,59 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     input.click()
   }, [])
 
-  const [modelOptions, setModelOptions] = useState<AiModelOption[]>(() => getAiProvider(settings.veloxyProvider).models)
-  const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'error'>('idle')
-  const [modelsError, setModelsError] = useState<string | null>(null)
-
   const { data: updateInfo, isLoading: isCheckingUpdates, isError: updateCheckFailed, refetch: checkForUpdates } = useUpdateCheck(
     { enabled: open },
   )
 
-  const refreshModels = useCallback(async () => {
-    const { veloxyProvider, veloxyApiKey, veloxyBaseUrl } = useSettings.getState()
-    const provider = getAiProvider(veloxyProvider)
-    setModelOptions(provider.models)
-    if (provider.requiresKey && !veloxyApiKey.trim()) {
-      setModelsStatus('idle')
-      setModelsError(null)
-      return
-    }
-    setModelsStatus('loading')
-    setModelsError(null)
-    try {
-      const options = await fetchProviderModels(veloxyProvider, veloxyApiKey, veloxyBaseUrl)
-      if (useSettings.getState().veloxyProvider === veloxyProvider) setModelOptions(options)
-      setModelsStatus('idle')
-    } catch (error) {
-      setModelsStatus('error')
-      setModelsError(error instanceof Error ? error.message : 'Failed to fetch models')
-    }
-  }, [])
-
-  const selectProvider = useCallback(async (id: AiProviderId) => {
-    const provider = getAiProvider(id)
-    const current = useSettings.getState()
-    useSettings.setState({
-      veloxyProvider: id,
-      veloxyApiKey: '',
-      // Keep a custom URL when switching to Custom; presets bring their own.
-      veloxyBaseUrl: provider.baseUrl || (id === 'custom' ? current.veloxyBaseUrl : ''),
-      veloxyModel: provider.models[0]?.id ?? '',
-    })
-    setModelOptions(provider.models)
-    await loadAiApiKey()
-    void refreshModels()
-  }, [refreshModels])
-
-  const selectSettingsTab = useCallback(
-    (id: string) => {
-      setTab(id)
-      const st = useSettings.getState()
-      if (id === 'veloxy' && (st.veloxyApiKey.trim() || isLocalAiEndpoint(st.veloxyBaseUrl))) {
-        void refreshModels()
-      }
-    },
-    [refreshModels],
-  )
+  const selectSettingsTab = setTab
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="overflow-hidden border-border p-0 sm:max-w-[580px]">
-        {/* header */}
-        <div className="border-b border-border px-5 py-3.5">
-          <p className="text-sm font-medium text-foreground">{t("settings.title")}</p>
-          <p className="text-xs text-muted-foreground">
-            <Trans
-              i18nKey="settings.pressShortcut"
-              values={{ shortcut: getShortcutDisplay('openSettings') }}
-              components={{ kbd: <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px] text-foreground" /> }}
-            />
-          </p>
-        </div>
-
-        {/* body */}
-        <div className="flex min-h-[400px]">
-          <div className="flex w-[150px] shrink-0 flex-col border-r border-border bg-muted/20 py-2">
-            {tabs.map(({ id, label, Icon }) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => selectSettingsTab(id)}
-                className={cn(
-                  'flex items-center gap-2.5 px-4 py-2.5 text-left text-xs transition-colors',
-                  tab === id
-                    ? 'bg-accent text-accent-foreground font-medium border-r-2 border-r-primary -mr-px'
-                    : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground',
-                )}
-              >
-                <Icon className="size-4 shrink-0" weight={tab === id ? 'fill' : 'regular'} />
-                {label}
-              </button>
+      <DialogContent
+        aria-describedby={undefined}
+        className="flex h-[min(660px,88vh)] gap-0 overflow-hidden border-border p-0 sm:max-w-[880px]"
+      >
+        <DialogTitle className="sr-only">{t("settings.title")}</DialogTitle>
+        <nav className="flex w-[200px] shrink-0 flex-col border-r border-border bg-muted/25">
+          <p className="px-5 pt-5 pb-3 text-sm font-semibold tracking-tight text-foreground">{t("settings.title")}</p>
+          <div className="flex-1 space-y-4 overflow-y-auto px-2.5 pb-3">
+            {tabGroups.map((group, index) => (
+              <div key={index} className="space-y-0.5">
+                {group.map(({ id, label, Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => selectSettingsTab(id)}
+                    aria-current={tab === id ? 'page' : undefined}
+                    className={cn(
+                      'flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      tab === id
+                        ? 'bg-background font-medium text-foreground shadow-xs ring-1 ring-border'
+                        : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
+                    )}
+                  >
+                    <Icon className={cn('size-4 shrink-0', tab === id && 'text-primary')} weight={tab === id ? 'fill' : 'regular'} />
+                    {label}
+                  </button>
+                ))}
+              </div>
             ))}
           </div>
+          <div className="border-t border-border px-5 py-3 text-[11px] leading-relaxed text-muted-foreground">
+            <p>VeloxDB {pkg.version}</p>
+            <p>
+              <Trans
+                i18nKey="settings.pressShortcut"
+                values={{ shortcut: getShortcutDisplay('openSettings') }}
+                components={{ kbd: <kbd className="rounded border border-border bg-background px-1 font-mono text-[10px] text-foreground" /> }}
+              />
+            </p>
+          </div>
+        </nav>
 
-          <div className="min-h-0 flex-1 overflow-auto">
-            {tab === 'appearance' && <Section title={t("settings.appearance")}>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+            {tab === 'appearance' && <Section title={t("settings.appearance")} description={t("settings.pageDesc.appearance")}>
               <Field label={t("settings.language")} desc={t("settings.languageDesc")}>
                 <Select value={i18n.language} onChange={(v) => i18n.changeLanguage(v)}
                   opts={[{ v: 'en', l: 'English' }, { v: 'zh', l: '中文' }]} />
@@ -247,7 +214,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               </Field>
             </Section>}
 
-            {tab === 'editor' && <Section title={t("settings.editor")}>
+            {tab === 'editor' && <Section title={t("settings.editor")} description={t("settings.pageDesc.editor")}>
               <Field label={t("settings.tabWidth")} desc={t("settings.tabWidthDesc")}>
                 <Select value={String(settings.tabWidth)} onChange={(v) => useSettings.setState({ tabWidth: Number(v) })}
                   opts={[{ v: '2', l: '2 spaces' }, { v: '4', l: '4 spaces' }]} />
@@ -261,7 +228,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               </Field>
             </Section>}
 
-            {tab === 'results' && <Section title={t("settings.results")}>
+            {tab === 'results' && <Section title={t("settings.results")} description={t("settings.pageDesc.results")}>
               <Field label={t("settings.maxRows")} desc={t("settings.maxRowsDesc")}>
                 <Select value={String(settings.maxQueryRows)} onChange={(v) => useSettings.setState({ maxQueryRows: Number(v) })}
                   opts={[{ v: '500', l: '500' }, { v: '1000', l: '1,000' }, { v: '5000', l: '5,000' }, { v: '10000', l: '10,000' }]} />
@@ -275,7 +242,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               </Field>
             </Section>}
 
-            {tab === 'connections' && <Section title={t("settings.connections")}>
+            {tab === 'connections' && <Section title={t("settings.connections")} description={t("settings.pageDesc.connections")}>
               <Field label={t("settings.autoReconnect")} desc={t("settings.autoReconnectDesc")}>
                 <Toggle value={settings.autoReconnect} onChange={(v) => useSettings.setState({ autoReconnect: v })} />
               </Field>
@@ -285,84 +252,9 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               </Field>
             </Section>}
 
-            {tab === 'veloxy' && (() => {
-              const provider = getAiProvider(settings.veloxyProvider)
-              return <Section title={t("settings.veloxy")}>
-                <Field label="AI provider" desc="Veloxy uses your own key. Pick a provider, or a model running on this machine.">
-                  <select
-                    value={provider.id}
-                    onChange={(e) => { void selectProvider(e.target.value as AiProviderId) }}
-                    className="h-8 w-[260px] rounded-md border border-input bg-background px-2.5 text-xs shadow-sm transition-colors focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-                  >
-                    {AI_PROVIDERS.map((option) => (
-                      <option key={option.id} value={option.id}>{option.label}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field
-                  label={provider.requiresKey ? `${provider.label} API key` : 'API key (optional)'}
-                  desc={provider.local
-                    ? 'Not needed for a local server.'
-                    : `Stored in your OS keychain.${provider.keyUrl ? ` Get one at ${provider.keyUrl}.` : ''}`}
-                >
-                  <Input
-                    type="password"
-                    value={settings.veloxyApiKey}
-                    onChange={(e) => {
-                      const value = e.target.value
-                      void saveAiApiKey(provider.id, value)
-                      if (value.trim() || !provider.requiresKey) void refreshModels()
-                    }}
-                    className="h-8 w-[260px] text-[11px]"
-                    placeholder={provider.keyPlaceholder}
-                    spellCheck={false}
-                    autoComplete="off"
-                  />
-                </Field>
-                <Field label={t("settings.baseUrl")} desc="OpenAI-compatible endpoint. Change it only for a proxy or self-hosted server.">
-                  <Input
-                    value={settings.veloxyBaseUrl}
-                    onChange={(e) => useSettings.setState({ veloxyBaseUrl: e.target.value })}
-                    onBlur={() => { void refreshModels() }}
-                    className="h-8 w-[260px] text-[11px]"
-                    placeholder={provider.baseUrl || 'https://your-server.example.com/v1'}
-                    spellCheck={false}
-                  />
-                </Field>
-                <Field label={t("settings.model")} desc="Pick a suggestion or type any model id the provider supports.">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      list="veloxy-model-options"
-                      value={settings.veloxyModel}
-                      onChange={(e) => useSettings.setState({ veloxyModel: e.target.value })}
-                      className="h-8 w-[172px] text-[11px]"
-                      placeholder={provider.models[0]?.id ?? 'model-id'}
-                      spellCheck={false}
-                    />
-                    <datalist id="veloxy-model-options">
-                      {modelOptions.map((m) => (
-                        <option key={m.id} value={m.id}>{m.label}</option>
-                      ))}
-                    </datalist>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-xs"
-                      onClick={() => void refreshModels()}
-                      disabled={modelsStatus === 'loading'}
-                    >
-                      <ArrowsClockwiseIcon className={cn('mr-1 size-3.5', modelsStatus === 'loading' && 'animate-spin')} />
-                      {t("settings.refreshModels")}
-                    </Button>
-                  </div>
-                </Field>
-                {modelsError ? (
-                  <p className="text-[11px] text-destructive">{modelsError}</p>
-                ) : null}
-              </Section>
-            })()}
+            {tab === 'veloxy' && <VeloxySettingsPanel />}
 
-            {tab === 'notifications' && <Section title={t("settings.notifications")}>
+            {tab === 'notifications' && <Section title={t("settings.notifications")} description={t("settings.pageDesc.notifications")}>
               <Field label={t("settings.successToasts")} desc={t("settings.successToastsDesc")}>
                 <Toggle
                   value={settings.toastLevels.success}
@@ -377,7 +269,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               </Field>
             </Section>}
 
-            {tab === 'data' && <Section title={t("settings.data")}>
+            {tab === 'data' && <Section title={t("settings.data")} description={t("settings.pageDesc.data")}>
               <Field label={t("settings.exportSettings")} desc={t("settings.exportSettingsDesc")}>
                 <Button variant="outline" size="sm" className="h-8 text-xs" onClick={handleExport}>
                   <DownloadSimpleIcon className="mr-1.5 size-3.5" />{t("settings.exportSettings")}
@@ -397,7 +289,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               </Field>
             </Section>}
 
-            {tab === 'about' && <Section title={t("settings.about")}>
+            {tab === 'about' && <Section title={t("settings.about")} description={t("settings.pageDesc.about")}>
               <Field label={t("settings.version")} desc={`VeloxDB v${pkg.version}`}>
                 <span className="inline-flex items-center h-8 px-3 rounded-md border border-border bg-muted/50 text-xs font-mono text-foreground">
                   v{pkg.version}
@@ -473,23 +365,26 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 </div>
               </Field>
             </Section>}
-          </div>
         </div>
       </DialogContent>
     </Dialog>
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div className="p-5"><h3 className="mb-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{title}</h3><div className="space-y-4">{children}</div></div>
+function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return (
+    <SettingsPage title={title} description={description}>
+      <SettingsGroup>{children}</SettingsGroup>
+    </SettingsPage>
+  )
 }
 
 function Field({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
-  return <div className="flex items-start justify-between gap-4"><div className="min-w-0 pt-0.5"><p className="text-xs font-medium text-foreground">{label}</p>{desc && <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{desc}</p>}</div><div className="shrink-0">{children}</div></div>
+  return <SettingsRow label={label} description={desc}>{children}</SettingsRow>
 }
 
 function Select({ value, onChange, opts }: { value: string; onChange: (v: string) => void; opts: { v: string; l: string }[] }) {
-  return <select value={value} onChange={(e) => onChange(e.target.value)} className="h-8 w-[140px] rounded-md border border-input bg-background px-2.5 text-xs shadow-sm transition-colors focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring">{opts.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}</select>
+  return <select value={value} onChange={(e) => onChange(e.target.value)} className={settingsSelectClass}>{opts.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}</select>
 }
 
 const THEME_ORDER: AppTheme[] = ['system', 'light', 'dark', 'sepia', 'ocean', 'forest', 'rose', 'slate', 'amber']
@@ -499,7 +394,7 @@ function ThemeSelect({ value, onChange }: { value: string; onChange: (v: string)
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-8 w-[140px] rounded-md border border-input bg-background px-2.5 text-xs shadow-sm transition-colors focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+      className={settingsSelectClass}
     >
       {THEME_ORDER.map((theme) => (
         <option key={theme} value={theme}>{themeLabels[theme]}</option>
@@ -509,5 +404,5 @@ function ThemeSelect({ value, onChange }: { value: string; onChange: (v: string)
 }
 
 function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return <button type="button" role="switch" aria-checked={value} onClick={() => onChange(!value)} className={cn('relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-150', value ? 'bg-primary' : 'bg-muted-foreground/25')}><span className={cn('pointer-events-none inline-block size-3.5 rounded-full bg-background shadow-sm transition-transform duration-150', value ? 'translate-x-[18px]' : 'translate-x-[2px]')} /></button>
+  return <SettingsToggle value={value} onChange={onChange} />
 }

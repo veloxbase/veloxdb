@@ -45,8 +45,9 @@ export async function loadAiApiKey(): Promise<void> {
 }
 
 export async function saveAiApiKey(provider: AiProviderId, apiKey: string): Promise<void> {
+  // Write the keychain first so the UI only shows the key as saved once it is.
+  await invoke('store_ai_api_key', { provider, apiKey })
   if (useSettings.getState().veloxyProvider === provider) {
     useSettings.setState({ veloxyApiKey: apiKey })
   }
-  await invoke('store_ai_api_key', { provider, apiKey })
 }
