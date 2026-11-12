@@ -84,9 +84,10 @@ export function GenerateDashboardDialog({
   ) ?? validConnections[0]
 
   const modelLabel = settings.veloxyModel
-  const apiKey = settings.veloxyOpenRouterApiKey
+  const apiKey = settings.veloxyApiKey
 
   const isConfigured = isVeloxyConfigured({
+    provider: settings.veloxyProvider,
     apiKey,
     model: settings.veloxyModel,
     baseUrl: settings.veloxyBaseUrl,

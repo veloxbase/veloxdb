@@ -20,8 +20,8 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 
-import { saveOpenRouterApiKey } from '@/lib/openrouter-credentials'
-import { fetchOpenRouterModels, OPENROUTER_POPULAR_MODELS, OLLAMA_POPULAR_MODELS, type OpenRouterModelOption } from '@/lib/openrouter-models'
+import { loadAiApiKey, saveAiApiKey } from '@/lib/ai-credentials'
+import { AI_PROVIDERS, fetchProviderModels, getAiProvider, type AiModelOption, type AiProviderId } from '@/lib/ai-providers'
 import { cn } from '@/lib/utils'
 import { useSettings, isLocalAiEndpoint, type AppTheme, type ChartPaperStrength, type ChartPaperTint, type NullDisplay, themeLabels, resolveFontSizePx } from '@/lib/settings'
 import { useAppHotkey } from '@/lib/shortcuts/use-app-hotkey'
@@ -54,7 +54,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
   const handleExport = useCallback(() => {
     const exportable = { ...useSettings.getState() } as Record<string, unknown>
-    delete exportable.veloxyOpenRouterApiKey
+    delete exportable.veloxyApiKey
     const data = JSON.stringify(exportable, null, 2)
     const blob = new Blob([data], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -74,7 +74,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     input.click()
   }, [])
 
-  const [modelOptions, setModelOptions] = useState<OpenRouterModelOption[]>(OPENROUTER_POPULAR_MODELS)
+  const [modelOptions, setModelOptions] = useState<AiModelOption[]>(() => getAiProvider(settings.veloxyProvider).models)
   const [modelsStatus, setModelsStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [modelsError, setModelsError] = useState<string | null>(null)
 
@@ -82,33 +82,51 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     { enabled: open },
   )
 
-  const refreshOpenRouterModels = useCallback(async () => {
+  const refreshModels = useCallback(async () => {
+    const { veloxyProvider, veloxyApiKey, veloxyBaseUrl } = useSettings.getState()
+    const provider = getAiProvider(veloxyProvider)
+    setModelOptions(provider.models)
+    if (provider.requiresKey && !veloxyApiKey.trim()) {
+      setModelsStatus('idle')
+      setModelsError(null)
+      return
+    }
     setModelsStatus('loading')
     setModelsError(null)
-    const { veloxyOpenRouterApiKey, veloxyBaseUrl } = useSettings.getState()
     try {
-      const options = await fetchOpenRouterModels(
-        veloxyOpenRouterApiKey,
-        veloxyBaseUrl,
-      )
-      setModelOptions(options)
+      const options = await fetchProviderModels(veloxyProvider, veloxyApiKey, veloxyBaseUrl)
+      if (useSettings.getState().veloxyProvider === veloxyProvider) setModelOptions(options)
       setModelsStatus('idle')
     } catch (error) {
       setModelsStatus('error')
       setModelsError(error instanceof Error ? error.message : 'Failed to fetch models')
-      setModelOptions(isLocalAiEndpoint(veloxyBaseUrl) ? OLLAMA_POPULAR_MODELS : OPENROUTER_POPULAR_MODELS)
     }
   }, [])
+
+  const selectProvider = useCallback(async (id: AiProviderId) => {
+    const provider = getAiProvider(id)
+    const current = useSettings.getState()
+    useSettings.setState({
+      veloxyProvider: id,
+      veloxyApiKey: '',
+      // Keep a custom URL when switching to Custom; presets bring their own.
+      veloxyBaseUrl: provider.baseUrl || (id === 'custom' ? current.veloxyBaseUrl : ''),
+      veloxyModel: provider.models[0]?.id ?? '',
+    })
+    setModelOptions(provider.models)
+    await loadAiApiKey()
+    void refreshModels()
+  }, [refreshModels])
 
   const selectSettingsTab = useCallback(
     (id: string) => {
       setTab(id)
       const st = useSettings.getState()
-      if (id === 'veloxy' && (st.veloxyOpenRouterApiKey.trim() || isLocalAiEndpoint(st.veloxyBaseUrl))) {
-        void refreshOpenRouterModels()
+      if (id === 'veloxy' && (st.veloxyApiKey.trim() || isLocalAiEndpoint(st.veloxyBaseUrl))) {
+        void refreshModels()
       }
     },
-    [refreshOpenRouterModels],
+    [refreshModels],
   )
 
   return (
@@ -262,119 +280,82 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               </Field>
             </Section>}
 
-            {tab === 'veloxy' && <Section title={t("settings.veloxy")}>
-              <Field label="AI Provider" desc="Use your own key with OpenRouter, or a local Ollama / LM Studio server.">
-                <div className="flex items-center gap-1.5">
-                  <Button
-                    type="button"
-                    variant={!isLocalAiEndpoint(settings.veloxyBaseUrl) && settings.veloxyBaseUrl.includes('openrouter.ai') ? 'default' : 'outline'}
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => {
-                      useSettings.setState({
-                        veloxyBaseUrl: 'https://openrouter.ai/api/v1',
-                        veloxyModel: 'deepseek/deepseek-chat',
-                      })
-                      void refreshOpenRouterModels()
-                    }}
+            {tab === 'veloxy' && (() => {
+              const provider = getAiProvider(settings.veloxyProvider)
+              return <Section title={t("settings.veloxy")}>
+                <Field label="AI provider" desc="Veloxy uses your own key. Pick a provider, or a model running on this machine.">
+                  <select
+                    value={provider.id}
+                    onChange={(e) => { void selectProvider(e.target.value as AiProviderId) }}
+                    className="h-8 w-[260px] rounded-md border border-input bg-background px-2.5 text-xs shadow-sm transition-colors focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                   >
-                    OpenRouter
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={isLocalAiEndpoint(settings.veloxyBaseUrl) && settings.veloxyBaseUrl.includes('11434') ? 'default' : 'outline'}
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => {
-                      useSettings.setState({
-                        veloxyBaseUrl: 'http://localhost:11434/v1',
-                        veloxyModel: 'qwen2.5-coder:latest',
-                      })
-                      void refreshOpenRouterModels()
+                    {AI_PROVIDERS.map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field
+                  label={provider.requiresKey ? `${provider.label} API key` : 'API key (optional)'}
+                  desc={provider.local
+                    ? 'Not needed for a local server.'
+                    : `Stored in your OS keychain.${provider.keyUrl ? ` Get one at ${provider.keyUrl}.` : ''}`}
+                >
+                  <Input
+                    type="password"
+                    value={settings.veloxyApiKey}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      void saveAiApiKey(provider.id, value)
+                      if (value.trim() || !provider.requiresKey) void refreshModels()
                     }}
-                  >
-                    Ollama (Local)
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={
-                      (!settings.veloxyBaseUrl.includes('openrouter.ai') && !settings.veloxyBaseUrl.includes('11434'))
-                        ? 'default'
-                        : 'outline'
-                    }
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => {
-                      if (settings.veloxyBaseUrl.includes('openrouter.ai') || settings.veloxyBaseUrl.includes('11434')) {
-                        useSettings.setState({ veloxyBaseUrl: 'http://localhost:1234/v1' })
-                        void refreshOpenRouterModels()
-                      }
-                    }}
-                  >
-                    Custom
-                  </Button>
-                </div>
-              </Field>
-              <Field
-                label={isLocalAiEndpoint(settings.veloxyBaseUrl) ? "API Key (Optional)" : t("settings.openRouterApiKey")}
-                desc={isLocalAiEndpoint(settings.veloxyBaseUrl) ? "Not required for local models like Ollama or LM Studio." : t("settings.openRouterApiKeyDesc")}
-              >
-                <Input
-                  type="password"
-                  value={settings.veloxyOpenRouterApiKey}
-                  onChange={(e) => {
-                    const value = e.target.value
-                    void saveOpenRouterApiKey(value)
-                    if (value.trim() || isLocalAiEndpoint(settings.veloxyBaseUrl)) {
-                      void refreshOpenRouterModels()
-                    }
-                  }}
-                  className="h-8 w-[260px] text-[11px]"
-                  placeholder={isLocalAiEndpoint(settings.veloxyBaseUrl) ? "Optional for local models" : "sk-or-v1-..."}
-                  spellCheck={false}
-                />
-              </Field>
-              <Field label={t("settings.baseUrl")} desc={t("settings.baseUrlDesc")}>
-                <Input
-                  value={settings.veloxyBaseUrl}
-                  onChange={(e) => {
-                    const nextUrl = e.target.value
-                    useSettings.setState({ veloxyBaseUrl: nextUrl })
-                    if (useSettings.getState().veloxyOpenRouterApiKey.trim() || isLocalAiEndpoint(nextUrl)) {
-                      void refreshOpenRouterModels()
-                    }
-                  }}
-                  className="h-8 w-[260px] text-[11px]"
-                  placeholder="https://openrouter.ai/api/v1"
-                  spellCheck={false}
-                />
-              </Field>
-              <Field label={t("settings.model")} desc={t("settings.modelDesc")}>
-                <div className="flex items-center gap-2">
-                  <Select
-                    value={settings.veloxyModel}
-                    onChange={(v) => useSettings.setState({ veloxyModel: v })}
-                    opts={modelOptions.slice(0, 120).map((m) => ({
-                      v: m.id,
-                      l: m.source === 'popular' ? `${m.label} (popular)` : m.label,
-                    }))}
+                    className="h-8 w-[260px] text-[11px]"
+                    placeholder={provider.keyPlaceholder}
+                    spellCheck={false}
+                    autoComplete="off"
                   />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs"
-                    onClick={() => void refreshOpenRouterModels()}
-                    disabled={modelsStatus === 'loading'}
-                  >
-                    <ArrowsClockwiseIcon className={cn('mr-1 size-3.5', modelsStatus === 'loading' && 'animate-spin')} />
-                    {t("settings.refreshModels")}
-                  </Button>
-                </div>
-              </Field>
-              {modelsError ? (
-                <p className="text-[11px] text-destructive">{modelsError}</p>
-              ) : null}
-            </Section>}
+                </Field>
+                <Field label={t("settings.baseUrl")} desc="OpenAI-compatible endpoint. Change it only for a proxy or self-hosted server.">
+                  <Input
+                    value={settings.veloxyBaseUrl}
+                    onChange={(e) => useSettings.setState({ veloxyBaseUrl: e.target.value })}
+                    onBlur={() => { void refreshModels() }}
+                    className="h-8 w-[260px] text-[11px]"
+                    placeholder={provider.baseUrl || 'https://your-server.example.com/v1'}
+                    spellCheck={false}
+                  />
+                </Field>
+                <Field label={t("settings.model")} desc="Pick a suggestion or type any model id the provider supports.">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      list="veloxy-model-options"
+                      value={settings.veloxyModel}
+                      onChange={(e) => useSettings.setState({ veloxyModel: e.target.value })}
+                      className="h-8 w-[172px] text-[11px]"
+                      placeholder={provider.models[0]?.id ?? 'model-id'}
+                      spellCheck={false}
+                    />
+                    <datalist id="veloxy-model-options">
+                      {modelOptions.map((m) => (
+                        <option key={m.id} value={m.id}>{m.label}</option>
+                      ))}
+                    </datalist>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => void refreshModels()}
+                      disabled={modelsStatus === 'loading'}
+                    >
+                      <ArrowsClockwiseIcon className={cn('mr-1 size-3.5', modelsStatus === 'loading' && 'animate-spin')} />
+                      {t("settings.refreshModels")}
+                    </Button>
+                  </div>
+                </Field>
+                {modelsError ? (
+                  <p className="text-[11px] text-destructive">{modelsError}</p>
+                ) : null}
+              </Section>
+            })()}
 
             {tab === 'notifications' && <Section title={t("settings.notifications")}>
               <Field label={t("settings.successToasts")} desc={t("settings.successToastsDesc")}>

@@ -7,7 +7,9 @@ import { useChat } from "@tanstack/ai-react";
 
 import { queryKeys } from "@/data/query-keys";
 import type { DatabaseEngine } from "@/data/types";
-import { isLocalAiEndpoint } from "@/lib/settings";
+import { HTTPClient } from "@openrouter/sdk";
+import { aiFetch, getAiProvider, isLocalAiEndpoint } from "@/lib/ai-providers";
+import { useSettings } from "@/lib/settings";
 import { createVeloxySqlitePersistence } from "@/features/queries/veloxy/sqlite-persistence";
 import {
 	peekVeloxyForeignKeys,
@@ -95,9 +97,10 @@ export function useVeloxyChat({
 			throw new Error("Select a database connection first.");
 		}
 		const isLocal = isLocalAiEndpoint(current.baseUrl);
-		if (!isLocal && !current.apiKey.trim()) {
+		const provider = getAiProvider(useSettings.getState().veloxyProvider);
+		if (!isLocal && provider.requiresKey && !current.apiKey.trim()) {
 			clearTimeout(turnTimer);
-			throw new Error("Add an API key in Settings, or point Veloxy at a local model.");
+			throw new Error(`Add your ${provider.label} API key in Settings → Veloxy.`);
 		}
 		if (!current.model.trim()) {
 			clearTimeout(turnTimer);
@@ -105,13 +108,15 @@ export function useVeloxyChat({
 		}
 
 		const effectiveApiKey = current.apiKey.trim() || (isLocal ? "ollama" : "");
+		// The OpenRouter client speaks the OpenAI chat-completions protocol, so
+		// it drives every provider; requests go through the native HTTP client.
 		const openRouterConfig: Record<string, unknown> = {
 			httpReferer: "https://github.com/veloxbase/veloxdb",
 			appTitle: "VeloxDB",
+			httpClient: new HTTPClient({ fetcher: aiFetch }),
 		};
 		if (current.baseUrl?.trim()) {
-			openRouterConfig.serverURL = current.baseUrl.trim();
-			openRouterConfig.baseURL = current.baseUrl.trim();
+			openRouterConfig.serverURL = current.baseUrl.trim().replace(/\/+$/, "");
 		}
 
 		const adapter = createOpenRouterText(
@@ -142,7 +147,7 @@ export function useVeloxyChat({
 			abortController,
 			agentLoopStrategy: maxIterations(VELOXY_MAX_TOOL_ROUNDS),
 		});
-	}, [queryClient]);
+	}, []);
 
 	const persistence = useMemo(
 		() =>

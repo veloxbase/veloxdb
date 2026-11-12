@@ -159,6 +159,7 @@ export function DashboardGrid({
         >
           <div
             className="dashboard-grid-surface relative"
+            data-dashboard-capture={dashboardId}
             style={{ minHeight: surfaceHeight }}
           >
             {placeholderRect ? (

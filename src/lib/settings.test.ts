@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isLocalAiEndpoint, isVeloxyConfigured, resolveFontSizePx, resolveTheme, themeClassName } from './settings'
+import { isLocalAiEndpoint, isVeloxyConfigured, migrateSettings, resolveFontSizePx, resolveTheme, themeClassName } from './settings'
 
 describe('resolveFontSizePx', () => {
   it('handles default and undefined values', () => {
@@ -86,5 +86,37 @@ describe('isVeloxyConfigured', () => {
       model: '',
       baseUrl: 'http://localhost:11434/v1',
     })).toBe(false)
+  })
+})
+
+describe('isVeloxyConfigured with a provider', () => {
+  it('requires a key for hosted providers', () => {
+    expect(isVeloxyConfigured({ provider: 'deepseek', apiKey: '', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/v1' })).toBe(false)
+    expect(isVeloxyConfigured({ provider: 'deepseek', apiKey: 'sk-1', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/v1' })).toBe(true)
+  })
+
+  it('lets a custom endpoint run without a key but not without a URL', () => {
+    expect(isVeloxyConfigured({ provider: 'custom', apiKey: '', model: 'm', baseUrl: 'https://llm.internal/v1' })).toBe(true)
+    expect(isVeloxyConfigured({ provider: 'custom', apiKey: '', model: 'm', baseUrl: '' })).toBe(false)
+  })
+})
+
+describe('migrateSettings', () => {
+  it('keeps existing OpenRouter users on OpenRouter and carries the plaintext key', () => {
+    const migrated = migrateSettings({
+      veloxyBaseUrl: 'https://openrouter.ai/api/v1',
+      veloxyModel: 'deepseek/deepseek-chat',
+      veloxyOpenRouterApiKey: 'sk-or-v1-abc',
+      veloxyCloudModel: 'x',
+    }, 0) as unknown as Record<string, unknown>
+    expect(migrated.veloxyProvider).toBe('openrouter')
+    expect(migrated.veloxyApiKey).toBe('sk-or-v1-abc')
+    expect(migrated).not.toHaveProperty('veloxyOpenRouterApiKey')
+    expect(migrated).not.toHaveProperty('veloxyCloudModel')
+  })
+
+  it('maps local and unknown URLs', () => {
+    expect(migrateSettings({ veloxyBaseUrl: 'http://localhost:11434/v1' }, 0).veloxyProvider).toBe('ollama')
+    expect(migrateSettings({ veloxyBaseUrl: 'https://llm.internal/v1' }, 0).veloxyProvider).toBe('custom')
   })
 })

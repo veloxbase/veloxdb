@@ -1,4 +1,4 @@
-import { isLocalAiEndpoint } from '@/lib/settings'
+import { requestChatCompletion } from '@/lib/ai-providers'
 
 export type InlineRefactorParams = {
   selectedSql: string
@@ -57,46 +57,12 @@ Rules:
     fullSql.trim() && fullSql !== selectedSql ? `\nFull Query Context:\n\`\`\`sql\n${fullSql.trim()}\n\`\`\`` : '',
   ].filter(Boolean).join('\n')
 
-  const messages = [
-    { role: 'system' as const, content: systemPrompt },
-    { role: 'user' as const, content: userPrompt },
-  ]
-
-  // Bring your own key: OpenRouter, Ollama, or any OpenAI-compatible endpoint.
-  const isLocal = isLocalAiEndpoint(baseUrl)
-  const rawBaseUrl = baseUrl?.trim() || 'https://openrouter.ai/api/v1'
-  const endpoint = `${rawBaseUrl.replace(/\/+$/, '')}/chat/completions`
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'HTTP-Referer': 'https://github.com/veloxbase/veloxdb',
-    'X-Title': 'VeloxDB',
-  }
-
-  const effectiveKey = apiKey?.trim() || (isLocal ? 'ollama' : '')
-  if (effectiveKey) {
-    headers['Authorization'] = `Bearer ${effectiveKey}`
-  }
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model,
-      temperature: 0.1,
-      messages,
-    }),
+  const content = await requestChatCompletion({
+    baseUrl,
+    apiKey,
+    model,
+    systemPrompt,
+    userPrompt,
   })
-
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(`AI request to ${rawBaseUrl} failed (${response.status}): ${text}`)
-  }
-
-  const payload = await response.json()
-  const content = payload.choices?.[0]?.message?.content
-  if (typeof content !== 'string') {
-    throw new Error('AI response did not include message content.')
-  }
   return cleanInlineSqlResponse(content)
 }

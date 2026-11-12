@@ -70,6 +70,7 @@ export function VeloxApp() {
 	const queryClient = useQueryClient();
 	const app = useAppState(queryWorkspaceRef);
 	const veloxyBaseUrl = useSettings((s) => s.veloxyBaseUrl);
+	const veloxyProvider = useSettings((s) => s.veloxyProvider);
 	const [saveQueryDialog, setSaveQueryDialog] = useState<{ sql: string; connectionId: string | null } | null>(null);
 	const [generateDashboardOpen, setGenerateDashboardOpen] = useState(false);
 	const [chartBuilderDialog, setChartBuilderDialog] = useState<{
@@ -138,7 +139,7 @@ export function VeloxApp() {
 		mainWorkspace, setMainWorkspace,
 		isDark,
 		veloxyModel,
-		veloxyOpenRouterApiKey,
+		veloxyApiKey,
 		connectionsQuery, tablesQuery, schemaQuery,
 		saveResultEditsMutation,
 		connectMutation,
@@ -539,9 +540,10 @@ export function VeloxApp() {
 							onNewConnection={() => setConnectionDialogOpen(true)}
 							activeWorkspace={mainWorkspace}
 							modelLabel={veloxyModel}
-							apiKey={veloxyOpenRouterApiKey}
+							apiKey={veloxyApiKey}
 							isConfigured={isVeloxyConfigured({
-								apiKey: veloxyOpenRouterApiKey,
+								provider: veloxyProvider,
+								apiKey: veloxyApiKey,
 								model: veloxyModel,
 								baseUrl: veloxyBaseUrl,
 							})}

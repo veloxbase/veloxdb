@@ -37,7 +37,7 @@ import { quoteIdent } from "@/lib/sql-ident";
 import { notifyError, notifySuccess } from "@/lib/error-notifier";
 import { fetchTablesPropertiesSql } from "@/features/schema/format-table-properties-sql";
 import { consumeOpenConnectOnLaunch } from "@/features/onboarding/constants";
-import { loadOpenRouterApiKey } from "@/lib/openrouter-credentials";
+import { loadAiApiKey } from "@/lib/ai-credentials";
 import { useSettings, resolveTheme, themeClassName, THEME_CLASSES, resolveFontSizePx } from "@/lib/settings";
 
 import type { QueryWorkspaceHandle } from "@/features/queries/components/QueryWorkspace";
@@ -136,7 +136,7 @@ export function useAppState(
 	} | null>(null);
 	const [insertRowTrigger, setInsertRowTrigger] = useState(0);
 	const [mainWorkspace, setMainWorkspace] = useState<MainWorkspaceId>(() => loadLastWorkspaceMode() ?? "query");
-	const veloxyOpenRouterApiKey = useSettings((s) => s.veloxyOpenRouterApiKey);
+	const veloxyApiKey = useSettings((s) => s.veloxyApiKey);
 	const veloxyModel = useSettings((s) => s.veloxyModel);
 	const autoReconnect = useSettings((s) => s.autoReconnect);
 
@@ -174,9 +174,11 @@ export function useAppState(
 		document.documentElement.style.fontSize = `${sizePx}px`;
 	}, [fontSize]);
 
+	const veloxyProvider = useSettings((s) => s.veloxyProvider);
 	useEffect(() => {
-		void loadOpenRouterApiKey();
-	}, []);
+		// Each provider has its own keychain entry; reload when it changes.
+		void loadAiApiKey();
+	}, [veloxyProvider]);
 
 	useEffect(() => {
 		window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(isSidebarCollapsed));
@@ -565,7 +567,7 @@ export function useAppState(
 		mainWorkspace, setMainWorkspace,
 		// Derived
 		isDark,
-		veloxyOpenRouterApiKey, veloxyModel,
+		veloxyApiKey, veloxyModel,
 		// Queries
 		connectionsQuery, tablesQuery, schemaQuery, tablePropertiesQuery,
 		saveResultEditsMutation, deleteRowsMutation,

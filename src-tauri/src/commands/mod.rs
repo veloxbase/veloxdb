@@ -1082,8 +1082,7 @@ pub use lint::{
 };
 pub use export_cmds::{
     export_diagram_png, export_results_csv_command, export_results_json_command,
-    save_base64_png, save_text_file, read_text_file, store_openrouter_api_key, get_openrouter_api_key,
-    delete_openrouter_api_key,
+    save_base64_png, save_text_file, read_text_file, store_ai_api_key, get_ai_api_key,
 };
 pub use mongo::{
     mongo_run_query, mongo_get_collections, mongo_get_schema,
@@ -1189,4 +1188,4 @@ pub use veloxy_chats::{
     list_veloxy_threads, load_veloxy_thread, save_veloxy_thread, touch_veloxy_thread,
     delete_veloxy_thread,
 };
-pub use reports::generate_report_pdf;
+pub use reports::export_dashboard_pdf;

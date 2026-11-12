@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+import {
+  DEFAULT_AI_PROVIDER,
+  getAiProvider,
+  inferAiProvider,
+  isAiProviderId,
+  isLocalAiEndpoint,
+  type AiProviderId,
+} from '@/lib/ai-providers'
+
 export type AppTheme = 'system' | 'light' | 'dark' | 'sepia' | 'ocean' | 'forest' | 'rose' | 'slate' | 'amber'
 export type FontSize = number | 'sm' | 'md' | 'lg'
 export type NullDisplay = 'null' | 'NULL' | 'dash' | 'empty'
@@ -24,7 +33,9 @@ export type AppSettings = {
   clickToCopy: boolean
   autoReconnect: boolean
   pingIntervalSec: number
-  veloxyOpenRouterApiKey: string
+  veloxyProvider: AiProviderId
+  /** Key for `veloxyProvider`, loaded from the OS keychain; never persisted. */
+  veloxyApiKey: string
   veloxyModel: string
   veloxyBaseUrl: string
   toastLevels: ToastLevels
@@ -44,9 +55,10 @@ const defaults: AppSettings = {
   clickToCopy: true,
   autoReconnect: true,
   pingIntervalSec: 30,
-  veloxyOpenRouterApiKey: '',
-  veloxyModel: 'deepseek/deepseek-chat',
-  veloxyBaseUrl: 'https://openrouter.ai/api/v1',
+  veloxyProvider: DEFAULT_AI_PROVIDER,
+  veloxyApiKey: '',
+  veloxyModel: getAiProvider(DEFAULT_AI_PROVIDER).models[0]?.id ?? '',
+  veloxyBaseUrl: getAiProvider(DEFAULT_AI_PROVIDER).baseUrl,
   toastLevels: { success: true, error: true },
 }
 
@@ -64,40 +76,53 @@ export function resolveFontSizePx(size: FontSize | undefined): number {
   return 14;
 }
 
-export function isLocalAiEndpoint(baseUrl: string | null | undefined): boolean {
-  if (!baseUrl) return false;
-  const lower = baseUrl.toLowerCase();
-  return (
-    lower.includes('localhost') ||
-    lower.includes('127.0.0.1') ||
-    lower.includes('0.0.0.0') ||
-    lower.includes(':11434') ||
-    lower.includes(':1234')
-  );
-}
+export { isLocalAiEndpoint } from '@/lib/ai-providers'
 
 export type IsVeloxyConfiguredOptions = {
+  provider?: AiProviderId | null;
   apiKey?: string | null;
   model?: string | null;
   baseUrl?: string | null;
 };
 
 export function isVeloxyConfigured(options: IsVeloxyConfiguredOptions): boolean {
-  const isLocal = isLocalAiEndpoint(options.baseUrl);
   const hasModel = Boolean(options.model?.trim());
-  if (isLocal) {
-    return hasModel;
+  if (!hasModel || !options.baseUrl?.trim()) return false;
+  if (isLocalAiEndpoint(options.baseUrl)) return true;
+  const requiresKey = options.provider ? getAiProvider(options.provider).requiresKey : true;
+  return !requiresKey || Boolean(options.apiKey?.trim());
+}
+
+/**
+ * v0 had no provider: it stored an OpenRouter-style base URL and kept the key
+ * in `veloxyOpenRouterApiKey`. Infer the provider from the URL so existing
+ * users keep working, and carry any plaintext key over so it is moved into
+ * the keychain on load.
+ */
+export function migrateSettings(persisted: unknown, version: number): AppSettings {
+  const state = { ...(persisted as Record<string, unknown>) }
+  if (version < 1) {
+    if (!isAiProviderId(state.veloxyProvider)) {
+      state.veloxyProvider = inferAiProvider(state.veloxyBaseUrl as string | undefined)
+    }
+    if (typeof state.veloxyOpenRouterApiKey === 'string' && state.veloxyOpenRouterApiKey) {
+      state.veloxyApiKey = state.veloxyOpenRouterApiKey
+    }
+    delete state.veloxyOpenRouterApiKey
+    delete state.veloxyCloudModel
   }
-  return Boolean(options.apiKey?.trim() && hasModel);
+  return state as AppSettings
 }
 
 export const useSettings = create<AppSettings>()(
   persist(() => defaults, {
     name: 'veloxdb.settings',
-    // The OpenRouter API key is kept in the OS keychain, never in localStorage.
+    version: 1,
+    migrate: migrateSettings,
+    // API keys live in the OS keychain, never in localStorage.
     partialize: (s) => {
       const rest = { ...s }
-      delete (rest as Partial<AppSettings>).veloxyOpenRouterApiKey
+      delete (rest as Partial<AppSettings>).veloxyApiKey
       return rest
     },
   }),

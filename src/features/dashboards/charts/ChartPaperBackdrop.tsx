@@ -60,7 +60,7 @@ export function ChartPaperBackdrop({ paper }: ChartPaperBackdropProps) {
   return (
     <GrainGradient
       aria-hidden
-      className="pointer-events-none absolute inset-0 z-0 size-full"
+      className="chart-paper-backdrop pointer-events-none absolute inset-0 z-0 size-full"
       style={{ width: '100%', height: '100%' }}
       colors={palette.colors}
       colorBack={grainColorBack(theme)}

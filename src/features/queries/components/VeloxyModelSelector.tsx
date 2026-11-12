@@ -7,27 +7,20 @@ import {
 import { useState } from 'react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { OLLAMA_POPULAR_MODELS, OPENROUTER_POPULAR_MODELS } from '@/lib/openrouter-models'
-import { isLocalAiEndpoint, useSettings } from '@/lib/settings'
+import { getAiProvider } from '@/lib/ai-providers'
+import { useSettings } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 
 type VeloxyModelSelectorProps = {
   onOpenSettings: () => void
 }
 
-function providerLabel(baseUrl: string | null | undefined): string {
-  const trimmed = baseUrl?.trim() ?? ''
-  if (isLocalAiEndpoint(trimmed)) return 'Local model'
-  if (!trimmed || trimmed.includes('openrouter.ai')) return 'OpenRouter'
-  return 'Custom endpoint'
-}
-
 export function VeloxyModelSelector({ onOpenSettings }: VeloxyModelSelectorProps) {
   const [open, setOpen] = useState(false)
   const activeModelSlug = useSettings((s) => s.veloxyModel)
-  const baseUrl = useSettings((s) => s.veloxyBaseUrl)
+  const provider = getAiProvider(useSettings((s) => s.veloxyProvider))
 
-  const presets = isLocalAiEndpoint(baseUrl) ? OLLAMA_POPULAR_MODELS : OPENROUTER_POPULAR_MODELS
+  const presets = provider.models
   const activeModelLabel =
     presets.find((m) => m.id === activeModelSlug)?.label || activeModelSlug || 'Select Model'
   // Keep a custom model id (typed in Settings) selectable alongside the presets.
@@ -59,7 +52,7 @@ export function VeloxyModelSelector({ onOpenSettings }: VeloxyModelSelectorProps
           <div className="flex items-center justify-between text-[11px] font-semibold text-foreground">
             <span>AI Model</span>
             <span className="text-[10px] font-normal text-muted-foreground">
-              {providerLabel(baseUrl)}
+              {provider.label}
             </span>
           </div>
         </div>
