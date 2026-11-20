@@ -553,6 +553,8 @@
     "successToastsDesc": "显示成功确认提示。",
     "errorToasts": "错误提示",
     "errorToastsDesc": "操作失败时显示错误提示。",
+    "queryResultToasts": "查询结果提示",
+    "queryResultToastsDesc": "在读取查询后显示行数和耗时提示。",
     "data": "数据",
     "exportSettings": "导出设置",
     "exportSettingsDesc": "将所有设置下载为 JSON 文件。",

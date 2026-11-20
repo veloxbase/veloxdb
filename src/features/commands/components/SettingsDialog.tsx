@@ -315,6 +315,12 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   onChange={(v) => useSettings.setState({ toastLevels: { ...settings.toastLevels, error: v } })}
                 />
               </Field>
+              <Field label={t("settings.queryResultToasts")} desc={t("settings.queryResultToastsDesc")}>
+                <Toggle
+                  value={settings.showQueryResultToasts}
+                  onChange={(v) => useSettings.setState({ showQueryResultToasts: v })}
+                />
+              </Field>
             </Section>}
 
             {tab === 'data' && <Section title={t("settings.data")}>
