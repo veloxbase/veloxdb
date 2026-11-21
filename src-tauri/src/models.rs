@@ -19,7 +19,9 @@ fn default_connection_ssl_mode() -> ConnectionSslMode {
     ConnectionSslMode::Prefer
 }
 
-fn is_false(v: &bool) -> bool { !*v }
+fn is_false(v: &bool) -> bool {
+    !*v
+}
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -84,6 +86,7 @@ impl SshConfig {
                 || self.password.as_ref().is_some_and(|p| !p.is_empty()))
     }
 
+    /// Returns a copy with secret fields (`password`, `passphrase`) cleared.
     pub fn redacted(&self) -> Self {
         Self {
             password: None,
@@ -523,6 +526,7 @@ impl StoredConnection {
         }
     }
 
+    /// Returns a copy with DB and SSH credentials stripped for safe persistence.
     pub fn redacted(&self) -> Self {
         Self {
             password: None,
@@ -618,7 +622,10 @@ mod tests {
         assert!(ssh.password.is_none());
         assert!(ssh.passphrase.is_none());
         assert_eq!(ssh.host, "bastion.example.com");
-        assert_eq!(ssh.private_key_path.as_deref(), Some("/Users/dev/.ssh/id_ed25519"));
+        assert_eq!(
+            ssh.private_key_path.as_deref(),
+            Some("/Users/dev/.ssh/id_ed25519")
+        );
 
         let json = serde_json::to_string(&redacted).expect("serialize redacted");
         assert!(!json.contains("super-secret-db-pass"));

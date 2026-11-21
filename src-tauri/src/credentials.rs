@@ -37,6 +37,7 @@ pub fn delete_password(connection_id: &str) -> Result<(), String> {
     }
 }
 
+/// Stores an SSH tunnel password in the OS keychain for the given connection.
 pub fn store_ssh_password(connection_id: &str, password: &str) -> Result<(), String> {
     let account = ssh_password_account(connection_id);
     entry(&account)?
@@ -44,6 +45,7 @@ pub fn store_ssh_password(connection_id: &str, password: &str) -> Result<(), Str
         .map_err(|e| format!("Failed to store SSH password in keychain: {}", e))
 }
 
+/// Retrieves an SSH tunnel password from the OS keychain for the given connection.
 pub fn get_ssh_password(connection_id: &str) -> Result<Option<String>, String> {
     let account = ssh_password_account(connection_id);
     match entry(&account)?.get_password() {
@@ -53,15 +55,20 @@ pub fn get_ssh_password(connection_id: &str) -> Result<Option<String>, String> {
     }
 }
 
+/// Deletes an SSH tunnel password from the OS keychain for the given connection.
 pub fn delete_ssh_password(connection_id: &str) -> Result<(), String> {
     let account = ssh_password_account(connection_id);
     match entry(&account)?.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(format!("Failed to delete SSH password from keychain: {}", e)),
+        Err(e) => Err(format!(
+            "Failed to delete SSH password from keychain: {}",
+            e
+        )),
     }
 }
 
+/// Stores an SSH key passphrase in the OS keychain for the given connection.
 pub fn store_ssh_passphrase(connection_id: &str, passphrase: &str) -> Result<(), String> {
     let account = ssh_passphrase_account(connection_id);
     entry(&account)?
@@ -69,21 +76,29 @@ pub fn store_ssh_passphrase(connection_id: &str, passphrase: &str) -> Result<(),
         .map_err(|e| format!("Failed to store SSH passphrase in keychain: {}", e))
 }
 
+/// Retrieves an SSH key passphrase from the OS keychain for the given connection.
 pub fn get_ssh_passphrase(connection_id: &str) -> Result<Option<String>, String> {
     let account = ssh_passphrase_account(connection_id);
     match entry(&account)?.get_password() {
         Ok(passphrase) => Ok(Some(passphrase)),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(format!("Failed to read SSH passphrase from keychain: {}", e)),
+        Err(e) => Err(format!(
+            "Failed to read SSH passphrase from keychain: {}",
+            e
+        )),
     }
 }
 
+/// Deletes an SSH key passphrase from the OS keychain for the given connection.
 pub fn delete_ssh_passphrase(connection_id: &str) -> Result<(), String> {
     let account = ssh_passphrase_account(connection_id);
     match entry(&account)?.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(format!("Failed to delete SSH passphrase from keychain: {}", e)),
+        Err(e) => Err(format!(
+            "Failed to delete SSH passphrase from keychain: {}",
+            e
+        )),
     }
 }
 
