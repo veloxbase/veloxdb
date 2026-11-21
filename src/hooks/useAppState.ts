@@ -8,7 +8,6 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { isTauri } from "@tauri-apps/api/core";
-import { veloxDbRepository } from "@/data/repositories";
 
 import { queryKeys } from "@/data/query-keys";
 import { veloxDbRepository } from "@/data/repositories";
