@@ -11,6 +11,9 @@ export type ToastLevels = Record<ToastLevel, boolean>
 export type AppSettings = {
   theme: AppTheme
   fontSize: FontSize
+  borderRadius: number
+  windowOpacity: number
+  backgroundBlur: boolean
   monospaceFont: string
   tabWidth: number
   showLineNumbers: boolean
@@ -29,6 +32,9 @@ export type AppSettings = {
 const defaults: AppSettings = {
   theme: 'system',
   fontSize: 14,
+  borderRadius: 0,
+  windowOpacity: 100,
+  backgroundBlur: false,
   monospaceFont: "'JetBrains Mono', 'Fira Code', 'Menlo', monospace",
   tabWidth: 2,
   showLineNumbers: true,
