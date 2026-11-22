@@ -37,7 +37,7 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-r
 urlencoding = "2.1"
 hex = "0.4"
 rand = "0.8"
-keyring = "3"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 base64 = "0.22"
 resvg = "0.43"
 usvg = "0.43"

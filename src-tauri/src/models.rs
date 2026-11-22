@@ -19,7 +19,9 @@ fn default_connection_ssl_mode() -> ConnectionSslMode {
     ConnectionSslMode::Prefer
 }
 
-fn is_false(v: &bool) -> bool { !*v }
+fn is_false(v: &bool) -> bool {
+    !*v
+}
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -82,6 +84,15 @@ impl SshConfig {
             && !self.user.is_empty()
             && (self.auth_method != SshAuthMethod::Password
                 || self.password.as_ref().is_some_and(|p| !p.is_empty()))
+    }
+
+    /// Returns a copy with secret fields (`password`, `passphrase`) cleared.
+    pub fn redacted(&self) -> Self {
+        Self {
+            password: None,
+            passphrase: None,
+            ..self.clone()
+        }
     }
 }
 
@@ -515,6 +526,15 @@ impl StoredConnection {
         }
     }
 
+    /// Returns a copy with DB and SSH credentials stripped for safe persistence.
+    pub fn redacted(&self) -> Self {
+        Self {
+            password: None,
+            ssh_config: self.ssh_config.as_ref().map(SshConfig::redacted),
+            ..self.clone()
+        }
+    }
+
     pub fn summary(&self) -> ConnectionSummary {
         ConnectionSummary {
             id: self.id.clone(),
@@ -527,7 +547,7 @@ impl StoredConnection {
             user: self.user.clone(),
             connected_at: self.connected_at.clone(),
             ssl_mode: self.ssl_mode,
-            ssh_config: self.ssh_config.clone(),
+            ssh_config: self.ssh_config.as_ref().map(SshConfig::redacted),
             extra_params: self.extra_params.clone(),
             table_property_editing_supported: self.engine == DatabaseEngine::Postgres,
         }
@@ -558,4 +578,70 @@ pub fn timestamp_string() -> String {
         .unwrap_or_default()
         .as_secs()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_connection() -> StoredConnection {
+        StoredConnection {
+            id: "conn-1".to_string(),
+            name: "Prod".to_string(),
+            engine: DatabaseEngine::Postgres,
+            host: "db.internal".to_string(),
+            port: 5432,
+            database: "app".to_string(),
+            file_path: None,
+            user: "admin".to_string(),
+            password: Some("super-secret-db-pass".to_string()),
+            connected_at: "1700000000".to_string(),
+            ssl_mode: ConnectionSslMode::Require,
+            srv_enabled: false,
+            ssh_config: Some(SshConfig {
+                enabled: true,
+                host: "bastion.example.com".to_string(),
+                port: 22,
+                user: "ubuntu".to_string(),
+                auth_method: SshAuthMethod::Password,
+                password: Some("super-secret-ssh-pass".to_string()),
+                private_key_path: Some("/Users/dev/.ssh/id_ed25519".to_string()),
+                passphrase: Some("super-secret-passphrase".to_string()),
+            }),
+            extra_params: None,
+        }
+    }
+
+    #[test]
+    fn redacted_strips_db_and_ssh_secrets_before_serialization() {
+        let conn = sample_connection();
+        let redacted = conn.redacted();
+
+        assert!(redacted.password.is_none());
+        let ssh = redacted.ssh_config.as_ref().expect("ssh_config preserved");
+        assert!(ssh.password.is_none());
+        assert!(ssh.passphrase.is_none());
+        assert_eq!(ssh.host, "bastion.example.com");
+        assert_eq!(
+            ssh.private_key_path.as_deref(),
+            Some("/Users/dev/.ssh/id_ed25519")
+        );
+
+        let json = serde_json::to_string(&redacted).expect("serialize redacted");
+        assert!(!json.contains("super-secret-db-pass"));
+        assert!(!json.contains("super-secret-ssh-pass"));
+        assert!(!json.contains("super-secret-passphrase"));
+    }
+
+    #[test]
+    fn summary_does_not_expose_ssh_secrets() {
+        let conn = sample_connection();
+        let summary = conn.summary();
+
+        let ssh = summary.ssh_config.as_ref().expect("ssh_config preserved");
+        assert!(ssh.password.is_none());
+        assert!(ssh.passphrase.is_none());
+        assert_eq!(ssh.host, "bastion.example.com");
+        assert_eq!(ssh.user, "ubuntu");
+    }
 }
