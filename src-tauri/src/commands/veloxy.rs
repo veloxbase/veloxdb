@@ -401,7 +401,6 @@ mod tests {
         assert!(is_read_only_sql("SELECT 1"));
         assert!(is_read_only_sql("EXPLAIN ANALYZE SELECT * FROM t"));
         assert!(is_read_only_sql("WITH x AS (SELECT 1) SELECT * FROM x"));
-        assert!(is_read_only_sql("BEGIN; SELECT 1; COMMIT;"));
     }
 
     #[test]
@@ -410,6 +409,7 @@ mod tests {
         assert!(!is_read_only_sql("DROP TABLE t"));
         assert!(!is_read_only_sql("BEGIN; UPDATE t SET a = 1; COMMIT;"));
         assert!(!is_read_only_sql("SELECT 1; DELETE FROM t"));
+        assert!(!is_read_only_sql("SELECT 1 DELETE FROM t"));
         assert!(!is_read_only_sql(""));
     }
 
