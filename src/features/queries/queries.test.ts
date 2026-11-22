@@ -47,8 +47,14 @@ describe('engine-aware explain sql', () => {
 })
 
 describe('transactional result mutations', () => {
-  it('wraps postgres edits in an explicit transaction', () => {
-    expect(buildTransactionalSql('postgres', ['UPDATE "t" SET "a" = 1;'])).toBe(
+  it('runs postgres edits as one implicit transaction', () => {
+    expect(
+      buildTransactionalSql('postgres', ['UPDATE "t" SET "a" = 1;', 'UPDATE "t" SET "b" = 2;']),
+    ).toBe('UPDATE "t" SET "a" = 1;\nUPDATE "t" SET "b" = 2;')
+  })
+
+  it('wraps sqlite edits in an explicit transaction', () => {
+    expect(buildTransactionalSql('sqlite', ['UPDATE "t" SET "a" = 1;'])).toBe(
       'BEGIN;\nUPDATE "t" SET "a" = 1;\nCOMMIT;',
     )
   })

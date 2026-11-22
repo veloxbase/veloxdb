@@ -25,6 +25,12 @@ export function buildTransactionalSql(
 	statements: string[],
 ): string {
 	const body = statements.join("\n");
+	// Postgres runs a multi-statement query as one implicit transaction, so the
+	// batch is already atomic. An explicit BEGIN would leave the pooled session
+	// in an aborted transaction when a statement fails.
+	if (engine === "postgres") {
+		return body;
+	}
 	if (
 		engine === "mysql" ||
 		engine === "clickhouse" ||
@@ -59,6 +65,7 @@ async function runTransactionalStatements(
 		});
 	} catch (error) {
 		if (
+			engine !== "postgres" &&
 			engine !== "mysql" &&
 			engine !== "clickhouse" &&
 			engine !== "redis" &&
