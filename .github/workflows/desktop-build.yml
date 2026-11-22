@@ -102,8 +102,10 @@ jobs:
           # The extracted AppDir is owner-only (0700). AppImages run as other users, and
           # appimagetool refuses to package an AppDir they can't read.
           chmod -R a+rX squashfs-root
-          # Pinned: the `continuous` build changes under us.
-          curl -fsSL https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage -o appimagetool
+          # Pinned: the `continuous` build changes under us. HTTPS only, even across redirects,
+          # and checked against the sha256 GitHub publishes for the 1.9.1 asset.
+          curl --proto '=https' --tlsv1.2 -fsSL https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage -o appimagetool
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  appimagetool" | sha256sum -c -
           chmod +x appimagetool && ./appimagetool --no-appstream squashfs-root "$img"
           rm -rf squashfs-root appimagetool
 
