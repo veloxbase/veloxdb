@@ -31,7 +31,13 @@ pub async fn connect_db(
     let ops = engines::get_engine(input.engine);
     ops.connect(&app, &state, &input, &connection_id).await.map_err(String::from)?;
 
-    let stored_connection = StoredConnection::from_input(connection_id.clone(), input.clone());
+    let mut stored_connection = StoredConnection::from_input(connection_id.clone(), input.clone());
+    // Keep the "Allow AI tools" opt-in while the connection still points at
+    // the same database; pointing it somewhere else turns it off.
+    if let Ok(Some(previous)) = load_connection(&app, &connection_id) {
+        stored_connection.allow_ai_tools =
+            previous.allow_ai_tools && previous.same_target(&stored_connection);
+    }
     persist_connection_with_password(&app, &stored_connection, &input.password)?;
 
     *state.active_connection_id.write().await = Some(connection_id);

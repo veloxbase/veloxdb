@@ -1077,6 +1077,7 @@ pub use veloxy::{
     cancel_veloxy_request, chat_with_db, clear_veloxy_conversation, generate_sql_from_nl,
     load_veloxy_conversation, veloxy_run_readonly,
 };
+pub(crate) use veloxy::{check_agent_readonly_sql, get_or_build_ask_veloxy_db_context};
 pub use lint::{
     lint_sql,
 };

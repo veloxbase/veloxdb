@@ -22,17 +22,17 @@
 //! TRANSACTION` would silently commit, and per-session settings (timeouts,
 //! `query_only`) cannot leak back into the pool.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::time::{Duration, Instant};
 
 use futures_util::TryStreamExt;
 use sqlx::mysql::{MySqlConnection, MySqlRow};
 use sqlx::sqlite::{SqliteConnection, SqliteRow};
-use sqlx::{Connection, Executor, MySqlPool, SqlitePool};
+use sqlx::{Column, Connection, Executor, MySqlPool, Row, SqlitePool};
 use tokio_postgres::error::SqlState;
 use tokio_postgres::SimpleQueryMessage;
 
-use crate::commands::{map_mysql_rows, map_sqlite_rows};
+use crate::commands::{mysql_value_to_display_string, sqlite_value_to_string, MappedRowsResult};
 use crate::models::QueryResult;
 use crate::pg_error::map_pg_err;
 
@@ -50,6 +50,47 @@ const CLIENT_TIMEOUT_GRACE: Duration = Duration::from_secs(5);
 
 pub(crate) fn timeout_message(timeout_ms: u64) -> String {
     format!("Query timed out after {}s.", timeout_ms.div_ceil(1000))
+}
+
+/// Column names made unique (`id`, `id_2`). Rows are keyed by column name, so
+/// a join selecting two `id` columns would otherwise show the second value
+/// under both.
+pub(crate) fn unique_column_names(names: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen: HashSet<String> = HashSet::new();
+    names
+        .into_iter()
+        .map(|name| {
+            if seen.insert(name.clone()) {
+                return name;
+            }
+            (2..)
+                .map(|n| format!("{}_{}", name, n))
+                .find(|candidate| seen.insert(candidate.clone()))
+                .expect("an unused suffix exists")
+        })
+        .collect()
+}
+
+/// Maps sqlx rows to display strings under unique column names.
+fn map_rows<R: Row>(
+    rows: Vec<R>,
+    total_rows: usize,
+    max_rows: usize,
+    value: impl Fn(&R, usize, &str) -> Result<Option<String>, String>,
+) -> Result<MappedRowsResult, String> {
+    let columns = rows
+        .first()
+        .map(|row| unique_column_names(row.columns().iter().map(|c| c.name().to_string())))
+        .unwrap_or_default();
+    let mut mapped = Vec::with_capacity(rows.len().min(max_rows));
+    for row in rows.iter().take(max_rows) {
+        let mut entry = BTreeMap::new();
+        for (index, name) in columns.iter().enumerate() {
+            entry.insert(name.clone(), value(row, index, name)?);
+        }
+        mapped.push(entry);
+    }
+    Ok((columns, mapped, total_rows, total_rows > max_rows))
 }
 
 // ── PostgreSQL ──────────────────────────────────────────────────
@@ -166,12 +207,12 @@ fn collect_pg_messages(messages: Vec<SimpleQueryMessage>, max_rows: usize) -> Qu
     for message in messages {
         match message {
             SimpleQueryMessage::RowDescription(description) => {
-                columns = description.iter().map(|column| column.name().to_string()).collect();
+                columns = unique_column_names(description.iter().map(|column| column.name().to_string()));
             }
             SimpleQueryMessage::Row(row) => {
                 total_rows += 1;
                 if columns.is_empty() {
-                    columns = row.columns().iter().map(|column| column.name().to_string()).collect();
+                    columns = unique_column_names(row.columns().iter().map(|column| column.name().to_string()));
                 }
                 if rows.len() >= max_rows {
                     continue;
@@ -275,7 +316,7 @@ async fn mysql_readonly_on(
     sql: &str,
     max_rows: usize,
     timeout_ms: u64,
-) -> Result<crate::commands::MappedRowsResult, String> {
+) -> Result<MappedRowsResult, String> {
     // Server-side limit. MySQL names it max_execution_time (ms, SELECT only);
     // MariaDB names it max_statement_time (seconds). The client-side timeout
     // in `mysql_readonly` covers a server that has neither.
@@ -297,8 +338,9 @@ async fn mysql_readonly_on(
         let _ = conn.execute("ROLLBACK").await;
     }
     let (rows, total_rows) = fetched.map_err(|error| map_mysql_timeout(error, timeout_ms))?;
-    let (columns, mapped, _, _) = map_mysql_rows(rows, max_rows)?;
-    Ok((columns, mapped, total_rows, total_rows > max_rows))
+    map_rows(rows, total_rows, max_rows, |row, index, name| {
+        mysql_value_to_display_string(row, index, name, "agent_query")
+    })
 }
 
 fn map_mysql_timeout(error: sqlx::Error, timeout_ms: u64) -> String {
@@ -400,7 +442,7 @@ async fn sqlite_readonly_on(
     sql: &str,
     max_rows: usize,
     timeout_ms: u64,
-) -> Result<crate::commands::MappedRowsResult, String> {
+) -> Result<MappedRowsResult, String> {
     conn.execute("PRAGMA query_only = ON")
         .await
         .map_err(|error| error.to_string())?;
@@ -415,8 +457,9 @@ async fn sqlite_readonly_on(
             message
         }
     })?;
-    let (columns, mapped, _, _) = map_sqlite_rows(rows, max_rows)?;
-    Ok((columns, mapped, total_rows, total_rows > max_rows))
+    map_rows(rows, total_rows, max_rows, |row, index, name| {
+        sqlite_value_to_string(row, index, name, "agent_query")
+    })
 }
 
 #[cfg(test)]
@@ -519,6 +562,28 @@ mod tests {
         let error = outcome.expect_err("should time out");
         assert!(error.contains("timed out"), "unexpected error: {error}");
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn duplicate_column_names_get_suffixes() {
+        let names = ["id", "name", "id", "id_2", "id"].map(String::from);
+        assert_eq!(unique_column_names(names), vec!["id", "name", "id_2", "id_2_2", "id_3"]);
+    }
+
+    #[tokio::test]
+    async fn sqlite_readonly_keeps_both_columns_of_a_join() {
+        let (_db, pool) = sqlite_fixture().await;
+        let result = sqlite_readonly(
+            &pool,
+            "SELECT a.id, b.id FROM users a JOIN users b ON b.id = a.id + 1 ORDER BY a.id",
+            10,
+            5_000,
+        )
+        .await
+        .expect("join");
+        assert_eq!(result.columns, vec!["id", "id_2"]);
+        assert_eq!(result.rows[0].get("id").cloned().flatten().as_deref(), Some("1"));
+        assert_eq!(result.rows[0].get("id_2").cloned().flatten().as_deref(), Some("2"));
     }
 
     #[test]

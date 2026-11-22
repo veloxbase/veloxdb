@@ -34,7 +34,7 @@ use super::editor_meta::{
 };
 use crate::models::AskVeloxyDbContextCache;
 
-async fn get_or_build_ask_veloxy_db_context(
+pub(crate) async fn get_or_build_ask_veloxy_db_context(
     app: &AppHandle,
     state: &AppState,
     connection_id: &str,

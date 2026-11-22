@@ -11,6 +11,8 @@ mod redis;
 mod sqlite;
 
 pub(crate) use readonly::AgentStatement;
+#[cfg(test)]
+pub(crate) use readonly::sqlite_readonly as readonly_sqlite_for_tests;
 
 use tauri::AppHandle;
 
