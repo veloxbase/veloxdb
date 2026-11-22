@@ -188,7 +188,13 @@ export function McpSettingsSection() {
             <>
               <p className="text-[11px] leading-snug text-muted-foreground">{config.where}</p>
               <div className="relative">
-                <pre className="max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-3 pr-20 font-mono text-[11px] leading-relaxed text-foreground">
+                <pre
+                  className={cn(
+                    'max-h-48 overflow-auto rounded-md border border-border bg-muted/40 p-3 pr-20 font-mono text-[11px] leading-relaxed text-foreground',
+                    // A one-line command wraps instead of running under the Copy button.
+                    config.kind === 'shell' && 'whitespace-pre-wrap break-all',
+                  )}
+                >
                   {config.snippet}
                 </pre>
                 <Button

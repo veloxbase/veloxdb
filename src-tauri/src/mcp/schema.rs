@@ -268,12 +268,15 @@ pub(crate) fn describe(context: &AskVeloxyDbContextCache, table: &QueryEditorTab
         .columns
         .iter()
         .map(|column| {
-            let mut entry = json!({
-                "name": column.name,
-                "dataType": column.data_type,
-                "nullable": column.is_nullable.unwrap_or(true),
-                "primaryKey": column.is_primary_key.unwrap_or(false),
-            });
+            // Left out when the catalog does not know (SQLite reports
+            // neither), rather than guessed.
+            let mut entry = json!({ "name": column.name, "dataType": column.data_type });
+            if let Some(nullable) = column.is_nullable {
+                entry["nullable"] = json!(nullable);
+            }
+            if let Some(primary_key) = column.is_primary_key {
+                entry["primaryKey"] = json!(primary_key);
+            }
             if let Some(comment) = column.comment.as_deref().filter(|c| !c.is_empty()) {
                 entry["comment"] = json!(comment);
             }
@@ -434,6 +437,13 @@ pub(crate) mod tests {
         assert_eq!(described["columns"][0]["primaryKey"], json!(true));
         assert_eq!(described["columns"][2]["enumValues"], json!(["open", "paid"]));
         assert_eq!(described["foreignKeys"].as_array().unwrap().len(), 2);
+
+        let mut unknown = orders[0].clone();
+        unknown.columns[0].is_primary_key = None;
+        unknown.columns[0].is_nullable = None;
+        let described = describe(&context, &unknown);
+        assert!(described["columns"][0].get("primaryKey").is_none(), "unknown is left out, not guessed");
+        assert!(described["columns"][0].get("nullable").is_none());
     }
 
     #[test]
