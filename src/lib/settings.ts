@@ -27,6 +27,7 @@ export type AppSettings = {
   veloxyModel: string
   veloxyBaseUrl: string
   toastLevels: ToastLevels
+  showQueryResultToasts: boolean
 }
 
 const defaults: AppSettings = {
@@ -48,6 +49,7 @@ const defaults: AppSettings = {
   veloxyModel: 'deepseek/deepseek-chat',
   veloxyBaseUrl: 'https://openrouter.ai/api/v1',
   toastLevels: { success: true, error: true },
+  showQueryResultToasts: false,
 }
 
 export function resolveFontSizePx(size: FontSize | undefined): number {

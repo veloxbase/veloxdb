@@ -559,6 +559,8 @@
     "successToastsDesc": "Show success confirmation toasts.",
     "errorToasts": "Error Toasts",
     "errorToastsDesc": "Show error toasts when operations fail.",
+    "queryResultToasts": "Query Result Toasts",
+    "queryResultToastsDesc": "Show row count and timing toasts after read queries.",
     "data": "Data",
     "exportSettings": "Export Settings",
     "exportSettingsDesc": "Download all settings as a JSON file.",
