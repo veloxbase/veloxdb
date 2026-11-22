@@ -6,12 +6,18 @@ mod mongo;
 mod mssql;
 mod mysql;
 mod postgres;
+mod readonly;
 mod redis;
 mod sqlite;
 
+pub(crate) use readonly::AgentStatement;
+
 use tauri::AppHandle;
 
-use crate::db::AppState;
+use crate::db::{
+    describe_pool_error, drop_pool, get_or_create_mysql_pool, get_or_create_pool,
+    get_or_create_sqlite_pool, is_retryable_connection_error, AppState,
+};
 use crate::error::VeloxError;
 use crate::models::{
     ColumnInfo, ConnectionInput, DatabaseEngine, DatabaseInfo, QueryResult, TableInfo,
@@ -149,35 +155,93 @@ pub fn get_engine(engine: DatabaseEngine) -> EngineDispatcher {
     }
 }
 
-/// Like [`DatabaseEngineOps::run_query`], for agent (Veloxy) reads. On
-/// Postgres with a timeout it runs inside a rolled-back `READ ONLY`
-/// transaction with `statement_timeout`, so agent reads can neither write nor
-/// pin a pool client. Other engines rely on `assert_veloxy_readonly_sql`
-/// alone, which callers must run first.
-pub(crate) async fn run_query_bounded(
+/// True for engines whose database refuses writes from agent SQL on its own
+/// (see [`readonly`]). Other SQL engines rely on the parser check alone, so
+/// the MCP server does not expose them.
+pub(crate) fn enforces_readonly_in_database(engine: DatabaseEngine) -> bool {
+    matches!(
+        engine,
+        DatabaseEngine::Postgres | DatabaseEngine::Mysql | DatabaseEngine::Sqlite
+    )
+}
+
+/// Runs agent (Veloxy, MCP) SQL that already passed
+/// `check_agent_readonly_sql`. Postgres, MySQL and SQLite run it so that the
+/// database itself refuses writes, with `timeout_ms` enforced by the server
+/// and a row cap applied while reading (see [`readonly`]). Other engines rely
+/// on the parser check alone.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_agent_readonly(
     app: &AppHandle,
     state: &AppState,
     connection_id: &str,
     engine: DatabaseEngine,
     sql: &str,
+    kind: AgentStatement,
     max_rows: usize,
-    timeout_ms: Option<u64>,
+    timeout_ms: u64,
 ) -> Result<QueryResult, VeloxError> {
-    if engine == DatabaseEngine::Postgres {
-        if let Some(ms) = timeout_ms {
-            return PostgresEngine::run_readonly_query_with_timeout(
-                app,
-                state,
-                connection_id,
-                sql,
-                max_rows,
-                ms,
-            )
-            .await;
+    match engine {
+        DatabaseEngine::Postgres => {
+            run_postgres_agent_readonly(app, state, connection_id, sql, kind, max_rows, timeout_ms)
+                .await
+        }
+        DatabaseEngine::Mysql => {
+            let pool = get_or_create_mysql_pool(app, state, connection_id).await?;
+            readonly::mysql_readonly(&pool, sql, max_rows, timeout_ms)
+                .await
+                .map_err(VeloxError::Query)
+        }
+        DatabaseEngine::Sqlite => {
+            let pool = get_or_create_sqlite_pool(app, state, connection_id).await?;
+            readonly::sqlite_readonly(&pool, sql, max_rows, timeout_ms)
+                .await
+                .map_err(VeloxError::Query)
+        }
+        _ => {
+            get_engine(engine)
+                .run_query(app, state, connection_id, sql, max_rows)
+                .await
         }
     }
-    get_engine(engine)
-        .run_query(app, state, connection_id, sql, max_rows)
-        .await
 }
 
+/// Postgres agent reads, with one retry on a dropped connection like
+/// `with_pool_client_retry`. The session is held by a guard that closes it
+/// if the client-side timeout fires mid-transaction.
+async fn run_postgres_agent_readonly(
+    app: &AppHandle,
+    state: &AppState,
+    connection_id: &str,
+    sql: &str,
+    kind: AgentStatement,
+    max_rows: usize,
+    timeout_ms: u64,
+) -> Result<QueryResult, VeloxError> {
+    let client_timeout =
+        std::time::Duration::from_millis(timeout_ms) + std::time::Duration::from_secs(5);
+    let mut dropped_pool = false;
+    loop {
+        let pool = get_or_create_pool(app, state, connection_id).await?;
+        let outcome = match pool.get().await {
+            Ok(client) => {
+                let session = readonly::PgSessionGuard::new(client);
+                tokio::time::timeout(
+                    client_timeout,
+                    readonly::postgres_readonly(session, sql, kind, max_rows, timeout_ms),
+                )
+                .await
+                .unwrap_or_else(|_| Err(readonly::timeout_message(timeout_ms)))
+            }
+            Err(error) => Err(describe_pool_error(&error)),
+        };
+        match outcome {
+            Ok(result) => return Ok(result),
+            Err(message) if !dropped_pool && is_retryable_connection_error(&message) => {
+                drop_pool(state, connection_id).await;
+                dropped_pool = true;
+            }
+            Err(message) => return Err(VeloxError::Query(message)),
+        }
+    }
+}

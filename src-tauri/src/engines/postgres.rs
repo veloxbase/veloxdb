@@ -115,46 +115,6 @@ async fn run_simple_query(
     .await
 }
 
-impl PostgresEngine {
-    /// Runs agent SQL inside a `READ ONLY` transaction that is always rolled
-    /// back. This is the database-level backstop behind the AST check in
-    /// `assert_veloxy_readonly_sql`: Postgres itself rejects INSERT, UPDATE,
-    /// DELETE, DDL and `nextval()` here, so a parser gap cannot become a
-    /// write. `SET LOCAL` scopes the timeout to this transaction, so it is
-    /// cleared by the rollback even if the query fails.
-    pub(crate) async fn run_readonly_query_with_timeout(
-        app: &AppHandle,
-        state: &AppState,
-        connection_id: &str,
-        sql: &str,
-        max_rows: usize,
-        timeout_ms: u64,
-    ) -> Result<QueryResult, VeloxError> {
-        with_pool_client_retry(
-            app,
-            state,
-            connection_id,
-            sql.to_string(),
-            |client, sql| async move {
-                client
-                    .batch_execute(&format!(
-                        "BEGIN READ ONLY; SET LOCAL statement_timeout = {}",
-                        timeout_ms
-                    ))
-                    .await
-                    .map_err(|error| map_pg_err(error, None))?;
-                let result = simple_query_capped(&client, &sql, max_rows).await;
-                // Roll back on success too: nothing the agent runs should
-                // persist, and a failed transaction must not leak into the
-                // next user of this pooled connection.
-                let _ = client.batch_execute("ROLLBACK").await;
-                result
-            },
-        )
-        .await
-    }
-}
-
 impl DatabaseEngineOps for PostgresEngine {
     async fn connect(
         &self,
