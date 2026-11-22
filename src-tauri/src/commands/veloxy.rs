@@ -263,8 +263,10 @@ pub async fn generate_sql_from_nl(
         .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>())
         .unwrap_or_default();
 
-    let intent = generated.get("intent").and_then(Value::as_str).map(str::to_string)
-        .unwrap_or_else(|| classify_sql_intent(&sql));
+    // Derive the intent from the SQL itself. The model's own `intent` field is
+    // untrusted: the frontend auto-runs read intents, so a write labelled
+    // "select" would otherwise run without confirmation.
+    let intent = classify_sql_intent(&sql);
     let confidence = generated.get("confidence").and_then(Value::as_f64).unwrap_or(0.6).clamp(0.0, 1.0);
     let explanation = generated.get("explanation").and_then(Value::as_str).map(str::trim)
         .filter(|value| !value.is_empty()).map(|value| {

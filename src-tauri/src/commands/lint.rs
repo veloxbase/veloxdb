@@ -6,6 +6,7 @@ use crate::db::{
 };
 use crate::models::{DatabaseEngine, LintSqlRequest, LintSqlResult, SqlDiagnostic};
 use crate::pg_error::{error_line_column, map_pg_err};
+use crate::sql_split::split_sql_statements;
 
 use super::MAX_LINT_SQL_BYTES;
 
@@ -23,12 +24,21 @@ pub async fn lint_sql(
     if sql.len() > MAX_LINT_SQL_BYTES {
         return Err("SQL is too large to lint in the editor.".to_string());
     }
+    // Linting runs on every keystroke without user confirmation, so it must
+    // never execute anything. Several drivers (Postgres simple query, sqlx
+    // SQLite) run every statement in a multi-statement string, which turned
+    // `EXPLAIN SELECT 1; DELETE ...` into a real DELETE. Only lint a single
+    // statement.
+    if split_sql_statements(&sql).len() != 1 {
+        return Ok(LintSqlResult { diagnostics: Vec::new() });
+    }
 
     match engine {
         DatabaseEngine::Postgres => {
             with_pool_client_retry(&app, &state, &connection_id, sql, |client, sql| async move {
-                let lint_sql = format!("EXPLAIN {}", sql);
-                let diagnostics = match client.simple_query(&lint_sql).await {
+                // Prepare parses and plans without executing, and Postgres
+                // rejects multiple commands in a prepared statement.
+                let diagnostics = match client.prepare(&sql).await {
                     Ok(_) => Vec::new(),
                     Err(error) => {
                         let (line, column) = error_line_column(&error, &sql)
