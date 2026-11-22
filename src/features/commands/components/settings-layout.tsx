@@ -69,10 +69,12 @@ export function SettingsToggle({
   value,
   onChange,
   label,
+  disabled,
 }: {
   value: boolean
   onChange: (value: boolean) => void
   label?: string
+  disabled?: boolean
 }) {
   return (
     <button
@@ -80,10 +82,12 @@ export function SettingsToggle({
       role="switch"
       aria-checked={value}
       aria-label={label}
+      disabled={disabled}
       onClick={() => onChange(!value)}
       className={cn(
         'relative mt-1 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-150',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+        'disabled:cursor-not-allowed disabled:opacity-50',
         value ? 'bg-primary' : 'bg-muted-foreground/25',
       )}
     >

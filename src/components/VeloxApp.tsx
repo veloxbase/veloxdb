@@ -11,12 +11,15 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
+import { listen } from "@tauri-apps/api/event";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import { queryKeys } from "@/data/query-keys";
 import { veloxDbRepository } from "@/data/repositories";
-import type { Dashboard } from "@/data/types";
+import type { Dashboard, McpOpenInEditorRequest } from "@/data/types";
+import { toast } from "@/components/ui/use-toast";
+import { editorSqlForMcpRequest, mcpClientName } from "@/lib/mcp-config";
 import { CommandPalette } from "@/features/commands/components/CommandPalette";
 import { ShortcutSheet } from "@/features/commands/components/ShortcutSheet";
 import { SettingsDialog, type SettingsTabId } from "@/features/commands/components/SettingsDialog";
@@ -310,6 +313,50 @@ export function VeloxApp() {
 
 		activateConnectionMutation.mutate(connectionId, { onSuccess: openSql });
 	}, [connection, activateConnectionMutation, setMainWorkspace]);
+
+	// SQL an AI app sent over MCP (`open_in_editor`): open it in a new tab on
+	// its connection for the user to review. It is never run from here.
+	const openMcpSql = useCallback((request: McpOpenInEditorRequest) => {
+		const sql = editorSqlForMcpRequest(request);
+		const open = () => {
+			setMainWorkspace("query");
+			const workspace = queryWorkspaceRef.current;
+			if (workspace) {
+				workspace.openTabWithSql(sql, request.connectionId);
+			} else {
+				pendingSqlToOpenRef.current = sql;
+			}
+		};
+		if (connection?.id === request.connectionId) {
+			open();
+		} else {
+			activateConnectionMutation.mutate(request.connectionId, { onSettled: open });
+		}
+		toast({
+			title: `${mcpClientName(request.client)} opened SQL in the editor`,
+			description: "Nothing has run. Review it, then run it yourself if it looks right.",
+		});
+	}, [connection, activateConnectionMutation, setMainWorkspace]);
+
+	const openMcpSqlRef = useRef(openMcpSql);
+	useEffect(() => {
+		openMcpSqlRef.current = openMcpSql;
+	}, [openMcpSql]);
+
+	useEffect(() => {
+		let disposed = false;
+		let unlisten: (() => void) | undefined;
+		void listen<McpOpenInEditorRequest>("mcp://open-in-editor", (event) => {
+			openMcpSqlRef.current(event.payload);
+		}).then((fn) => {
+			if (disposed) fn();
+			else unlisten = fn;
+		}).catch(() => {});
+		return () => {
+			disposed = true;
+			unlisten?.();
+		};
+	}, []);
 
 	const layoutStyle = {
 		"--sidebar-width": `${isSidebarCollapsed ? 0 : sidebarWidth}px`,

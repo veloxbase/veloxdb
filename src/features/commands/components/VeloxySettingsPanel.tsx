@@ -29,6 +29,7 @@ import { openExternal } from '@/lib/open-external'
 import { useSettings } from '@/lib/settings'
 import { cn } from '@/lib/utils'
 
+import { McpSettingsSection } from './McpSettingsSection'
 import { SettingsPage } from './settings-layout'
 
 type TestState =
@@ -545,6 +546,8 @@ export function VeloxySettingsPanel() {
         </button>
       ) : null}
       {!selfHosted && advancedOpen ? endpointField : null}
+
+      <McpSettingsSection />
     </SettingsPage>
   )
 }

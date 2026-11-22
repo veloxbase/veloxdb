@@ -58,6 +58,37 @@ export type ConnectionSummary = {
   sshConfig?: SshConfig | null
   extraParams?: Record<string, string> | null
   tablePropertyEditingSupported: boolean
+  /** "Allow AI tools on this connection": shared with AI apps over MCP. */
+  allowAiTools?: boolean
+}
+
+/** One tool call from an AI app, newest first in `McpStatus.activity`. */
+export type McpActivity = {
+  atMs: number
+  client: string
+  tool: string
+  connection?: string | null
+  summary?: string | null
+  ok: boolean
+}
+
+/** Settings → Veloxy → AI tools: the MCP server's switch and state. */
+export type McpStatus = {
+  enabled: boolean
+  running: boolean
+  /** Executable AI clients launch, with `launcherArgs`. */
+  launcher?: string | null
+  launcherArgs: string[]
+  launcherWarning?: string | null
+  activity: McpActivity[]
+}
+
+/** Payload of the `mcp://open-in-editor` event. Nothing has run. */
+export type McpOpenInEditorRequest = {
+  connectionId: string
+  sql: string
+  title?: string | null
+  client: string
 }
 
 export type QueryRequest = {

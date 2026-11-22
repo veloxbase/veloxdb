@@ -68,7 +68,7 @@ Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 
 ### Veloxy, the AI Database Agent
 - **Ask in Plain English** — Veloxy searches your schema, describes tables, runs read-only queries, explains plans, and proposes charts to answer questions about your data.
-- **Read-Only by Design** — Agent SQL is parsed and rejected if it can write (including `EXPLAIN ANALYZE <write>` and data-modifying CTEs); on PostgreSQL it also runs inside a rolled-back `READ ONLY` transaction. Anything that writes goes to your editor for you to run.
+- **Read-Only by Design** — Agent SQL is parsed and rejected if it can write (including `EXPLAIN ANALYZE <write>`, data-modifying CTEs and functions with side effects such as `pg_terminate_backend` or `set_config`). On PostgreSQL, MySQL/MariaDB and SQLite the database enforces it too: the query runs in a `READ ONLY` transaction (SQLite: a read-only connection with `PRAGMA query_only`) that is always rolled back. Anything that writes goes to your editor for you to run.
 - **Inline Edits** — Select SQL in the editor and ask Veloxy to rewrite it in place, with a diff before you accept.
 - **Persistent Threads** — Conversations are saved per connection.
 
@@ -90,6 +90,15 @@ Pick a provider in **Settings → Veloxy** and paste your key (stored in the OS 
 | Custom | Any OpenAI-compatible endpoint (vLLM, LiteLLM, a proxy, ...) |
 
 AI requests go straight from the app to the provider you choose. Nothing passes through a VeloxDB server.
+
+### Use VeloxDB From Claude, Cursor or VS Code (MCP)
+Already pay for an AI app? Let it query your databases through VeloxDB, with no API key in VeloxDB. Claude Desktop, Claude Code, Cursor and VS Code connect over the [Model Context Protocol](https://modelcontextprotocol.io).
+
+1. In **Settings → Veloxy → AI tools for other apps**, turn on **Let AI apps use VeloxDB**.
+2. Turn on **Allow AI tools on this connection** for each connection the AI app may use (PostgreSQL, MySQL/MariaDB and SQLite).
+3. Pick your app, click **Copy**, and paste the config where it says. The config only launches VeloxDB with `--mcp`; it holds no secret.
+
+Tools: `list_connections`, `get_schema`, `run_readonly_query` (100 rows by default, 500 max, 30 s timeout), `explain_query` and `open_in_editor`. Queries run read-only at the database level, as above. Nothing an AI app sends can write: `open_in_editor` puts SQL in a new editor tab for you to review and run. Both switches are off by default, the server only runs while VeloxDB is open and listens on `127.0.0.1` only, and recent calls are listed in the same settings page. For sensitive data, connect with a read-only database user.
 
 ### Multi-Tab SQL & Query Workspace
 - **CodeMirror 6-Powered Editor** — Syntax highlighting and native SQL dialect parsers (`MSSQL`, `Cassandra`, `SQLite`, `StandardSQL`, `PostgreSQL`, `MySQL`), MongoDB JavaScript, and Redis CLI.
