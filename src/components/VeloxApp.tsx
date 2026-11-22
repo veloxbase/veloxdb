@@ -177,8 +177,8 @@ export function VeloxApp() {
 			) : null}
 
 			<main className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)]">
-				<header className="min-w-0 shrink-0 overflow-x-auto border-b border-border">
-					<div className="flex min-w-full w-max items-center justify-between gap-4 px-5 py-3">
+				<header className="min-w-0 shrink-0 overflow-hidden border-b border-border">
+					<div className="flex w-full min-w-0 items-center justify-between gap-4 px-5 py-3">
 						<div className="flex min-w-0 flex-1 items-center gap-3">
 							{isSidebarCollapsed ? (
 								<Button variant="outline" size="icon-sm" className="shrink-0"
@@ -196,9 +196,9 @@ export function VeloxApp() {
 									</TabsTrigger>
 								</TabsList>
 							</Tabs>
-							<div className="min-w-0">
+							<div className="min-w-0 flex-1">
 								<p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">VeloxDB.dev</p>
-								<p className="truncate text-sm text-foreground">
+								<p className="truncate text-sm text-foreground" title={connection ? connectionHeadline(connection) : undefined}>
 									{connection ? connectionHeadline(connection) : t("workspace.chooseConnection")}
 								</p>
 							</div>

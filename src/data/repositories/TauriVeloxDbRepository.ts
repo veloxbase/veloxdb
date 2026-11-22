@@ -252,5 +252,11 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
       invoke<void>('save_text_file', { content, outputPath }),
     )
   }
+
+  async setWindowBlur(enabled: boolean): Promise<void> {
+    return invokeCommand('set_window_blur', () =>
+      invoke<void>('set_window_blur', { enabled }),
+    )
+  }
 }
 

@@ -64,5 +64,6 @@ export interface VeloxDbRepository {
   exportResultsJson(input: ExportQueryRequest): Promise<void>
   saveBase64Png(data: string, outputPath: string): Promise<void>
   saveTextFile(content: string, outputPath: string): Promise<void>
+  setWindowBlur(enabled: boolean): Promise<void>
 }
 
