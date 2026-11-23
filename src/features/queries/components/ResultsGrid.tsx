@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+	type ChangeEvent,
 	type PointerEvent,
 	type ReactNode,
 	useCallback,
@@ -39,12 +40,16 @@ import {
 } from "@/features/queries/results-export";
 import { useTablePropertiesQuery } from "@/features/schema/queries";
 import { notifyError } from "@/lib/error-notifier";
-import { useSettings } from "@/lib/settings";
+import { resolveFontSizePx, useSettings } from "@/lib/settings";
+import { cn } from "@/lib/utils";
 
-const SELECT_COLUMN_WIDTH_PX = 44;
+const SELECT_COLUMN_WIDTH_PX = 40;
 const DEFAULT_DATA_COLUMN_WIDTH_PX = 180;
 const MIN_COLUMN_WIDTH_PX = 48;
 const MAX_COLUMN_WIDTH_PX = 640;
+/** Row height as a multiple of the root font size, so rows grow with the font-size setting. */
+const ROW_HEIGHT_EM = 2.25;
+const MIN_ROW_HEIGHT_PX = 28;
 
 type ResultsGridProps = {
 	result: QueryResult | null;
@@ -86,37 +91,60 @@ function normalizeColumnId(columnId: string) {
 	return columnId.toLowerCase();
 }
 
+function SelectAllCheckbox({
+	checked,
+	indeterminate,
+	disabled,
+	label,
+	onChange,
+}: {
+	checked: boolean;
+	indeterminate: boolean;
+	disabled: boolean;
+	label: string;
+	onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+	const ref = useRef<HTMLInputElement | null>(null);
+	useEffect(() => {
+		if (ref.current) {
+			ref.current.indeterminate = indeterminate;
+		}
+	}, [indeterminate]);
+	return (
+		<input
+			ref={ref}
+			type="checkbox"
+			className="size-3.5 cursor-pointer"
+			checked={checked}
+			disabled={disabled}
+			onChange={onChange}
+			aria-label={label}
+		/>
+	);
+}
+
 function renderLoadingSkeleton() {
 	const dataColumnCount = 4;
 	const placeholderRows = 10;
-	const skeletonTemplateColumns = [
-		`${SELECT_COLUMN_WIDTH_PX}px`,
-		...Array.from(
-			{ length: dataColumnCount },
-			() => `${DEFAULT_DATA_COLUMN_WIDTH_PX}px`,
-		),
-	].join(" ");
-	const columnIndices = Array.from(
-		{ length: 1 + dataColumnCount },
-		(_, index) => index,
-	);
+	const rowHeightPx = 32;
+	const columnWidths = [
+		SELECT_COLUMN_WIDTH_PX,
+		...Array.from({ length: dataColumnCount }, () => DEFAULT_DATA_COLUMN_WIDTH_PX),
+	];
 	const rowKeys = Array.from(
 		{ length: placeholderRows },
 		(_, index) => `skeleton-row-${index}`,
 	);
 
-	const toolbarColumns = [
-		{ id: "__select", label: "Select", visible: true, canHide: false },
-		...Array.from({ length: dataColumnCount }, (_, index) => ({
-			id: `__skeleton_col_${index}`,
-			label: `Column ${index + 1}`,
-			visible: true,
-			canHide: true,
-		})),
-	];
+	const toolbarColumns = Array.from({ length: dataColumnCount }, (_, index) => ({
+		id: `__skeleton_col_${index}`,
+		label: `Column ${index + 1}`,
+		visible: true,
+		canHide: true,
+	}));
 
 	return (
-		<div className="flex h-full min-w-0 flex-col overflow-hidden">
+		<div className="flex h-full min-w-0 flex-col overflow-hidden" aria-busy>
 			<ResultsToolbar
 				columns={toolbarColumns}
 				canEdit={false}
@@ -130,47 +158,42 @@ function renderLoadingSkeleton() {
 				onSave={() => {}}
 				onAddRow={undefined}
 			/>
-			<div className="min-h-0 min-w-0 flex-1 overflow-x-auto">
-				<div className="flex h-full w-max min-w-full flex-col">
-					<div
-						className="sticky top-0 z-10 grid w-max min-w-full shrink-0 border-b border-border bg-muted/30"
-						style={{ gridTemplateColumns: skeletonTemplateColumns }}
-					>
-						{columnIndices.map((columnIndex) => (
+			<div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+				<div
+					className="flex border-b border-border bg-muted/50"
+					style={{ height: rowHeightPx }}
+				>
+					{columnWidths.map((widthPx, columnIndex) => (
+						<div
+							key={`sk-h-${columnIndex}`}
+							className="flex flex-none items-center border-r border-border px-3"
+							style={{ width: widthPx }}
+						>
 							<div
-								key={`sk-h-${columnIndex}`}
-								className="relative min-w-0 truncate border-r border-border px-3 py-2 pr-2 last:border-r-0"
+								className={`h-3 animate-pulse rounded-sm bg-muted ${columnIndex === 0 ? "w-3.5" : "w-24 max-w-full"}`}
+							/>
+						</div>
+					))}
+				</div>
+				{rowKeys.map((rowKey) => (
+					<div
+						key={rowKey}
+						className="flex border-b border-border/60"
+						style={{ height: rowHeightPx }}
+					>
+						{columnWidths.map((widthPx, columnIndex) => (
+							<div
+								key={`${rowKey}-c${columnIndex}`}
+								className="flex flex-none items-center border-r border-border/60 px-3"
+								style={{ width: widthPx }}
 							>
 								<div
-									className={`h-3 animate-pulse rounded-sm bg-muted ${columnIndex === 0 ? "w-10" : "w-24 max-w-full"}`}
+									className={`h-3 animate-pulse rounded-sm bg-muted/80 ${columnIndex === 0 ? "w-3.5" : "w-full max-w-[85%]"}`}
 								/>
 							</div>
 						))}
 					</div>
-					<div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
-						<div className="w-max min-w-full">
-							{rowKeys.map((rowKey) => (
-								<div
-									key={rowKey}
-									className="grid w-max min-w-full border-b border-border/60 bg-background text-xs"
-									style={{
-										gridTemplateColumns: skeletonTemplateColumns,
-										height: 36,
-									}}
-								>
-									{columnIndices.map((columnIndex) => (
-										<div
-											key={`${rowKey}-c${columnIndex}`}
-											className="flex min-w-0 items-center border-r border-border/60 px-3 py-2 last:border-r-0"
-										>
-											<div className="h-3.5 w-full max-w-[85%] animate-pulse rounded-sm bg-muted/80" />
-										</div>
-									))}
-								</div>
-							))}
-						</div>
-					</div>
-				</div>
+				))}
 			</div>
 			<div className="border-t border-border bg-muted/10 px-3 py-1.5 text-[11px] text-muted-foreground">
 				<span
@@ -201,8 +224,8 @@ export function ResultsGrid({
 	onDeleteRows,
 }: ResultsGridProps) {
 	const { t } = useTranslation()
-	const parentRef = useRef<HTMLDivElement | null>(null);
-	const horizontalScrollRef = useRef<HTMLDivElement | null>(null);
+	/** Single scroll container for both axes, so the sticky header and both scrollbars stay in view. */
+	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 	const [columnVisibility, setColumnVisibility] = useState<
 		Record<string, boolean>
@@ -231,6 +254,11 @@ export function ResultsGrid({
 	const [copiedCellId, setCopiedCellId] = useState<string | null>(null);
 	const copyTimeoutRef = useRef<number | null>(null);
 	const clickToCopy = useSettings((s) => s.clickToCopy)
+	const rootFontSizePx = useSettings((s) => resolveFontSizePx(s.fontSize));
+	const rowHeightPx = Math.max(
+		MIN_ROW_HEIGHT_PX,
+		Math.round(rootFontSizePx * ROW_HEIGHT_EM),
+	);
 
 	const insertMutation = useInsertRowMutation({
 		onError: (error) => {
@@ -515,7 +543,10 @@ export function ResultsGrid({
 						if (!isColumnEditable) {
 							return withJsonIcon(
 								<span
-									className={`block min-w-0 truncate ${value === null ? "text-muted-foreground" : ""}`}
+									className={cn(
+										"block min-w-0 truncate",
+										value === null && "italic text-muted-foreground/70",
+									)}
 								>
 									{formatValue(value)}
 								</span>,
@@ -539,7 +570,10 @@ export function ResultsGrid({
 						return withJsonIcon(
 							<button
 								type="button"
-								className={`w-full min-w-0 truncate text-left ${value === null ? "text-muted-foreground" : ""}`}
+								className={cn(
+									"block w-full min-w-0 truncate text-left",
+									value === null && "italic text-muted-foreground/70",
+								)}
 								title={t("editor.clickToEdit")}
 								onClick={() => setEditingCell({ rowId, columnId })}
 							>
@@ -585,11 +619,13 @@ export function ResultsGrid({
 		enableRowSelection: (row) => row.id !== "__insert__",
 	});
 
+	const tableRows = table.getRowModel().rows;
+
 	const rowVirtualizer = useVirtualizer({
-		count: table.getRowModel().rows.length,
-		getScrollElement: () => parentRef.current,
-		estimateSize: () => 36,
-		overscan: 10,
+		count: tableRows.length,
+		getScrollElement: () => scrollRef.current,
+		estimateSize: () => rowHeightPx,
+		overscan: 12,
 	});
 
 	const visibleColumns = table.getVisibleLeafColumns();
@@ -608,35 +644,46 @@ export function ResultsGrid({
 		[columnWidths],
 	);
 
-	const templateColumns =
-		visibleColumns.length > 0
-			? visibleColumns
-					.map((column) => `${getColumnWidthPx(column.id)}px`)
-					.join(" ")
-			: "minmax(0, 1fr)";
-	void templateColumns;
-
 	const columnVirtualizer = useVirtualizer({
 		horizontal: true,
 		count: dataVisibleColumns.length,
-		getScrollElement: () => horizontalScrollRef.current,
+		getScrollElement: () => scrollRef.current,
 		estimateSize: (index) => getColumnWidthPx(dataVisibleColumns[index]?.id ?? ""),
 		overscan: 4,
 	});
 
-	useEffect(() => {
+	// The virtualizer caches sizes from `estimateSize` and only recomputes when the
+	// item count changes. Without an explicit re-measure, resizing a column (or
+	// changing the font size) leaves stale offsets behind, and cells drift out of
+	// alignment or overlap. Layout effects re-render before paint, so no flicker.
+	const columnLayoutKey = dataVisibleColumns
+		.map((column) => `${column.id}:${getColumnWidthPx(column.id)}`)
+		.join("\u0001");
+	useLayoutEffect(() => {
+		void columnLayoutKey;
 		columnVirtualizer.measure();
-	}, [columnVirtualizer]);
+	}, [columnVirtualizer, columnLayoutKey]);
+	useLayoutEffect(() => {
+		void rowHeightPx;
+		rowVirtualizer.measure();
+	}, [rowVirtualizer, rowHeightPx]);
 
 	const virtualDataColumns = columnVirtualizer.getVirtualItems();
-	const virtualPaddingLeft = virtualDataColumns[0]?.start ?? 0;
-	const virtualPaddingRight =
-		columnVirtualizer.getTotalSize() -
-		(virtualDataColumns[virtualDataColumns.length - 1]?.end ?? 0);
 	const selectColumnWidthPx = selectColumn
 		? getColumnWidthPx(selectColumn.id)
-		: SELECT_COLUMN_WIDTH_PX;
-	const totalDataColumnsWidthPx = columnVirtualizer.getTotalSize();
+		: 0;
+	// Derive the width from the real column widths rather than the virtualizer, so
+	// the scrollable area always matches what is rendered.
+	const totalDataColumnsWidthPx = dataVisibleColumns.reduce(
+		(sum, column) => sum + getColumnWidthPx(column.id),
+		0,
+	);
+	const virtualPaddingLeft = virtualDataColumns[0]?.start ?? 0;
+	const virtualPaddingRight = Math.max(
+		0,
+		totalDataColumnsWidthPx -
+			(virtualDataColumns[virtualDataColumns.length - 1]?.end ?? 0),
+	);
 	const totalGridWidthPx = selectColumnWidthPx + totalDataColumnsWidthPx;
 
 	const handleColumnResizePointerDown = useCallback(
@@ -648,6 +695,10 @@ export function ResultsGrid({
 
 			const clampWidth = (value: number) =>
 				Math.min(MAX_COLUMN_WIDTH_PX, Math.max(MIN_COLUMN_WIDTH_PX, value));
+			const previousCursor = document.body.style.cursor;
+			const previousUserSelect = document.body.style.userSelect;
+			document.body.style.cursor = "col-resize";
+			document.body.style.userSelect = "none";
 
 			const onPointerMove = (moveEvent: globalThis.PointerEvent) => {
 				const delta = moveEvent.clientX - startX;
@@ -673,6 +724,8 @@ export function ResultsGrid({
 					pendingResizeWidthsRef.current = {};
 					setColumnWidths((current) => ({ ...current, ...pending }));
 				}
+				document.body.style.cursor = previousCursor;
+				document.body.style.userSelect = previousUserSelect;
 				window.removeEventListener("pointermove", onPointerMove);
 				window.removeEventListener("pointerup", onPointerUp);
 				window.removeEventListener("pointercancel", onPointerUp);
@@ -684,6 +737,16 @@ export function ResultsGrid({
 		},
 		[getColumnWidthPx],
 	);
+
+	const resetColumnWidth = useCallback((columnId: string) => {
+		setColumnWidths((current) => ({
+			...current,
+			[columnId]:
+				columnId === "__select"
+					? SELECT_COLUMN_WIDTH_PX
+					: DEFAULT_DATA_COLUMN_WIDTH_PX,
+		}));
+	}, []);
 
 	const renderBodyCell = useCallback((cell: Cell<ResultRow, unknown>) => {
 		const cellDef = cell.column.columnDef.cell;
@@ -748,7 +811,7 @@ export function ResultsGrid({
 		if (!appendInsertRow) {
 			return;
 		}
-		const element = parentRef.current;
+		const element = scrollRef.current;
 		if (element) {
 			element.scrollTop = element.scrollHeight;
 		}
@@ -1053,195 +1116,206 @@ export function ResultsGrid({
           />
 			{hasRowset ? (
 				<div
-					ref={horizontalScrollRef}
-					className="min-h-0 min-w-0 flex-1 overflow-x-auto"
+					ref={scrollRef}
+					role="grid"
+					aria-rowcount={tableRows.length + 1}
+					aria-colcount={visibleColumns.length}
+					className="relative min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain"
 				>
 					<div
-						className="flex h-full min-w-full flex-col"
-						style={{ width: `${Math.max(totalGridWidthPx, 0)}px` }}
+						className="relative min-w-full"
+						style={{ width: `${totalGridWidthPx}px` }}
 					>
-						<div
-							className="sticky top-0 z-10 flex min-w-full shrink-0 border-b border-border bg-muted/30"
-						>
-							{selectColumn ? (
-								<div
-									key={selectColumn.id}
-									className="relative min-w-0 truncate border-r border-border px-3 py-2 pr-2 text-[11px] font-medium text-muted-foreground last:border-r-0"
-									style={{ width: `${selectColumnWidthPx}px` }}
-								>
-									<span className="block truncate">
-										Select
-									</span>
-									<button
-										type="button"
-										tabIndex={-1}
-										aria-label="Resize column Select"
-										className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize select-none border-0 bg-transparent p-0 hover:bg-primary/20"
-										onPointerDown={(event) =>
-											handleColumnResizePointerDown(selectColumn.id, event)
-										}
-									/>
-								</div>
-							) : null}
-							{virtualPaddingLeft > 0 ? (
-								<div
-									aria-hidden
-									style={{ width: `${virtualPaddingLeft}px`, minWidth: `${virtualPaddingLeft}px` }}
-								/>
-							) : null}
-							{virtualDataColumns.map((virtualColumn) => {
-								const column = dataVisibleColumns[virtualColumn.index];
-								if (!column) {
-									return null;
-								}
-								const widthPx = getColumnWidthPx(column.id);
-								return (
+						{/* Sticky header: opaque base so rows never show through while scrolling. */}
+						<div role="rowgroup" className="sticky top-0 z-20 bg-background">
+							<div
+								role="row"
+								className="flex min-w-full overflow-hidden border-b border-border bg-muted/50"
+								style={{ height: `${rowHeightPx}px` }}
+							>
+								{selectColumn ? (
 									<div
-										key={column.id}
-										className="relative min-w-0 truncate border-r border-border px-3 py-2 pr-2 text-[11px] font-medium text-muted-foreground last:border-r-0"
-										style={{ width: `${widthPx}px`, minWidth: `${widthPx}px` }}
+										role="columnheader"
+										className="flex flex-none items-center justify-center border-r border-border"
+										style={{ width: `${selectColumnWidthPx}px` }}
 									>
-										<span className="block truncate">{column.id}</span>
-										<button
-											type="button"
-											tabIndex={-1}
-											aria-label={`Resize column ${column.id}`}
-											className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize select-none border-0 bg-transparent p-0 hover:bg-primary/20"
-											onPointerDown={(event) =>
-												handleColumnResizePointerDown(column.id, event)
+										<SelectAllCheckbox
+											checked={table.getIsAllRowsSelected()}
+											indeterminate={
+												!table.getIsAllRowsSelected() &&
+												table.getIsSomeRowsSelected()
 											}
+											disabled={indexedRows.length === 0}
+											label={t("editor.selectAllRows")}
+											onChange={table.getToggleAllRowsSelectedHandler()}
 										/>
 									</div>
-								);
-							})}
-							{virtualPaddingRight > 0 ? (
-								<div
-									aria-hidden
-									style={{
-										width: `${virtualPaddingRight}px`,
-										minWidth: `${virtualPaddingRight}px`,
-									}}
-								/>
-							) : null}
-						</div>
-						<div
-							ref={parentRef}
-							className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
-						>
-							<div
-								className="relative w-max min-w-full"
-								style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-							>
-								{rowVirtualizer.getVirtualItems().map((virtualRow) => {
-									const row = table.getRowModel().rows[virtualRow.index];
-									if (!row) {
+								) : null}
+								{virtualPaddingLeft > 0 ? (
+									<div
+										aria-hidden
+										className="flex-none"
+										style={{ width: `${virtualPaddingLeft}px` }}
+									/>
+								) : null}
+								{virtualDataColumns.map((virtualColumn) => {
+									const column = dataVisibleColumns[virtualColumn.index];
+									if (!column) {
 										return null;
 									}
-
-									const isInsert = row.id === "__insert__";
-
+									const widthPx = getColumnWidthPx(column.id);
 									return (
 										<div
-											key={row.id}
-											className={`absolute left-0 top-0 flex w-max min-w-full border-b border-border/60 text-xs ${
-												isInsert
-													? "bg-muted/25"
-													: row.getIsSelected()
-														? "bg-muted/40"
-														: "bg-background"
-											}`}
-											style={{
-												height: `${virtualRow.size}px`,
-												top: `${virtualRow.start}px`,
-												width: `${Math.max(totalGridWidthPx, 0)}px`,
-											}}
+											key={column.id}
+											role="columnheader"
+											title={column.id}
+											className="relative flex flex-none items-center border-r border-border px-3 text-[11px] font-semibold text-foreground/80"
+											style={{ width: `${widthPx}px` }}
 										>
-											{(() => {
-												const rowCells = row.getVisibleCells();
-												const rowCellByColumn = new Map(
-													rowCells.map((cell) => [cell.column.id, cell]),
-												);
-												const selectCell = selectColumn
-													? rowCellByColumn.get(selectColumn.id)
-													: undefined;
-												return (
-													<>
-														{selectCell ? (
-															<div
-																key={selectCell.id}
-																className="min-w-0 truncate border-r border-border/60 px-3 py-2"
-																style={{
-																	width: `${selectColumnWidthPx}px`,
-																	minWidth: `${selectColumnWidthPx}px`,
-																}}
-															>
-																{renderBodyCell(selectCell)}
-															</div>
-														) : null}
-														{virtualPaddingLeft > 0 ? (
-															<div
-																aria-hidden
-																style={{
-																	width: `${virtualPaddingLeft}px`,
-																	minWidth: `${virtualPaddingLeft}px`,
-																}}
-															/>
-														) : null}
-														{virtualDataColumns.map((virtualColumn) => {
-															const column =
-																dataVisibleColumns[virtualColumn.index];
-															if (!column) {
-																return null;
-															}
-															const cell = rowCellByColumn.get(column.id);
-															if (!cell) {
-																return null;
-															}
-															const widthPx = getColumnWidthPx(column.id);
-															const cellValue = resolveCellValue(
-																row.id,
-																column.id,
-																cell.getValue() as string | null | undefined,
-															);
-															return (
-																<div
-																	key={cell.id}
-																	className={`min-w-0 truncate border-r border-border/60 px-3 py-2 ${clickToCopy ? 'cursor-copy hover:bg-accent/30 active:bg-accent/50' : ''} ${copiedCellId === cell.id ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : ''}`}
-																	style={{
-																		width: `${widthPx}px`,
-																		minWidth: `${widthPx}px`,
-																	}}
-																	title={`${formatValue(cellValue)}${copiedCellId === cell.id ? ' — Copied!' : clickToCopy ? '\nClick to copy' : ''}`}
-																	onClick={() => {
-																		if (!clickToCopy) return
-																		const text = formatValue(cellValue)
-																		if (!text) return
-																		navigator.clipboard.writeText(text)
-																		setCopiedCellId(cell.id)
-																		if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
-																		copyTimeoutRef.current = window.setTimeout(() => setCopiedCellId(null), 1200)
-																	}}
-																>
-																	{renderBodyCell(cell)}
-																</div>
-															);
-														})}
-														{virtualPaddingRight > 0 ? (
-															<div
-																aria-hidden
-																style={{
-																	width: `${virtualPaddingRight}px`,
-																	minWidth: `${virtualPaddingRight}px`,
-																}}
-															/>
-														) : null}
-													</>
-												);
-											})()}
+											<span className="min-w-0 truncate">{column.id}</span>
+											<div
+												role="separator"
+												aria-orientation="vertical"
+												aria-label={t("editor.resizeColumn", { name: column.id })}
+												className="absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize touch-none select-none justify-center after:h-full after:w-0.5 after:bg-transparent after:transition-colors hover:after:bg-[var(--control-accent)]"
+												onPointerDown={(event) =>
+													handleColumnResizePointerDown(column.id, event)
+												}
+												onDoubleClick={() => resetColumnWidth(column.id)}
+											/>
 										</div>
 									);
 								})}
+								{virtualPaddingRight > 0 ? (
+									<div
+										aria-hidden
+										className="flex-none"
+										style={{ width: `${virtualPaddingRight}px` }}
+									/>
+								) : null}
 							</div>
+						</div>
+
+						<div
+							role="rowgroup"
+							className="relative"
+							style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+						>
+							{rowVirtualizer.getVirtualItems().map((virtualRow) => {
+								const row = tableRows[virtualRow.index];
+								if (!row) {
+									return null;
+								}
+
+								const isInsert = row.id === "__insert__";
+								const isSelected = row.getIsSelected();
+								const rowCells = row.getVisibleCells();
+								const rowCellByColumn = new Map(
+									rowCells.map((cell) => [cell.column.id, cell]),
+								);
+								const selectCell = selectColumn
+									? rowCellByColumn.get(selectColumn.id)
+									: undefined;
+
+								return (
+									<div
+										key={row.id}
+										role="row"
+										aria-selected={isSelected || undefined}
+										className={cn(
+											"absolute left-0 top-0 flex w-full border-b border-border/60 text-xs",
+											isInsert
+												? "bg-muted/40"
+												: isSelected
+													? "bg-[var(--control-accent-muted)]"
+													: virtualRow.index % 2 === 1
+														? "bg-muted/20 hover:bg-muted/45"
+														: "hover:bg-muted/45",
+										)}
+										style={{
+											height: `${virtualRow.size}px`,
+											transform: `translateY(${virtualRow.start}px)`,
+										}}
+									>
+										{selectCell ? (
+											<div
+												role="gridcell"
+												className="flex flex-none items-center justify-center border-r border-border/60"
+												style={{ width: `${selectColumnWidthPx}px` }}
+											>
+												{renderBodyCell(selectCell)}
+											</div>
+										) : null}
+										{virtualPaddingLeft > 0 ? (
+											<div
+												aria-hidden
+												className="flex-none"
+												style={{ width: `${virtualPaddingLeft}px` }}
+											/>
+										) : null}
+										{virtualDataColumns.map((virtualColumn) => {
+											const column = dataVisibleColumns[virtualColumn.index];
+											if (!column) {
+												return null;
+											}
+											const cell = rowCellByColumn.get(column.id);
+											if (!cell) {
+												return null;
+											}
+											const widthPx = getColumnWidthPx(column.id);
+											const cellValue = resolveCellValue(
+												row.id,
+												column.id,
+												cell.getValue() as string | null | undefined,
+											);
+											const isCopied = copiedCellId === cell.id;
+											const copyEnabled = clickToCopy && !isInsert;
+											return (
+												<div
+													key={cell.id}
+													role="gridcell"
+													className={cn(
+														"flex flex-none items-center overflow-hidden border-r border-border/60 px-3",
+														copyEnabled &&
+															"cursor-copy hover:bg-accent/40 active:bg-accent/60",
+														isCopied &&
+															"bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+													)}
+													style={{ width: `${widthPx}px` }}
+													title={
+														isInsert
+															? undefined
+															: `${formatValue(cellValue)}${isCopied ? " — Copied!" : copyEnabled ? "\nClick to copy" : ""}`
+													}
+													onClick={() => {
+														if (!copyEnabled) return;
+														const text = formatValue(cellValue);
+														if (!text) return;
+														void navigator.clipboard.writeText(text);
+														setCopiedCellId(cell.id);
+														if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+														copyTimeoutRef.current = window.setTimeout(
+															() => setCopiedCellId(null),
+															1200,
+														);
+													}}
+												>
+													<div className="min-w-0 flex-1">
+														{renderBodyCell(cell)}
+													</div>
+												</div>
+											);
+										})}
+										{virtualPaddingRight > 0 ? (
+											<div
+												aria-hidden
+												className="flex-none"
+												style={{ width: `${virtualPaddingRight}px` }}
+											/>
+										) : null}
+									</div>
+								);
+							})}
 						</div>
 					</div>
 				</div>
@@ -1273,13 +1347,13 @@ export function ResultsGrid({
 					)}
 				</div>
 			)}
-			<div className="border-t border-border bg-muted/10 px-3 py-1.5 text-[11px] text-muted-foreground">
+			<div className="shrink-0 truncate border-t border-border bg-muted/10 px-3 py-1.5 text-[11px] text-muted-foreground">
 				{saveDisabledReason && !canEdit
 					? saveDisabledReason
 					: t("editor.rowsSelected", { count: Object.keys(rowSelection).length })}
 			</div>
 			{gridError ? (
-				<div className="border-t border-border bg-destructive/10 px-3 py-1.5 text-[11px] text-destructive">
+				<div className="shrink-0 border-t border-border bg-destructive/10 px-3 py-1.5 text-[11px] text-destructive">
 					{gridError}
 				</div>
 			) : null}

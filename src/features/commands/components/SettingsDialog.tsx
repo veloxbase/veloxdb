@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { saveOpenRouterApiKey } from '@/lib/openrouter-credentials'
 import { fetchOpenRouterModels, OPENROUTER_POPULAR_MODELS, type OpenRouterModelOption } from '@/lib/openrouter-models'
 import { cn } from '@/lib/utils'
@@ -277,9 +278,10 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 </div>
               </Field>
               <Field label={t("settings.backgroundBlur")} desc={t("settings.backgroundBlurDesc")}>
-                <Toggle
-                  value={settings.backgroundBlur ?? false}
-                  onChange={(v) => {
+                <Switch
+                  aria-label={t("settings.backgroundBlur")}
+                  checked={settings.backgroundBlur ?? false}
+                  onCheckedChange={(v) => {
                     if (v && (useSettings.getState().windowOpacity ?? 100) > 80) {
                       useSettings.setState({ backgroundBlur: true, windowOpacity: 72 })
                     } else {
@@ -296,7 +298,11 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   opts={[{ v: '2', l: '2 spaces' }, { v: '4', l: '4 spaces' }]} />
               </Field>
               <Field label={t("settings.lineNumbers")} desc={t("settings.lineNumbersDesc")}>
-                <Toggle value={settings.showLineNumbers} onChange={(v) => useSettings.setState({ showLineNumbers: v })} />
+                <Switch
+                  aria-label={t("settings.lineNumbers")}
+                  checked={settings.showLineNumbers}
+                  onCheckedChange={(v) => useSettings.setState({ showLineNumbers: v })}
+                />
               </Field>
               <Field label={t("settings.lintDebounce")} desc={t("settings.lintDebounceDesc")}>
                 <Select value={String(settings.lintDebounceMs)} onChange={(v) => useSettings.setState({ lintDebounceMs: Number(v) })}
@@ -314,13 +320,21 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   opts={[{ v: 'null', l: '(null)' }, { v: 'NULL', l: 'NULL' }, { v: 'dash', l: t("settings.dash") }, { v: 'empty', l: t("settings.empty") }]} />
               </Field>
               <Field label={t("settings.clickToCopy")} desc={t("settings.clickToCopyDesc")}>
-                <Toggle value={settings.clickToCopy} onChange={(v) => useSettings.setState({ clickToCopy: v })} />
+                <Switch
+                  aria-label={t("settings.clickToCopy")}
+                  checked={settings.clickToCopy}
+                  onCheckedChange={(v) => useSettings.setState({ clickToCopy: v })}
+                />
               </Field>
             </Section>}
 
             {tab === 'connections' && <Section title={t("settings.connections")}>
               <Field label={t("settings.autoReconnect")} desc={t("settings.autoReconnectDesc")}>
-                <Toggle value={settings.autoReconnect} onChange={(v) => useSettings.setState({ autoReconnect: v })} />
+                <Switch
+                  aria-label={t("settings.autoReconnect")}
+                  checked={settings.autoReconnect}
+                  onCheckedChange={(v) => useSettings.setState({ autoReconnect: v })}
+                />
               </Field>
               <Field label={t("settings.healthPing")} desc={t("settings.healthPingDesc")}>
                 <Select value={String(settings.pingIntervalSec)} onChange={(v) => useSettings.setState({ pingIntervalSec: Number(v) })}
@@ -392,21 +406,24 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
             {tab === 'notifications' && <Section title={t("settings.notifications")}>
               <Field label={t("settings.successToasts")} desc={t("settings.successToastsDesc")}>
-                <Toggle
-                  value={settings.toastLevels.success}
-                  onChange={(v) => useSettings.setState({ toastLevels: { ...settings.toastLevels, success: v } })}
+                <Switch
+                  aria-label={t("settings.successToasts")}
+                  checked={settings.toastLevels.success}
+                  onCheckedChange={(v) => useSettings.setState({ toastLevels: { ...settings.toastLevels, success: v } })}
                 />
               </Field>
               <Field label={t("settings.errorToasts")} desc={t("settings.errorToastsDesc")}>
-                <Toggle
-                  value={settings.toastLevels.error}
-                  onChange={(v) => useSettings.setState({ toastLevels: { ...settings.toastLevels, error: v } })}
+                <Switch
+                  aria-label={t("settings.errorToasts")}
+                  checked={settings.toastLevels.error}
+                  onCheckedChange={(v) => useSettings.setState({ toastLevels: { ...settings.toastLevels, error: v } })}
                 />
               </Field>
               <Field label={t("settings.queryResultToasts")} desc={t("settings.queryResultToastsDesc")}>
-                <Toggle
-                  value={settings.showQueryResultToasts}
-                  onChange={(v) => useSettings.setState({ showQueryResultToasts: v })}
+                <Switch
+                  aria-label={t("settings.queryResultToasts")}
+                  checked={settings.showQueryResultToasts}
+                  onCheckedChange={(v) => useSettings.setState({ showQueryResultToasts: v })}
                 />
               </Field>
             </Section>}
@@ -618,27 +635,5 @@ function ThemeGrid({ value, onChange }: { value: AppTheme; onChange: (v: AppThem
         )
       })}
     </div>
-  )
-}
-
-function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={value}
-      onClick={() => onChange(!value)}
-      className={cn(
-        'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        value ? 'bg-primary' : 'bg-muted-foreground/30',
-      )}
-    >
-      <span
-        className={cn(
-          'pointer-events-none inline-block size-3.5 rounded-full bg-background shadow-sm transition-transform duration-150',
-          value ? 'translate-x-4' : 'translate-x-0.5',
-        )}
-      />
-    </button>
   )
 }

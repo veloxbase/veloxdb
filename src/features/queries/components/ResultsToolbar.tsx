@@ -1,5 +1,12 @@
-import { Button } from "@/components/ui/button";
+import { CaretDownIcon } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
+
+import { Button } from "@/components/ui/button";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/ui/popover";
 
 type ColumnVisibilityItem = {
 	id: string;
@@ -56,11 +63,16 @@ export function ResultsToolbar({
 	deleteDisabledReason,
 }: ResultsToolbarProps) {
 	const { t } = useTranslation();
+	const hideableColumns = columns.filter((column) => column.canHide);
+	const visibleHideableCount = hideableColumns.filter(
+		(column) => column.visible,
+	).length;
+	const hasHiddenColumns = visibleHideableCount < hideableColumns.length;
 
 	return (
-		<div className="min-w-0 overflow-x-auto border-b border-border bg-muted/20 px-3 py-2">
-			<div className="flex min-w-full w-max items-center justify-between gap-3">
-				<div className="flex shrink-0 items-center gap-2">
+		<div className="min-w-0 shrink-0 border-b border-border bg-muted/20 px-3 py-1.5">
+			<div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+				<div className="flex min-w-0 flex-wrap items-center gap-1.5">
 					{onAddRow ? (
 						<Button
 							variant="outline"
@@ -124,38 +136,58 @@ export function ResultsToolbar({
 					</Button>
 				</div>
 
-				<div className="flex shrink-0 items-center gap-2">
-					<details className="relative shrink-0">
-						<summary className="list-none">
-							<Button variant="outline" size="xs" asChild>
-								<span>{t("editor.columns")}</span>
+				<div className="flex shrink-0 items-center gap-1.5">
+					<Popover>
+						<PopoverTrigger asChild>
+							<Button variant="outline" size="xs">
+								{t("editor.columns")}
+								{hasHiddenColumns ? (
+									<span className="tabular-nums text-muted-foreground">
+										{visibleHideableCount}/{hideableColumns.length}
+									</span>
+								) : null}
+								<CaretDownIcon className="text-muted-foreground" />
 							</Button>
-						</summary>
-						<div className="absolute right-0 z-10 mt-1 min-w-44 border border-border bg-background p-2 shadow-sm">
-							<div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-								{t("editor.visibility")}
+						</PopoverTrigger>
+						<PopoverContent align="end" className="w-60 p-0">
+							<div className="flex items-center justify-between border-b border-border px-3 py-2">
+								<span className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+									{t("editor.visibility")}
+								</span>
+								{hasHiddenColumns ? (
+									<button
+										type="button"
+										className="text-[11px] text-muted-foreground hover:text-foreground"
+										onClick={() => {
+											for (const column of hideableColumns) {
+												if (!column.visible) onToggleColumn(column.id, true);
+											}
+										}}
+									>
+										{t("editor.showAllColumns")}
+									</button>
+								) : null}
 							</div>
-							<div className="max-h-48 space-y-1 overflow-auto">
-								{columns.map((column) => (
+							<div className="max-h-64 overflow-y-auto p-1">
+								{hideableColumns.map((column) => (
 									<label
 										key={column.id}
-										className="flex cursor-pointer items-center gap-2 text-xs text-foreground"
+										className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-xs text-foreground hover:bg-muted/60"
 									>
 										<input
 											type="checkbox"
-											className="size-3.5 cursor-pointer"
+											className="size-3.5 shrink-0 cursor-pointer"
 											checked={column.visible}
-											disabled={!column.canHide}
 											onChange={(event) =>
 												onToggleColumn(column.id, event.target.checked)
 											}
 										/>
-										<span className="truncate">{column.label}</span>
+										<span className="min-w-0 truncate">{column.label}</span>
 									</label>
 								))}
 							</div>
-						</div>
-					</details>
+						</PopoverContent>
+					</Popover>
 
 					<Button
 						size="xs"
