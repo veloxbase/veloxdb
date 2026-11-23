@@ -142,6 +142,12 @@ pub async fn delete_connection(
     if let Err(e) = credentials::delete_password(&connection_id) {
         log::warn!("Failed to delete keychain entry for {}: {}", connection_id, e);
     }
+    if let Err(e) = credentials::delete_ssh_password(&connection_id) {
+        log::warn!("Failed to delete SSH password keychain entry for {}: {}", connection_id, e);
+    }
+    if let Err(e) = credentials::delete_ssh_passphrase(&connection_id) {
+        log::warn!("Failed to delete SSH passphrase keychain entry for {}: {}", connection_id, e);
+    }
     crate::db::delete_connection_from_store(&app, &connection_id)?;
     crate::db::delete_veloxy_threads_for_connection(meta.pool(), &connection_id)
         .await

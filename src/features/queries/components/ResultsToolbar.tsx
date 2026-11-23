@@ -1,12 +1,18 @@
-import type { RefObject } from "react";
+import { type RefObject, useState } from "react";
 import {
 	DotsThreeIcon,
 	MagnifyingGlassIcon,
 	SidebarSimpleIcon,
 	XIcon,
 } from "@phosphor-icons/react";
-import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
+
+import { Button } from "@/components/ui/button";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/ui/popover";
 
 type ColumnVisibilityItem = {
 	id: string;
@@ -89,11 +95,24 @@ export function ResultsToolbar({
 	onToggleInspector,
 }: ResultsToolbarProps) {
 	const { t } = useTranslation();
+	const [moreOpen, setMoreOpen] = useState(false);
+	const hideableColumns = columns.filter((column) => column.canHide);
+	const visibleHideableCount = hideableColumns.filter(
+		(column) => column.visible,
+	).length;
+	const hasHiddenColumns = visibleHideableCount < hideableColumns.length;
+	/** Runs a menu action and closes the menu. */
+	const runAndClose = (action: () => void) => () => {
+		setMoreOpen(false);
+		action();
+	};
+	const menuItemClass =
+		"flex w-full items-center rounded-sm px-2 py-1.5 text-left text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50";
 
 	return (
-		<div className="min-w-0 overflow-x-auto border-b border-border bg-muted/20 px-3 py-2">
-			<div className="flex min-w-full w-max items-center justify-between gap-3">
-				<div className="flex shrink-0 items-center gap-2">
+		<div className="min-w-0 shrink-0 border-b border-border bg-muted/20 px-3 py-1.5">
+			<div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+				<div className="flex min-w-0 flex-wrap items-center gap-1.5">
 					{insertRowVisible && onInsertRow ? (
 						<>
 							<Button
@@ -176,81 +195,98 @@ export function ResultsToolbar({
 					) : null}
 				</div>
 
-				<div className="flex shrink-0 items-center gap-2">
-					<details className="relative shrink-0">
-						<summary className="list-none">
-							<Button variant={isInspectorOpen ? "secondary" : "outline"} size="xs" asChild>
-								<span className="flex items-center gap-1 cursor-pointer">
-									<DotsThreeIcon className="size-3" />
-									{t("editor.moreActions")}
-								</span>
+				<div className="flex shrink-0 items-center gap-1.5">
+					<Popover open={moreOpen} onOpenChange={setMoreOpen}>
+						<PopoverTrigger asChild>
+							<Button variant={isInspectorOpen ? "secondary" : "outline"} size="xs">
+								<DotsThreeIcon className="size-3" />
+								{t("editor.moreActions")}
+								{hasHiddenColumns ? (
+									<span className="tabular-nums text-muted-foreground">
+										· {visibleHideableCount}/{hideableColumns.length}
+									</span>
+								) : null}
 							</Button>
-						</summary>
-						<div className="absolute right-0 z-20 mt-1 min-w-52 border border-border bg-background p-1 shadow-md">
+						</PopoverTrigger>
+						<PopoverContent align="end" className="w-60 p-1">
 							{onAddRow ? (
-								<button type="button" onClick={onAddRow} disabled={isBusy} className="flex w-full px-2 py-1 text-left text-xs hover:bg-muted disabled:opacity-50">
+								<button type="button" onClick={runAndClose(onAddRow)} disabled={isBusy} className={menuItemClass}>
 									{t("editor.insertRow")}
 								</button>
 							) : null}
 							{onDeleteRows ? (
 								<button
 									type="button"
-									onClick={onDeleteRows}
+									onClick={runAndClose(onDeleteRows)}
 									disabled={isBusy || deleteBusy || selectionCount === 0}
 									title={deleteDisabledReason}
-									className="flex w-full px-2 py-1 text-left text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
+									className={`${menuItemClass} text-destructive hover:bg-destructive/10`}
 								>
 									{deleteBusy
 										? t("editor.deleting")
 										: `${t("editor.deleteRow")}${selectionCount ? ` (${selectionCount})` : ""}`}
 								</button>
 							) : null}
-							<button type="button" onClick={onCopy} className="flex w-full items-center justify-between px-2 py-1 text-left text-xs hover:bg-muted">
+							<button type="button" onClick={runAndClose(onCopy)} className={`${menuItemClass} justify-between`}>
 								<span>Copy TSV</span>
 								<span className="text-[10px] text-muted-foreground">Excel / Sheets</span>
 							</button>
 							{onCopyMarkdown ? (
-								<button type="button" onClick={onCopyMarkdown} className="flex w-full items-center justify-between px-2 py-1 text-left text-xs hover:bg-muted">
-									<span>Copy as Markdown</span>
+								<button type="button" onClick={runAndClose(onCopyMarkdown)} className={menuItemClass}>
+									Copy as Markdown
 								</button>
 							) : null}
 							{onCopySqlInsert ? (
-								<button type="button" onClick={onCopySqlInsert} className="flex w-full items-center justify-between px-2 py-1 text-left text-xs hover:bg-muted">
-									<span>Copy as SQL INSERT</span>
+								<button type="button" onClick={runAndClose(onCopySqlInsert)} className={menuItemClass}>
+									Copy as SQL INSERT
 								</button>
 							) : null}
 							{onToggleInspector ? (
-								<button type="button" onClick={onToggleInspector} className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs hover:bg-muted">
+								<button type="button" onClick={runAndClose(onToggleInspector)} className={`${menuItemClass} gap-2`}>
 									<SidebarSimpleIcon className="size-3" />
 									{t("editor.inspector", "Inspector")}
 								</button>
 							) : null}
-							<div className="mt-1 border-t border-border px-2 py-1">
-								<div className="mb-1 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-									{t("editor.columns")}
+							<div className="mt-1 border-t border-border pt-1">
+								<div className="flex items-center justify-between px-2 py-1">
+									<span className="text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+										{t("editor.columns")}
+									</span>
+									{hasHiddenColumns ? (
+										<button
+											type="button"
+											className="text-[11px] text-muted-foreground hover:text-foreground"
+											onClick={() => {
+												for (const column of hideableColumns) {
+													if (!column.visible) onToggleColumn(column.id, true);
+												}
+											}}
+										>
+											{t("editor.showAllColumns")}
+										</button>
+									) : null}
 								</div>
-								<div className="max-h-48 space-y-1 overflow-auto">
-									{columns.map((column) => (
+								<div className="max-h-56 overflow-y-auto">
+									{hideableColumns.map((column) => (
 										<label
 											key={column.id}
-											className="flex cursor-pointer items-center gap-2 text-xs text-foreground"
+											className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-xs text-foreground hover:bg-muted"
 										>
 											<input
 												type="checkbox"
-												className="size-3.5 cursor-pointer"
+												className="size-3.5 shrink-0 cursor-pointer"
 												checked={column.visible}
-												disabled={!column.canHide}
 												onChange={(event) =>
 													onToggleColumn(column.id, event.target.checked)
 												}
 											/>
-											<span className="truncate">{column.label}</span>
+											<span className="min-w-0 truncate">{column.label}</span>
 										</label>
 									))}
 								</div>
 							</div>
-						</div>
-					</details>
+						</PopoverContent>
+					</Popover>
 
 					<Button
 						size="xs"

@@ -59,6 +59,7 @@ import type {
 	SaveResultEditsRequest,
 } from "@/features/queries/result-edits";
 import { notifyError, notifySuccess } from "@/lib/error-notifier";
+import { useSettings } from "@/lib/settings";
 import { isReadOnlySql } from "@/lib/sql-intent";
 import { cn } from "@/lib/utils";
 
@@ -576,7 +577,7 @@ export const QueryWorkspace = forwardRef<
 					void queryClient.invalidateQueries({ queryKey: queryKeys.schema(variables.connectionId, null) })
 					void queryClient.invalidateQueries({ queryKey: ['tableIndexes'] })
 				}
-			} else {
+			} else if (useSettings.getState().showQueryResultToasts) {
 				notifySuccess(
 					`Query returned ${result.rowCount} row${result.rowCount !== 1 ? "s" : ""}`,
 					`${result.executionMs} ms${result.truncated ? " (truncated to 1000 rows)" : ""}`,

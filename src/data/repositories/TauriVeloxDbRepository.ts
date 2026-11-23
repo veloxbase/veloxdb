@@ -387,5 +387,11 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
       invoke<void>('delete_veloxy_thread', { id }),
     )
   }
+
+  async setWindowBlur(enabled: boolean): Promise<void> {
+    return invokeCommand('set_window_blur', () =>
+      invoke<void>('set_window_blur', { enabled }),
+    )
+  }
 }
 

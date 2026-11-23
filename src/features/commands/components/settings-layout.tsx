@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 
+import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 
 /** One settings tab: a heading, a sentence about what it controls, then groups. */
@@ -76,27 +77,15 @@ export function SettingsToggle({
   label?: string
   disabled?: boolean
 }) {
+  // h-8 matches the other row controls, so the switch lines up with the label.
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={value}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!value)}
-      className={cn(
-        'relative mt-1 inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-150',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
-        'disabled:cursor-not-allowed disabled:opacity-50',
-        value ? 'bg-primary' : 'bg-muted-foreground/25',
-      )}
-    >
-      <span
-        className={cn(
-          'pointer-events-none inline-block size-3.5 rounded-full bg-background shadow-sm transition-transform duration-150',
-          value ? 'translate-x-[18px]' : 'translate-x-[2px]',
-        )}
+    <div className="flex h-8 items-center">
+      <Switch
+        checked={value}
+        onCheckedChange={onChange}
+        aria-label={label}
+        disabled={disabled}
       />
-    </button>
+    </div>
   )
 }

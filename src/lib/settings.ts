@@ -24,6 +24,9 @@ export type AppSettings = {
   chartPaperTint: ChartPaperTint
   chartPaperStrength: ChartPaperStrength
   fontSize: FontSize
+  borderRadius: number
+  windowOpacity: number
+  backgroundBlur: boolean
   monospaceFont: string
   tabWidth: number
   showLineNumbers: boolean
@@ -39,6 +42,7 @@ export type AppSettings = {
   veloxyModel: string
   veloxyBaseUrl: string
   toastLevels: ToastLevels
+  showQueryResultToasts: boolean
 }
 
 const defaults: AppSettings = {
@@ -46,6 +50,9 @@ const defaults: AppSettings = {
   chartPaperTint: 'auto',
   chartPaperStrength: 'medium',
   fontSize: 14,
+  borderRadius: 0,
+  windowOpacity: 100,
+  backgroundBlur: false,
   monospaceFont: "'JetBrains Mono', 'Fira Code', 'Menlo', monospace",
   tabWidth: 2,
   showLineNumbers: true,
@@ -60,6 +67,7 @@ const defaults: AppSettings = {
   veloxyModel: getAiProvider(DEFAULT_AI_PROVIDER).models[0]?.id ?? '',
   veloxyBaseUrl: getAiProvider(DEFAULT_AI_PROVIDER).baseUrl,
   toastLevels: { success: true, error: true },
+  showQueryResultToasts: false,
 }
 
 export function resolveFontSizePx(size: FontSize | undefined): number {

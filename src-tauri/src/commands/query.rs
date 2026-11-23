@@ -20,7 +20,8 @@ pub async fn run_query(
         return Err("Enter a SQL statement before running the query.".to_string());
     }
 
-    if !input.allow_write.unwrap_or(false) {
+    let allow_write = input.allow_write.unwrap_or(false);
+    if !allow_write {
         // SQL engines get the SQL read-only check. MongoDB only executes find()
         // here (always read-only). Redis has its own read-only command list so
         // write commands such as SET/DEL still require confirmation.
@@ -40,7 +41,12 @@ pub async fn run_query(
     let max_query_rows = input.max_rows.unwrap_or(MAX_QUERY_ROWS);
 
     let ops = engines::get_engine(engine);
-    ops.run_query(&app, &state, &connection_id, &sql, max_query_rows).await.map_err(String::from)
+    let result = if allow_write {
+        ops.run_query(&app, &state, &connection_id, &sql, max_query_rows).await
+    } else {
+        ops.run_read_only_query(&app, &state, &connection_id, &sql, max_query_rows).await
+    };
+    result.map_err(String::from)
 }
 
 #[tauri::command]

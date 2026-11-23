@@ -30,6 +30,43 @@ use db::AppState;
 use mcp::{mcp_clear_activity, mcp_get_status, mcp_set_enabled, set_connection_ai_tools, McpState};
 use tauri::Manager;
 
+/// Enables or disables native window background blur where supported by the OS.
+#[tauri::command]
+fn set_window_blur(window: tauri::WebviewWindow, enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::window::{Effect, EffectState, EffectsBuilder};
+        if enabled {
+            let effects = EffectsBuilder::new()
+                .effect(Effect::UnderWindowBackground)
+                .state(EffectState::Active)
+                .build();
+            window
+                .set_effects(Some(effects))
+                .map_err(|e| e.to_string())?;
+        } else {
+            window.set_effects(None).map_err(|e| e.to_string())?;
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::window::{Effect, EffectsBuilder};
+        if enabled {
+            let effects = EffectsBuilder::new().effect(Effect::Acrylic).build();
+            window
+                .set_effects(Some(effects))
+                .map_err(|e| e.to_string())?;
+        } else {
+            window.set_effects(None).map_err(|e| e.to_string())?;
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (window, enabled);
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -69,6 +106,7 @@ pub fn run() {
       }
     })
     .invoke_handler(tauri::generate_handler![
+      set_window_blur,
       check_for_updates,
       connect_db,
       test_connection,

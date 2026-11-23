@@ -30,23 +30,41 @@ export function classifySqlIntent(sql: string): SqlIntent {
   return 'unknown'
 }
 
-const TRANSACTION_CONTROL = ['begin', 'commit', 'rollback', 'start', 'savepoint', 'release']
-
 /**
- * Statements that can appear after a `WITH` clause and still modify data.
- * A data-modifying CTE (`WITH x AS (INSERT ...) SELECT ...`) starts with
- * `WITH`, so it must not be treated as read-only just because of its prefix.
+ * Words that make a statement a write wherever they appear, not only at its
+ * start. Checking the whole statement catches data-modifying CTEs
+ * (`WITH x AS (DELETE ...) SELECT ...`), `SELECT ... INTO`, and T-SQL batches,
+ * which run several statements without semicolons
+ * (`SELECT 1 DELETE FROM users`). A table, column or string literal that uses
+ * one of these words only costs an extra confirmation.
+ * Keep in sync with `WRITE_KEYWORDS` in `src-tauri/src/commands/mod.rs`.
  */
-const WRITE_KEYWORDS = [
+const WRITE_KEYWORDS = new Set([
   'insert', 'update', 'delete', 'merge',
   'create', 'alter', 'drop', 'truncate',
-  'grant', 'revoke', 'copy', 'call', 'do', 'vacuum',
-]
+  'grant', 'revoke', 'deny', 'copy', 'call', 'do', 'vacuum',
+  // SELECT ... INTO creates a table (Postgres, T-SQL) or a file (MySQL INTO OUTFILE).
+  'into',
+  // T-SQL statements and rowset functions that can follow a SELECT in one batch.
+  'exec', 'execute', 'kill', 'shutdown', 'backup', 'restore', 'dbcc', 'bulk',
+  'reconfigure', 'openquery', 'openrowset', 'opendatasource',
+  // Functions that change data or server state when called from a SELECT.
+  'nextval', 'setval', 'set_config', 'pg_notify', 'pg_logical_emit_message',
+  'pg_terminate_backend', 'pg_cancel_backend', 'pg_reload_conf', 'pg_rotate_logfile',
+  'pg_switch_wal', 'pg_promote', 'pg_create_restore_point',
+  'lo_import', 'lo_export', 'lo_unlink', 'lo_create', 'lo_creat', 'lo_from_bytea',
+  'lo_put', 'lo_truncate',
+  'dblink', 'dblink_exec', 'dblink_connect',
+  'pg_file_write', 'pg_file_rename', 'pg_file_unlink',
+])
 
 function containsWriteKeyword(sql: string): boolean {
-  const tokens = sql.toLowerCase().split(/[^a-z0-9_]+/)
-  return tokens.some((token) => WRITE_KEYWORDS.includes(token))
+  return sql.toLowerCase().split(/[^a-z0-9_]+/).some((token) => WRITE_KEYWORDS.has(token))
 }
+
+const READ_ONLY_INTENTS: ReadonlySet<SqlIntent> = new Set([
+  'select', 'explain', 'show', 'describe', 'values', 'table',
+])
 
 /**
  * Redis commands that never modify the keyspace. Anything not listed here is
@@ -82,33 +100,22 @@ export function isReadOnlyRedisCommand(sql: string): boolean {
   })
 }
 
-/** True when every statement in `sql` is read-only (select/explain/show/...). */
+/**
+ * True when every statement in `sql` only reads. Queries that pass run without
+ * a confirmation, so anything uncertain counts as a write.
+ *
+ * Statements are split on every `;`, even inside strings: that can only add
+ * pieces to check. Transaction control counts as a write, because on Postgres an
+ * unconfirmed query runs in a read-only transaction that a `COMMIT` would end.
+ */
 export function isReadOnlySql(sql: string, engine?: string): boolean {
   // MongoDB queries are read-only in practice: the engine only executes find().
   if (engine === 'mongo') return true
   if (engine === 'redis') return isReadOnlyRedisCommand(sql)
-  let sawStatement = false
-  for (const raw of sql.split(';')) {
-    const statement = raw.trim()
-    if (!statement) continue
-    const normalized = statement.toLowerCase()
-    if (TRANSACTION_CONTROL.some((kw) => normalized.startsWith(kw))) continue
-    sawStatement = true
-    const intent = classifySqlIntent(statement)
-    if (intent === 'select') {
-      // WITH-prefixed statements can be data-modifying CTEs.
-      if (normalized.startsWith('with') && containsWriteKeyword(statement)) return false
-      continue
-    }
-    // EXPLAIN ANALYZE actually executes the statement it explains.
-    if (intent === 'explain') {
-      if (containsWriteKeyword(statement)) return false
-      continue
-    }
-    if (intent === 'show' || intent === 'describe' || intent === 'values' || intent === 'table') {
-      continue
-    }
-    return false
-  }
-  return sawStatement
+  const statements = sql.split(';').map((raw) => raw.trim()).filter(Boolean)
+  if (statements.length === 0) return false
+  return statements.every(
+    (statement) =>
+      !containsWriteKeyword(statement) && READ_ONLY_INTENTS.has(classifySqlIntent(statement)),
+  )
 }

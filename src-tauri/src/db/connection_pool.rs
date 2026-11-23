@@ -903,9 +903,11 @@ pub fn persist_connection(app: &AppHandle, connection: &StoredConnection) -> Res
         .store(CONNECTION_STORE_PATH)
         .map_err(|error| error.to_string())?;
 
+    let sanitized = connection.redacted();
+
     store.set(
-        connection.id.clone(),
-        serde_json::to_value(connection).map_err(|error| error.to_string())?,
+        sanitized.id.clone(),
+        serde_json::to_value(&sanitized).map_err(|error| error.to_string())?,
     );
 
     store.save().map_err(|error| error.to_string())?;
@@ -918,12 +920,36 @@ pub fn persist_connection_with_password(
     connection: &StoredConnection,
     password: &str,
 ) -> Result<(), VeloxError> {
-    let mut stored = connection.clone();
-    stored.password = Some(password.to_string());
-    persist_connection(app, &stored)?;
     if connection.engine != DatabaseEngine::Sqlite {
         credentials::store_password(&connection.id, password)?;
     }
+
+    if let Some(ref ssh) = connection.ssh_config {
+        if let Some(ref ssh_password) = ssh.password {
+            if !ssh_password.is_empty() {
+                credentials::store_ssh_password(&connection.id, ssh_password)?;
+            } else {
+                let _ = credentials::delete_ssh_password(&connection.id);
+            }
+        } else {
+            let _ = credentials::delete_ssh_password(&connection.id);
+        }
+
+        if let Some(ref ssh_passphrase) = ssh.passphrase {
+            if !ssh_passphrase.is_empty() {
+                credentials::store_ssh_passphrase(&connection.id, ssh_passphrase)?;
+            } else {
+                let _ = credentials::delete_ssh_passphrase(&connection.id);
+            }
+        } else {
+            let _ = credentials::delete_ssh_passphrase(&connection.id);
+        }
+    } else {
+        let _ = credentials::delete_ssh_password(&connection.id);
+        let _ = credentials::delete_ssh_passphrase(&connection.id);
+    }
+
+    persist_connection(app, connection)?;
     Ok(())
 }
 
@@ -1002,21 +1028,24 @@ pub fn load_connection(
         return Ok(Some(connection));
     }
 
+    let mut needs_cleanup = false;
+
     match credentials::get_password(connection_id) {
         Ok(Some(password)) => {
             if json_password.is_some() {
-                let clean = StoredConnection {
-                    password: None,
-                    ..connection.clone()
-                };
-                let _ = persist_connection(app, &clean);
+                needs_cleanup = true;
             }
             connection.password = Some(password);
         }
         Ok(None) => {
             if let Some(ref pwd) = json_password {
-                if let Err(e) = credentials::store_password(connection_id, pwd) {
-                    log::warn!("Failed to migrate password to keychain for {}: {}", connection_id, e);
+                match credentials::store_password(connection_id, pwd) {
+                    Ok(()) => {
+                        needs_cleanup = true;
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to migrate password to keychain for {}: {}", connection_id, e);
+                    }
                 }
                 connection.password = Some(pwd.clone());
             } else {
@@ -1037,6 +1066,70 @@ pub fn load_connection(
                 )));
             }
         }
+    }
+
+    if let Some(ref mut ssh) = connection.ssh_config {
+        let json_ssh_password = ssh.password.clone();
+        match credentials::get_ssh_password(connection_id) {
+            Ok(Some(pwd)) => {
+                if json_ssh_password.is_some() {
+                    needs_cleanup = true;
+                }
+                ssh.password = Some(pwd);
+            }
+            Ok(None) => {
+                if let Some(ref pwd) = json_ssh_password {
+                    if !pwd.is_empty() {
+                        match credentials::store_ssh_password(connection_id, pwd) {
+                            Ok(()) => {
+                                needs_cleanup = true;
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to migrate SSH password to keychain for {}: {}", connection_id, e);
+                            }
+                        }
+                    } else {
+                        needs_cleanup = true;
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to read SSH password from keychain for {}: {}", connection_id, e);
+            }
+        }
+
+        let json_ssh_passphrase = ssh.passphrase.clone();
+        match credentials::get_ssh_passphrase(connection_id) {
+            Ok(Some(passphrase)) => {
+                if json_ssh_passphrase.is_some() {
+                    needs_cleanup = true;
+                }
+                ssh.passphrase = Some(passphrase);
+            }
+            Ok(None) => {
+                if let Some(ref passphrase) = json_ssh_passphrase {
+                    if !passphrase.is_empty() {
+                        match credentials::store_ssh_passphrase(connection_id, passphrase) {
+                            Ok(()) => {
+                                needs_cleanup = true;
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to migrate SSH passphrase to keychain for {}: {}", connection_id, e);
+                            }
+                        }
+                    } else {
+                        needs_cleanup = true;
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to read SSH passphrase from keychain for {}: {}", connection_id, e);
+            }
+        }
+    }
+
+    if needs_cleanup {
+        let _ = persist_connection(app, &connection);
     }
 
     Ok(Some(connection))

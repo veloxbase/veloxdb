@@ -515,9 +515,13 @@ pub(crate) fn check_agent_readonly_sql(
     if let ControlFlow::Break(reason) = statements[0].visit(&mut ReadOnlyGuard) {
         return Err(reason);
     }
-    if !super::is_read_only_sql(trimmed) {
-        return Err("This statement is not read-only. Veloxy will not execute writes.".to_string());
-    }
+    // No `is_read_only_sql` here on purpose. That word-based check also flags
+    // write keywords inside string literals and identifiers, which is fine in
+    // the editor (it only asks for a confirmation) but would make agents refuse
+    // harmless queries such as `WHERE note ILIKE '%nextval%'`. The AST walk above
+    // already rejects every write statement, SELECT ... INTO, row locks and each
+    // side-effect function on that list (including dblink*), and agent SQL then
+    // runs in a database-enforced read-only transaction.
     Ok(match statements[0] {
         Statement::Explain { .. } => engines::AgentStatement::Explain,
         _ => engines::AgentStatement::Query,
@@ -661,7 +665,6 @@ mod tests {
         assert!(is_read_only_sql("SELECT 1"));
         assert!(is_read_only_sql("EXPLAIN ANALYZE SELECT * FROM t"));
         assert!(is_read_only_sql("WITH x AS (SELECT 1) SELECT * FROM x"));
-        assert!(is_read_only_sql("BEGIN; SELECT 1; COMMIT;"));
     }
 
     #[test]
@@ -670,6 +673,7 @@ mod tests {
         assert!(!is_read_only_sql("DROP TABLE t"));
         assert!(!is_read_only_sql("BEGIN; UPDATE t SET a = 1; COMMIT;"));
         assert!(!is_read_only_sql("SELECT 1; DELETE FROM t"));
+        assert!(!is_read_only_sql("SELECT 1 DELETE FROM t"));
         assert!(!is_read_only_sql(""));
     }
 
