@@ -229,6 +229,59 @@ export function SettingsDialog({ open, onOpenChange, tab: controlledTab, onTabCh
                 <Input value={settings.monospaceFont} onChange={(e) => useSettings.setState({ monospaceFont: e.target.value })}
                   className="h-8 w-[240px] font-mono text-[11px]" spellCheck={false} />
               </Field>
+              <Field label={t("settings.borderRadius")} desc={t("settings.borderRadiusDesc")}>
+                <div className="flex items-center gap-1">
+                  {[0, 4, 8, 12].map((radius) => {
+                    const isActive = (settings.borderRadius ?? 0) === radius
+                    return (
+                      <button
+                        key={radius}
+                        type="button"
+                        onClick={() => useSettings.setState({ borderRadius: radius })}
+                        className={cn(
+                          'h-8 px-2.5 text-xs transition-colors border border-input cursor-pointer',
+                          isActive
+                            ? 'bg-primary text-primary-foreground border-primary font-medium'
+                            : 'bg-muted/30 text-muted-foreground hover:bg-accent hover:text-foreground',
+                        )}
+                      >
+                        {radius}px
+                      </button>
+                    )
+                  })}
+                </div>
+              </Field>
+              <Field label={t("settings.windowOpacity")} desc={t("settings.windowOpacityDesc")}>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={40}
+                    max={100}
+                    step={1}
+                    value={settings.windowOpacity ?? 100}
+                    onChange={(e) => useSettings.setState({ windowOpacity: Number(e.target.value) })}
+                    className="h-1.5 w-[120px] cursor-pointer accent-[var(--control-accent)]"
+                    aria-label={t("settings.windowOpacity")}
+                  />
+                  <span className="w-10 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                    {settings.windowOpacity ?? 100}%
+                  </span>
+                </div>
+              </Field>
+              <Field label={t("settings.backgroundBlur")} desc={t("settings.backgroundBlurDesc")}>
+                <Toggle
+                  label={t("settings.backgroundBlur")}
+                  value={settings.backgroundBlur ?? false}
+                  onChange={(v) => {
+                    // Blur only shows through a translucent window, so lower the opacity if needed.
+                    if (v && (useSettings.getState().windowOpacity ?? 100) > 80) {
+                      useSettings.setState({ backgroundBlur: true, windowOpacity: 72 })
+                    } else {
+                      useSettings.setState({ backgroundBlur: v })
+                    }
+                  }}
+                />
+              </Field>
             </Section>}
 
             {tab === 'editor' && <Section title={t("settings.editor")} description={t("settings.pageDesc.editor")}>
@@ -237,7 +290,7 @@ export function SettingsDialog({ open, onOpenChange, tab: controlledTab, onTabCh
                   opts={[{ v: '2', l: '2 spaces' }, { v: '4', l: '4 spaces' }]} />
               </Field>
               <Field label={t("settings.lineNumbers")} desc={t("settings.lineNumbersDesc")}>
-                <Toggle value={settings.showLineNumbers} onChange={(v) => useSettings.setState({ showLineNumbers: v })} />
+                <Toggle label={t("settings.lineNumbers")} value={settings.showLineNumbers} onChange={(v) => useSettings.setState({ showLineNumbers: v })} />
               </Field>
               <Field label={t("settings.lintDebounce")} desc={t("settings.lintDebounceDesc")}>
                 <Select value={String(settings.lintDebounceMs)} onChange={(v) => useSettings.setState({ lintDebounceMs: Number(v) })}
@@ -255,13 +308,13 @@ export function SettingsDialog({ open, onOpenChange, tab: controlledTab, onTabCh
                   opts={[{ v: 'null', l: '(null)' }, { v: 'NULL', l: 'NULL' }, { v: 'dash', l: t("settings.dash") }, { v: 'empty', l: t("settings.empty") }]} />
               </Field>
               <Field label={t("settings.clickToCopy")} desc={t("settings.clickToCopyDesc")}>
-                <Toggle value={settings.clickToCopy} onChange={(v) => useSettings.setState({ clickToCopy: v })} />
+                <Toggle label={t("settings.clickToCopy")} value={settings.clickToCopy} onChange={(v) => useSettings.setState({ clickToCopy: v })} />
               </Field>
             </Section>}
 
             {tab === 'connections' && <Section title={t("settings.connections")} description={t("settings.pageDesc.connections")}>
               <Field label={t("settings.autoReconnect")} desc={t("settings.autoReconnectDesc")}>
-                <Toggle value={settings.autoReconnect} onChange={(v) => useSettings.setState({ autoReconnect: v })} />
+                <Toggle label={t("settings.autoReconnect")} value={settings.autoReconnect} onChange={(v) => useSettings.setState({ autoReconnect: v })} />
               </Field>
               <Field label={t("settings.healthPing")} desc={t("settings.healthPingDesc")}>
                 <Select value={String(settings.pingIntervalSec)} onChange={(v) => useSettings.setState({ pingIntervalSec: Number(v) })}
@@ -274,14 +327,23 @@ export function SettingsDialog({ open, onOpenChange, tab: controlledTab, onTabCh
             {tab === 'notifications' && <Section title={t("settings.notifications")} description={t("settings.pageDesc.notifications")}>
               <Field label={t("settings.successToasts")} desc={t("settings.successToastsDesc")}>
                 <Toggle
+                  label={t("settings.successToasts")}
                   value={settings.toastLevels.success}
                   onChange={(v) => useSettings.setState({ toastLevels: { ...settings.toastLevels, success: v } })}
                 />
               </Field>
               <Field label={t("settings.errorToasts")} desc={t("settings.errorToastsDesc")}>
                 <Toggle
+                  label={t("settings.errorToasts")}
                   value={settings.toastLevels.error}
                   onChange={(v) => useSettings.setState({ toastLevels: { ...settings.toastLevels, error: v } })}
+                />
+              </Field>
+              <Field label={t("settings.queryResultToasts")} desc={t("settings.queryResultToastsDesc")}>
+                <Toggle
+                  label={t("settings.queryResultToasts")}
+                  value={settings.showQueryResultToasts}
+                  onChange={(v) => useSettings.setState({ showQueryResultToasts: v })}
                 />
               </Field>
             </Section>}
@@ -417,6 +479,6 @@ function ThemeSelect({ value, onChange }: { value: string; onChange: (v: string)
   )
 }
 
-function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return <SettingsToggle value={value} onChange={onChange} />
+function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label?: string }) {
+  return <SettingsToggle value={value} onChange={onChange} label={label} />
 }

@@ -7,6 +7,7 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { isTauri } from "@tauri-apps/api/core";
 
 import { queryKeys } from "@/data/query-keys";
 import { veloxDbRepository } from "@/data/repositories";
@@ -143,6 +144,9 @@ export function useAppState(
   const themeSetting = useSettings((s) => s.theme);
   const isDark = useMemo(() => resolveTheme(themeSetting) === "dark", [themeSetting]);
   const fontSize = useSettings((s) => s.fontSize);
+  const borderRadius = useSettings((s) => s.borderRadius);
+  const windowOpacity = useSettings((s) => s.windowOpacity);
+  const backgroundBlur = useSettings((s) => s.backgroundBlur);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -179,6 +183,21 @@ export function useAppState(
 		// Each provider has its own keychain entry; reload when it changes.
 		void loadAiApiKey();
 	}, [veloxyProvider]);
+
+	useEffect(() => {
+		const radius = Number.isFinite(borderRadius) ? Math.max(0, Math.min(16, borderRadius)) : 0;
+		document.documentElement.style.setProperty("--radius", `${radius}px`);
+	}, [borderRadius]);
+
+	useEffect(() => {
+		const opacity = Number.isFinite(windowOpacity) ? Math.max(40, Math.min(100, windowOpacity)) : 100;
+		document.documentElement.style.setProperty("--window-opacity", String(opacity / 100));
+	}, [windowOpacity]);
+
+	useEffect(() => {
+		if (!isTauri()) return;
+		void veloxDbRepository.setWindowBlur(Boolean(backgroundBlur)).catch(() => {});
+	}, [backgroundBlur]);
 
 	useEffect(() => {
 		window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(isSidebarCollapsed));

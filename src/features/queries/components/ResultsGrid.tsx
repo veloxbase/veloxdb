@@ -12,6 +12,7 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+	type ChangeEvent,
 	type PointerEvent,
 	type ReactNode,
 	useCallback,
@@ -64,13 +65,17 @@ import {
 } from "@/features/queries/results-export";
 import { useTablePropertiesQuery } from "@/features/schema/queries";
 import { notifyError } from "@/lib/error-notifier";
-import { useSettings } from "@/lib/settings";
+import { resolveFontSizePx, useSettings } from "@/lib/settings";
+import { cn } from "@/lib/utils";
 
 const SELECT_COLUMN_WIDTH_PX = 44;
 const ROW_NUMBER_COLUMN_WIDTH_PX = 44;
 const DEFAULT_DATA_COLUMN_WIDTH_PX = 180;
 const MIN_COLUMN_WIDTH_PX = 48;
 const MAX_COLUMN_WIDTH_PX = 640;
+/** Row height as a multiple of the root font size, so rows grow with the font-size setting. */
+const ROW_HEIGHT_EM = 2.25;
+const MIN_ROW_HEIGHT_PX = 28;
 
 type ResultsGridProps = {
 	result: QueryResult | null;
@@ -185,6 +190,38 @@ function getCustomFilteredRowModel<TData>() {
 			return model;
 		};
 	};
+}
+
+function SelectAllCheckbox({
+	checked,
+	indeterminate,
+	disabled,
+	label,
+	onChange,
+}: {
+	checked: boolean;
+	indeterminate: boolean;
+	disabled: boolean;
+	label: string;
+	onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+	const ref = useRef<HTMLInputElement | null>(null);
+	useEffect(() => {
+		if (ref.current) {
+			ref.current.indeterminate = indeterminate;
+		}
+	}, [indeterminate]);
+	return (
+		<input
+			ref={ref}
+			type="checkbox"
+			className="size-3.5 cursor-pointer"
+			checked={checked}
+			disabled={disabled}
+			onChange={onChange}
+			aria-label={label}
+		/>
+	);
 }
 
 function renderLoadingSkeleton() {
@@ -308,8 +345,8 @@ export function ResultsGrid({
 	canCreateChart,
 }: ResultsGridProps) {
 	const { t } = useTranslation();
+	/** Single scroll container for both axes, so the sticky header and both scrollbars stay in view. */
 	const parentRef = useRef<HTMLDivElement | null>(null);
-	const horizontalScrollRef = useRef<HTMLDivElement | null>(null);
 	const filterInputRef = useRef<HTMLInputElement | null>(null);
 	const contextMenuTargetRef = useRef<{
 		rowId: string;
@@ -359,6 +396,11 @@ export function ResultsGrid({
 	const [copiedCellId, setCopiedCellId] = useState<string | null>(null);
 	const copyTimeoutRef = useRef<number | null>(null);
 	const clickToCopy = useSettings((s) => s.clickToCopy);
+	const rootFontSizePx = useSettings((s) => resolveFontSizePx(s.fontSize));
+	const rowHeightPx = Math.max(
+		MIN_ROW_HEIGHT_PX,
+		Math.round(rootFontSizePx * ROW_HEIGHT_EM),
+	);
 
 	const insertMutation = useInsertRowMutation({
 		onError: (error) => {
@@ -572,7 +614,7 @@ export function ResultsGrid({
 							className="size-3.5 cursor-pointer"
 							checked={context.row.getIsSelected()}
 							onChange={context.row.getToggleSelectedHandler()}
-							aria-label={`Select row ${context.row.index + 1}`}
+							aria-label={t("editor.selectRow", { index: context.row.index + 1 })}
 						/>
 					);
 				},
@@ -798,11 +840,13 @@ export function ResultsGrid({
 		enableRowSelection: (row) => row.id !== "__insert__",
 	});
 
+	const tableRows = table.getRowModel().rows;
+
 	const rowVirtualizer = useVirtualizer({
-		count: table.getRowModel().rows.length,
+		count: tableRows.length,
 		getScrollElement: () => parentRef.current,
-		estimateSize: () => 36,
-		overscan: 10,
+		estimateSize: () => rowHeightPx,
+		overscan: 12,
 	});
 
 	const visibleColumns = table.getVisibleLeafColumns();
@@ -830,31 +874,46 @@ export function ResultsGrid({
 	const columnVirtualizer = useVirtualizer({
 		horizontal: true,
 		count: dataVisibleColumns.length,
-		getScrollElement: () => horizontalScrollRef.current,
+		getScrollElement: () => parentRef.current,
 		estimateSize: (index) => getColumnWidthPx(dataVisibleColumns[index]?.id ?? ""),
 		overscan: 4,
 	});
 
-	useEffect(() => {
+	// The virtualizer caches sizes from `estimateSize` and only recomputes when the
+	// item count changes. Without an explicit re-measure, resizing a column (or
+	// changing the font size) leaves stale offsets behind, and cells drift out of
+	// alignment or overlap. Layout effects re-render before paint, so no flicker.
+	const columnLayoutKey = dataVisibleColumns
+		.map((column) => `${column.id}:${getColumnWidthPx(column.id)}`)
+		.join("\u0001");
+	useLayoutEffect(() => {
+		void columnLayoutKey;
 		columnVirtualizer.measure();
-	}, [columnVirtualizer]);
+	}, [columnVirtualizer, columnLayoutKey]);
+	useLayoutEffect(() => {
+		void rowHeightPx;
+		rowVirtualizer.measure();
+	}, [rowVirtualizer, rowHeightPx]);
 
 	const virtualDataColumns = columnVirtualizer.getVirtualItems();
-	const virtualPaddingLeft = virtualDataColumns[0]?.start ?? 0;
-	const virtualPaddingRight =
-		columnVirtualizer.getTotalSize() -
-		(virtualDataColumns[virtualDataColumns.length - 1]?.end ?? 0);
-	const selectColumnWidthPx = selectColumn
-		? getColumnWidthPx(selectColumn.id)
-		: SELECT_COLUMN_WIDTH_PX;
+	const selectColumnWidthPx = selectColumn ? getColumnWidthPx(selectColumn.id) : 0;
 	const rowNumberColumnWidthPx = rowNumberColumn
 		? getColumnWidthPx(rowNumberColumn.id)
-		: ROW_NUMBER_COLUMN_WIDTH_PX;
-	const totalDataColumnsWidthPx = columnVirtualizer.getTotalSize();
+		: 0;
+	// Derive widths from the real column widths rather than the virtualizer, so the
+	// scrollable area always matches what is rendered.
+	const totalDataColumnsWidthPx = dataVisibleColumns.reduce(
+		(sum, column) => sum + getColumnWidthPx(column.id),
+		0,
+	);
+	const virtualPaddingLeft = virtualDataColumns[0]?.start ?? 0;
+	const virtualPaddingRight = Math.max(
+		0,
+		totalDataColumnsWidthPx -
+			(virtualDataColumns[virtualDataColumns.length - 1]?.end ?? 0),
+	);
 	const totalGridWidthPx =
-		selectColumnWidthPx +
-		(rowNumberColumn ? rowNumberColumnWidthPx : 0) +
-		totalDataColumnsWidthPx;
+		selectColumnWidthPx + rowNumberColumnWidthPx + totalDataColumnsWidthPx;
 
 	const handleColumnResizePointerDown = useCallback(
 		(columnId: string, event: PointerEvent<HTMLElement>) => {
@@ -865,6 +924,10 @@ export function ResultsGrid({
 
 			const clampWidth = (value: number) =>
 				Math.min(MAX_COLUMN_WIDTH_PX, Math.max(MIN_COLUMN_WIDTH_PX, value));
+			const previousCursor = document.body.style.cursor;
+			const previousUserSelect = document.body.style.userSelect;
+			document.body.style.cursor = "col-resize";
+			document.body.style.userSelect = "none";
 
 			const onPointerMove = (moveEvent: globalThis.PointerEvent) => {
 				const delta = moveEvent.clientX - startX;
@@ -890,6 +953,8 @@ export function ResultsGrid({
 					pendingResizeWidthsRef.current = {};
 					setColumnWidths((current) => ({ ...current, ...pending }));
 				}
+				document.body.style.cursor = previousCursor;
+				document.body.style.userSelect = previousUserSelect;
 				window.removeEventListener("pointermove", onPointerMove);
 				window.removeEventListener("pointerup", onPointerUp);
 				window.removeEventListener("pointercancel", onPointerUp);
@@ -1370,331 +1435,329 @@ export function ResultsGrid({
 					<ContextMenu onOpenChange={(open) => { if (!open) setContextMenuTarget(null); }}>
 						<ContextMenuTrigger asChild>
 							<div
-								ref={horizontalScrollRef}
-								className="min-h-0 min-w-0 flex-1 overflow-x-auto"
+								ref={parentRef}
+								role="grid"
+								aria-rowcount={tableRows.length + 1}
+								aria-colcount={visibleColumns.length}
+								className="relative min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain"
 							>
 								<div
-									className="flex h-full min-w-full flex-col"
-									style={{ width: `${Math.max(totalGridWidthPx, 0)}px` }}
+									className="relative min-w-full"
+									style={{ width: `${totalGridWidthPx}px` }}
 								>
-									{/* Column Headers */}
-									<div className="sticky top-0 z-10 flex min-w-full shrink-0 border-b border-border bg-muted/30">
-										{selectColumn ? (
-											<div
-												key={selectColumn.id}
-												className="relative min-w-0 truncate border-r border-border px-3 py-2 pr-2 text-[11px] font-medium text-muted-foreground last:border-r-0"
-												style={{ width: `${selectColumnWidthPx}px` }}
-											>
-												<span className="block truncate">Select</span>
-												<button
-													type="button"
-													tabIndex={-1}
-													aria-label="Resize column Select"
-													className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize select-none border-0 bg-transparent p-0 hover:bg-primary/20"
-													onPointerDown={(event) =>
-														handleColumnResizePointerDown(selectColumn.id, event)
-													}
-												/>
-											</div>
-										) : null}
-
-										{rowNumberColumn ? (
-											<div
-												key={rowNumberColumn.id}
-												className="relative flex min-w-0 items-center justify-center border-r border-border px-2 py-2 text-[11px] font-medium text-muted-foreground select-none"
-												style={{ width: `${rowNumberColumnWidthPx}px` }}
-											>
-												<span>#</span>
-											</div>
-										) : null}
-
-										{virtualPaddingLeft > 0 ? (
-											<div
-												aria-hidden
-												style={{
-													width: `${virtualPaddingLeft}px`,
-													minWidth: `${virtualPaddingLeft}px`,
-												}}
-											/>
-										) : null}
-
-										{virtualDataColumns.map((virtualColumn) => {
-											const column = dataVisibleColumns[virtualColumn.index];
-											if (!column) {
-												return null;
-											}
-											const widthPx = getColumnWidthPx(column.id);
-											const isSorted = column.getIsSorted();
-											const sortIndex = column.getSortIndex();
-											const isPrimaryKey = primaryKeyColumnsByLower.has(
-												normalizeColumnId(column.id),
-											);
-											const colMeta = metaByLowerName.get(
-												normalizeColumnId(column.id),
-											);
-
-											return (
+									{/* Column headers: sticky, with an opaque base so rows never show through. */}
+									<div role="rowgroup" className="sticky top-0 z-20 bg-background">
+										<div
+											role="row"
+											className="flex min-w-full overflow-hidden border-b border-border bg-muted/50"
+											style={{ height: `${rowHeightPx}px` }}
+										>
+											{selectColumn ? (
 												<div
-													key={column.id}
-													onClick={column.getToggleSortingHandler()}
-													className="group relative flex min-w-0 items-center justify-between border-r border-border px-3 py-2 pr-2 text-[11px] font-medium text-muted-foreground last:border-r-0 cursor-pointer select-none hover:bg-muted/50 hover:text-foreground"
-													style={{ width: `${widthPx}px`, minWidth: `${widthPx}px` }}
-													title="Click to sort (Shift+Click for multi-sort)"
+													role="columnheader"
+													className="flex flex-none items-center justify-center border-r border-border"
+													style={{ width: `${selectColumnWidthPx}px` }}
 												>
-													<div className="flex min-w-0 items-center gap-1.5 truncate">
-														{isPrimaryKey ? (
-															<span title="Primary Key" className="inline-flex shrink-0">
-																<KeyIcon className="size-3 text-amber-500" />
-															</span>
-														) : null}
-														<span className="truncate">{column.id}</span>
-														{colMeta?.dataType ? (
-															<span className="shrink-0 px-1 py-0.2 rounded-xs bg-muted/60 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70 select-none">
-																{colMeta.dataType}
-															</span>
-														) : null}
-													</div>
-													<div className="flex items-center gap-0.5 ml-1 shrink-0">
-														{isSorted === "asc" ? (
-															<CaretUpIcon className="size-3 text-primary" />
-														) : isSorted === "desc" ? (
-															<CaretDownIcon className="size-3 text-primary" />
-														) : (
-															<ArrowsDownUpIcon className="size-2.5 opacity-0 group-hover:opacity-60 text-muted-foreground transition-opacity" />
-														)}
-														{table.getState().sorting.length > 1 && isSorted ? (
-															<span className="rounded-xs bg-muted px-1 font-mono text-[9px] text-muted-foreground">
-																{sortIndex + 1}
-															</span>
-														) : null}
-													</div>
-													<button
-														type="button"
-														tabIndex={-1}
-														aria-label={`Resize column ${column.id}`}
-														title="Drag to resize, double-click to auto-fit"
-														className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize select-none border-0 bg-transparent p-0 hover:bg-primary/20"
-														onDoubleClick={(event) =>
-															handleColumnAutoFit(column.id, event)
+													<SelectAllCheckbox
+														checked={table.getIsAllRowsSelected()}
+														indeterminate={
+															!table.getIsAllRowsSelected() &&
+															table.getIsSomeRowsSelected()
 														}
-														onPointerDown={(event) => {
-															event.stopPropagation();
-															handleColumnResizePointerDown(column.id, event);
-														}}
+														disabled={indexedRows.length === 0}
+														label={t("editor.selectAllRows")}
+														onChange={table.getToggleAllRowsSelectedHandler()}
 													/>
 												</div>
-											);
-										})}
+											) : null}
 
-										{virtualPaddingRight > 0 ? (
-											<div
-												aria-hidden
-												style={{
-													width: `${virtualPaddingRight}px`,
-													minWidth: `${virtualPaddingRight}px`,
-												}}
-											/>
-										) : null}
-									</div>
+											{rowNumberColumn ? (
+												<div
+													role="columnheader"
+													className="flex flex-none select-none items-center justify-center border-r border-border px-2 text-[11px] font-medium text-muted-foreground"
+													style={{ width: `${rowNumberColumnWidthPx}px` }}
+												>
+													<span>#</span>
+												</div>
+											) : null}
 
-									{/* Body Rows */}
-									<div
-										ref={parentRef}
-										className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
-									>
-										<div
-											className="relative w-max min-w-full"
-											style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-										>
-											{rowVirtualizer.getVirtualItems().map((virtualRow) => {
-												const row = table.getRowModel().rows[virtualRow.index];
-												if (!row) {
+											{virtualPaddingLeft > 0 ? (
+												<div
+													aria-hidden
+													className="flex-none"
+													style={{ width: `${virtualPaddingLeft}px` }}
+												/>
+											) : null}
+
+											{virtualDataColumns.map((virtualColumn) => {
+												const column = dataVisibleColumns[virtualColumn.index];
+												if (!column) {
 													return null;
 												}
-
-												const isInsert = row.id === "__insert__";
+												const widthPx = getColumnWidthPx(column.id);
+												const isSorted = column.getIsSorted();
+												const sortIndex = column.getSortIndex();
+												const isPrimaryKey = primaryKeyColumnsByLower.has(
+													normalizeColumnId(column.id),
+												);
+												const colMeta = metaByLowerName.get(
+													normalizeColumnId(column.id),
+												);
 
 												return (
 													<div
-														key={row.id}
-														className={`absolute left-0 top-0 flex w-max min-w-full border-b border-border/60 text-xs ${
-															isInsert
-																? "bg-muted/25"
-																: row.getIsSelected()
-																	? "bg-muted/40"
-																	: "bg-background"
-														}`}
-														style={{
-															height: `${virtualRow.size}px`,
-															top: `${virtualRow.start}px`,
-															width: `${Math.max(totalGridWidthPx, 0)}px`,
-														}}
+														key={column.id}
+														role="columnheader"
+														aria-sort={
+															isSorted === "asc"
+																? "ascending"
+																: isSorted === "desc"
+																	? "descending"
+																	: undefined
+														}
+														onClick={column.getToggleSortingHandler()}
+														className="group relative flex flex-none cursor-pointer select-none items-center justify-between border-r border-border px-3 pr-2 text-[11px] font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+														style={{ width: `${widthPx}px` }}
+														title="Click to sort (Shift+Click for multi-sort)"
 													>
-														{(() => {
-															const rowCells = row.getVisibleCells();
-															const rowCellByColumn = new Map(
-																rowCells.map((cell) => [cell.column.id, cell]),
-															);
-															const selectCell = selectColumn
-																? rowCellByColumn.get(selectColumn.id)
-																: undefined;
-															const rowNumberCell = rowNumberColumn
-																? rowCellByColumn.get(rowNumberColumn.id)
-																: undefined;
-
-															return (
-																<>
-																	{selectCell ? (
-																		<div
-																			key={selectCell.id}
-																			className="min-w-0 truncate border-r border-border/60 px-3 py-2"
-																			style={{
-																				width: `${selectColumnWidthPx}px`,
-																				minWidth: `${selectColumnWidthPx}px`,
-																			}}
-																		>
-																			{renderBodyCell(selectCell)}
-																		</div>
-																	) : null}
-
-																	{rowNumberCell ? (
-																		<div
-																			key={rowNumberCell.id}
-																			className="flex min-w-0 items-center justify-center border-r border-border/60 px-2 py-2"
-																			style={{
-																				width: `${rowNumberColumnWidthPx}px`,
-																				minWidth: `${rowNumberColumnWidthPx}px`,
-																			}}
-																		>
-																			{renderBodyCell(rowNumberCell)}
-																		</div>
-																	) : null}
-
-																	{virtualPaddingLeft > 0 ? (
-																		<div
-																			aria-hidden
-																			style={{
-																				width: `${virtualPaddingLeft}px`,
-																				minWidth: `${virtualPaddingLeft}px`,
-																			}}
-																		/>
-																	) : null}
-
-																	{virtualDataColumns.map((virtualColumn) => {
-																		const column =
-																			dataVisibleColumns[virtualColumn.index];
-																		if (!column) {
-																			return null;
-																		}
-																		const cell = rowCellByColumn.get(column.id);
-																		if (!cell) {
-																			return null;
-																		}
-																		const widthPx = getColumnWidthPx(column.id);
-																		const cellValue = resolveCellValue(
-																			row.id,
-																			column.id,
-																			cell.getValue() as string | null | undefined,
-																		);
-																		const isInspected =
-																			inspectedCell?.rowId === row.id &&
-																			inspectedCell?.columnId === column.id;
-																		const isCellEditing =
-																			editingCell?.rowId === row.id &&
-																			editingCell.columnId === column.id;
-
-																				return (
-																					<div
-																						key={cell.id}
-																						className={`min-w-0 truncate border-r border-border/60 px-3 py-2 ${
-																							clickToCopy && !isCellEditing
-																								? "cursor-copy hover:bg-accent/30 active:bg-accent/50"
-																								: ""
-																						} ${
-																							copiedCellId === cell.id
-																								? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-																								: ""
-																						} ${
-																							isInspected
-																								? "ring-1 ring-inset ring-primary/50 bg-primary/5"
-																								: ""
-																						}`}
-																						style={{
-																							width: `${widthPx}px`,
-																							minWidth: `${widthPx}px`,
-																						}}
-																						title={`${formatValue(cellValue)}${
-																							copiedCellId === cell.id
-																								? " — Copied!"
-																								: clickToCopy && !isCellEditing
-																									? "\nClick to copy"
-																									: ""
-																						}`}
-																						onClick={() => {
-																							if (isCellEditing) return;
-																							if (isInspectorOpen) {
-																								setInspectedCell({
-																									rowId: row.id,
-																									columnId: column.id,
-																									value: cellValue,
-																									rowIndex: virtualRow.index,
-																								});
-																							}
-																							if (!clickToCopy) return;
-																							const text = formatValue(cellValue);
-																							if (!text) return;
-																							navigator.clipboard.writeText(text);
-																							setCopiedCellId(cell.id);
-																							if (copyTimeoutRef.current)
-																								clearTimeout(copyTimeoutRef.current);
-																							copyTimeoutRef.current = window.setTimeout(
-																								() => setCopiedCellId(null),
-																								1200,
-																							);
-																						}}
-																						onDoubleClick={() => {
-																							if (isCellEditing) return;
-																							setInspectedCell({
-																								rowId: row.id,
-																								columnId: column.id,
-																								value: cellValue,
-																								rowIndex: virtualRow.index,
-																							});
-																							setIsInspectorOpen(true);
-																						}}
-																						onContextMenu={() => {
-																							const target = {
-																								rowId: row.id,
-																								columnId: column.id,
-																								value: cellValue,
-																								rowIndex: virtualRow.index,
-																								row: row.original,
-																							};
-																							contextMenuTargetRef.current = target;
-																							setContextMenuTarget(target);
-																						}}
-																					>
-																				{renderBodyCell(cell)}
-																			</div>
-																		);
-																	})}
-
-																	{virtualPaddingRight > 0 ? (
-																		<div
-																			aria-hidden
-																			style={{
-																				width: `${virtualPaddingRight}px`,
-																				minWidth: `${virtualPaddingRight}px`,
-																			}}
-																		/>
-																	) : null}
-																</>
-															);
-														})()}
+														<div className="flex min-w-0 items-center gap-1.5">
+															{isPrimaryKey ? (
+																<span title="Primary Key" className="inline-flex shrink-0">
+																	<KeyIcon className="size-3 text-amber-500" />
+																</span>
+															) : null}
+															<span className="truncate">{column.id}</span>
+															{colMeta?.dataType ? (
+																<span className="shrink-0 rounded-xs bg-muted/60 px-1 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70 select-none">
+																	{colMeta.dataType}
+																</span>
+															) : null}
+														</div>
+														<div className="ml-1 flex shrink-0 items-center gap-0.5">
+															{isSorted === "asc" ? (
+																<CaretUpIcon className="size-3 text-primary" />
+															) : isSorted === "desc" ? (
+																<CaretDownIcon className="size-3 text-primary" />
+															) : (
+																<ArrowsDownUpIcon className="size-2.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60" />
+															)}
+															{table.getState().sorting.length > 1 && isSorted ? (
+																<span className="rounded-xs bg-muted px-1 font-mono text-[9px] text-muted-foreground">
+																	{sortIndex + 1}
+																</span>
+															) : null}
+														</div>
+														<div
+															role="separator"
+															aria-orientation="vertical"
+															aria-label={t("editor.resizeColumn", { name: column.id })}
+															title="Drag to resize, double-click to auto-fit"
+															className="absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize touch-none select-none justify-center after:h-full after:w-0.5 after:bg-transparent after:transition-colors hover:after:bg-[var(--control-accent)]"
+															// Finishing a drag fires a click on the header; don't let it toggle sorting.
+															onClick={(event) => event.stopPropagation()}
+															onDoubleClick={(event) =>
+																handleColumnAutoFit(column.id, event)
+															}
+															onPointerDown={(event) =>
+																handleColumnResizePointerDown(column.id, event)
+															}
+														/>
 													</div>
 												);
 											})}
+
+											{virtualPaddingRight > 0 ? (
+												<div
+													aria-hidden
+													className="flex-none"
+													style={{ width: `${virtualPaddingRight}px` }}
+												/>
+											) : null}
 										</div>
+									</div>
+
+									{/* Body rows */}
+									<div
+										role="rowgroup"
+										className="relative"
+										style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+									>
+										{rowVirtualizer.getVirtualItems().map((virtualRow) => {
+											const row = tableRows[virtualRow.index];
+											if (!row) {
+												return null;
+											}
+
+											const isInsert = row.id === "__insert__";
+											const isSelected = row.getIsSelected();
+											const rowCells = row.getVisibleCells();
+											const rowCellByColumn = new Map(
+												rowCells.map((cell) => [cell.column.id, cell]),
+											);
+											const selectCell = selectColumn
+												? rowCellByColumn.get(selectColumn.id)
+												: undefined;
+											const rowNumberCell = rowNumberColumn
+												? rowCellByColumn.get(rowNumberColumn.id)
+												: undefined;
+
+											return (
+												<div
+													key={row.id}
+													role="row"
+													aria-selected={isSelected || undefined}
+													className={cn(
+														"absolute left-0 top-0 flex w-full border-b border-border/60 text-xs",
+														isInsert
+															? "bg-muted/40"
+															: isSelected
+																? "bg-[var(--control-accent-muted)]"
+																: virtualRow.index % 2 === 1
+																	? "bg-muted/20 hover:bg-muted/45"
+																	: "hover:bg-muted/45",
+													)}
+													style={{
+														height: `${virtualRow.size}px`,
+														transform: `translateY(${virtualRow.start}px)`,
+													}}
+												>
+													{selectCell ? (
+														<div
+															role="gridcell"
+															className="flex flex-none items-center justify-center border-r border-border/60"
+															style={{ width: `${selectColumnWidthPx}px` }}
+														>
+															{renderBodyCell(selectCell)}
+														</div>
+													) : null}
+
+													{rowNumberCell ? (
+														<div
+															role="gridcell"
+															className="flex flex-none items-center justify-center border-r border-border/60 px-2"
+															style={{ width: `${rowNumberColumnWidthPx}px` }}
+														>
+															{renderBodyCell(rowNumberCell)}
+														</div>
+													) : null}
+
+													{virtualPaddingLeft > 0 ? (
+														<div
+															aria-hidden
+															className="flex-none"
+															style={{ width: `${virtualPaddingLeft}px` }}
+														/>
+													) : null}
+
+													{virtualDataColumns.map((virtualColumn) => {
+														const column = dataVisibleColumns[virtualColumn.index];
+														if (!column) {
+															return null;
+														}
+														const cell = rowCellByColumn.get(column.id);
+														if (!cell) {
+															return null;
+														}
+														const widthPx = getColumnWidthPx(column.id);
+														const cellValue = resolveCellValue(
+															row.id,
+															column.id,
+															cell.getValue() as string | null | undefined,
+														);
+														const isInspected =
+															inspectedCell?.rowId === row.id &&
+															inspectedCell?.columnId === column.id;
+														const isCellEditing =
+															editingCell?.rowId === row.id &&
+															editingCell.columnId === column.id;
+														const isCopied = copiedCellId === cell.id;
+														const copyEnabled = clickToCopy && !isCellEditing && !isInsert;
+
+														return (
+															<div
+																key={cell.id}
+																role="gridcell"
+																className={cn(
+																	"flex flex-none items-center overflow-hidden border-r border-border/60 px-3",
+																	copyEnabled &&
+																		"cursor-copy hover:bg-accent/40 active:bg-accent/60",
+																	isCopied &&
+																		"bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+																	isInspected &&
+																		"bg-primary/5 ring-1 ring-inset ring-primary/50",
+																)}
+																style={{ width: `${widthPx}px` }}
+																title={
+																	isInsert
+																		? undefined
+																		: `${formatValue(cellValue)}${
+																				isCopied
+																					? " — Copied!"
+																					: copyEnabled
+																						? "\nClick to copy"
+																						: ""
+																			}`
+																}
+																onClick={() => {
+																	// Insert-row cells hold inputs; clicks there are for typing.
+																	if (isCellEditing || isInsert) return;
+																	if (isInspectorOpen) {
+																		setInspectedCell({
+																			rowId: row.id,
+																			columnId: column.id,
+																			value: cellValue,
+																			rowIndex: virtualRow.index,
+																		});
+																	}
+																	if (!copyEnabled) return;
+																	const text = formatValue(cellValue);
+																	if (!text) return;
+																	void navigator.clipboard.writeText(text);
+																	setCopiedCellId(cell.id);
+																	if (copyTimeoutRef.current)
+																		clearTimeout(copyTimeoutRef.current);
+																	copyTimeoutRef.current = window.setTimeout(
+																		() => setCopiedCellId(null),
+																		1200,
+																	);
+																}}
+																onDoubleClick={() => {
+																	if (isCellEditing || isInsert) return;
+																	setInspectedCell({
+																		rowId: row.id,
+																		columnId: column.id,
+																		value: cellValue,
+																		rowIndex: virtualRow.index,
+																	});
+																	setIsInspectorOpen(true);
+																}}
+																onContextMenu={() => {
+																	const target = {
+																		rowId: row.id,
+																		columnId: column.id,
+																		value: cellValue,
+																		rowIndex: virtualRow.index,
+																		row: row.original,
+																	};
+																	contextMenuTargetRef.current = target;
+																	setContextMenuTarget(target);
+																}}
+															>
+																<div className="min-w-0 flex-1">{renderBodyCell(cell)}</div>
+															</div>
+														);
+													})}
+
+													{virtualPaddingRight > 0 ? (
+														<div
+															aria-hidden
+															className="flex-none"
+															style={{ width: `${virtualPaddingRight}px` }}
+														/>
+													) : null}
+												</div>
+											);
+										})}
 									</div>
 								</div>
 							</div>

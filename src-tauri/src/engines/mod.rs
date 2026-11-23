@@ -56,6 +56,21 @@ pub trait DatabaseEngineOps: Send + Sync {
         max_rows: usize,
     ) -> Result<QueryResult, VeloxError>;
 
+    /// Runs a query the user has not confirmed as a write, after `run_query`'s
+    /// caller has checked it with `is_read_only_sql`. Engines that can make the
+    /// database itself refuse writes override this, so a write that the keyword
+    /// check misses (a function that modifies data, for example) still fails.
+    async fn run_read_only_query(
+        &self,
+        app: &AppHandle,
+        state: &AppState,
+        connection_id: &str,
+        sql: &str,
+        max_rows: usize,
+    ) -> Result<QueryResult, VeloxError> {
+        self.run_query(app, state, connection_id, sql, max_rows).await
+    }
+
     async fn get_tables(
         &self,
         app: &AppHandle,
@@ -121,6 +136,9 @@ impl DatabaseEngineOps for EngineDispatcher {
     }
     async fn run_query(&self, app: &AppHandle, state: &AppState, connection_id: &str, sql: &str, max_rows: usize) -> Result<QueryResult, VeloxError> {
         delegate!(self, run_query, app, state, connection_id, sql, max_rows)
+    }
+    async fn run_read_only_query(&self, app: &AppHandle, state: &AppState, connection_id: &str, sql: &str, max_rows: usize) -> Result<QueryResult, VeloxError> {
+        delegate!(self, run_read_only_query, app, state, connection_id, sql, max_rows)
     }
     async fn get_tables(&self, app: &AppHandle, state: &AppState, connection_id: &str) -> Result<Vec<TableInfo>, VeloxError> {
         delegate!(self, get_tables, app, state, connection_id)

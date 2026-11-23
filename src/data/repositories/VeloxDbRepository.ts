@@ -90,5 +90,6 @@ export interface VeloxDbRepository {
   saveVeloxyThread(input: VeloxyThreadInput): Promise<VeloxyThread>
   touchVeloxyThread(id: string): Promise<void>
   deleteVeloxyThread(id: string): Promise<void>
+  setWindowBlur(enabled: boolean): Promise<void>
 }
 
