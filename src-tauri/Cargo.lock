@@ -7664,6 +7664,7 @@ dependencies = [
  "chrono",
  "csv",
  "deadpool-postgres",
+ "dirs",
  "duckdb",
  "futures-util",
  "hex",

@@ -2,7 +2,9 @@ use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use sqlparser::ast::{Query, SetExpr, Statement, Visit, Visitor};
+use sqlparser::ast::{
+    Expr, ObjectName, ObjectNamePart, Query, SetExpr, Statement, TableFactor, Visit, Visitor,
+};
 
 use serde_json::Value;
 use tauri::{AppHandle, State};
@@ -32,7 +34,7 @@ use super::editor_meta::{
 };
 use crate::models::AskVeloxyDbContextCache;
 
-async fn get_or_build_ask_veloxy_db_context(
+pub(crate) async fn get_or_build_ask_veloxy_db_context(
     app: &AppHandle,
     state: &AppState,
     connection_id: &str,
@@ -344,6 +346,69 @@ pub(crate) fn veloxy_sql_dialect(engine: DatabaseEngine) -> Result<Box<dyn sqlpa
     }
 }
 
+/// Functions that change data or server state, touch files on the server, or
+/// run SQL text the parser cannot see, even when called from a SELECT. The
+/// database-level read-only transaction (see `engines::readonly`) refuses table
+/// writes, but not these: killing other sessions, session advisory locks,
+/// large-object and file I/O, dblink to another database, reloading config,
+/// or `query_to_xml('DELETE ...')`. Matched on the unqualified, lowercased
+/// name, so `pg_catalog.set_config` is caught too. A user-defined function
+/// with the same name is rejected as well, which only costs a refusal.
+const SIDE_EFFECT_FUNCTIONS: &[&str] = &[
+    // PostgreSQL: sequences and settings
+    "nextval", "setval", "set_config",
+    // PostgreSQL: other sessions, server control, notifications
+    "pg_terminate_backend", "pg_cancel_backend", "pg_reload_conf", "pg_rotate_logfile",
+    "pg_switch_wal", "pg_promote", "pg_create_restore_point", "pg_wal_replay_pause",
+    "pg_wal_replay_resume", "pg_backup_start", "pg_backup_stop", "pg_start_backup",
+    "pg_stop_backup", "pg_notify", "pg_logical_emit_message", "pg_import_system_collations",
+    "pg_create_physical_replication_slot", "pg_create_logical_replication_slot",
+    "pg_drop_replication_slot", "pg_copy_physical_replication_slot",
+    "pg_copy_logical_replication_slot", "pg_replication_slot_advance",
+    "pg_logical_slot_get_changes", "pg_logical_slot_get_binary_changes",
+    "pg_stat_reset", "pg_stat_reset_shared", "pg_stat_reset_single_table_counters",
+    "pg_stat_reset_single_function_counters", "pg_stat_reset_slru",
+    "pg_stat_reset_replication_slot", "pg_stat_statements_reset",
+    // PostgreSQL: session-level advisory locks outlive the rolled-back transaction
+    "pg_advisory_lock", "pg_advisory_lock_shared", "pg_try_advisory_lock",
+    "pg_try_advisory_lock_shared", "pg_advisory_unlock", "pg_advisory_unlock_shared",
+    "pg_advisory_unlock_all",
+    // PostgreSQL: server files and large objects
+    "pg_read_file", "pg_read_binary_file", "pg_ls_dir", "pg_stat_file", "pg_ls_logdir",
+    "pg_ls_waldir", "pg_ls_tmpdir", "pg_ls_archive_statusdir", "pg_ls_logicalsnapdir",
+    "pg_ls_logicalmapdir", "pg_ls_replslotdir", "pg_file_write", "pg_file_rename",
+    "pg_file_unlink", "pg_file_sync", "pg_logdir_ls",
+    "lo_import", "lo_export", "lo_unlink", "lo_create", "lo_creat", "lo_from_bytea", "lo_put",
+    "lowrite", "lo_truncate", "lo_truncate64",
+    // PostgreSQL: run a SQL string the parser never sees
+    "query_to_xml", "query_to_xml_and_xmlschema", "query_to_xmlschema", "cursor_to_xml",
+    "cursor_to_xmlschema", "ts_stat",
+    // MySQL / MariaDB
+    "load_file", "get_lock", "release_lock", "release_all_locks", "sys_exec", "sys_eval",
+    "master_pos_wait", "source_pos_wait",
+    // SQLite
+    "load_extension", "readfile", "writefile", "edit", "fts3_tokenizer",
+    // SQL Server
+    "openrowset", "openquery", "opendatasource",
+];
+
+/// Name of a side-effect function, if `name` is one. Every `dblink*`
+/// function counts: they connect to, and can write to, another database.
+fn side_effect_function(name: &ObjectName) -> Option<String> {
+    let last = match name.0.last()? {
+        ObjectNamePart::Identifier(ident) => ident.value.to_ascii_lowercase(),
+        ObjectNamePart::Function(function) => function.name.value.to_ascii_lowercase(),
+    };
+    (SIDE_EFFECT_FUNCTIONS.contains(&last.as_str()) || last.starts_with("dblink")).then_some(last)
+}
+
+fn side_effect_error(function: &str) -> String {
+    format!(
+        "{}() can change data or server state, so it is not allowed in read-only queries.",
+        function
+    )
+}
+
 /// Rejects anything in a parsed statement that can write or take locks. The
 /// visitor reaches every nested statement and query, including CTE bodies,
 /// subqueries, set operations and the target of EXPLAIN.
@@ -360,6 +425,28 @@ impl Visitor for ReadOnlyGuard {
                 statement_label(other)
             )),
         }
+    }
+
+    fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<Self::Break> {
+        if let Expr::Function(function) = expr {
+            if let Some(name) = side_effect_function(&function.name) {
+                return ControlFlow::Break(side_effect_error(&name));
+            }
+        }
+        ControlFlow::Continue(())
+    }
+
+    /// Table functions in FROM, e.g. `SELECT * FROM dblink(...)`.
+    fn pre_visit_table_factor(&mut self, factor: &TableFactor) -> ControlFlow<Self::Break> {
+        let name = match factor {
+            TableFactor::Table { name, args: Some(_), .. } => Some(name),
+            TableFactor::Function { name, .. } => Some(name),
+            _ => None,
+        };
+        if let Some(function) = name.and_then(side_effect_function) {
+            return ControlFlow::Break(side_effect_error(&function));
+        }
+        ControlFlow::Continue(())
     }
 
     fn pre_visit_query(&mut self, query: &Query) -> ControlFlow<Self::Break> {
@@ -400,7 +487,14 @@ fn statement_label(statement: &Statement) -> String {
         .to_ascii_uppercase()
 }
 
-pub(crate) fn assert_veloxy_readonly_sql(sql: &str, engine: DatabaseEngine) -> Result<(), String> {
+/// Rejects agent SQL that is not a single read-only SELECT or EXPLAIN, and
+/// says which of the two it is: the read-only runners execute them
+/// differently. Callers then run it with `engines::run_agent_readonly`, which
+/// makes the database itself refuse writes where the engine allows it.
+pub(crate) fn check_agent_readonly_sql(
+    sql: &str,
+    engine: DatabaseEngine,
+) -> Result<engines::AgentStatement, String> {
     let trimmed = sql.trim();
     if trimmed.is_empty() {
         return Err("Ask Veloxy returned an empty SQL statement.".to_string());
@@ -421,10 +515,17 @@ pub(crate) fn assert_veloxy_readonly_sql(sql: &str, engine: DatabaseEngine) -> R
     if let ControlFlow::Break(reason) = statements[0].visit(&mut ReadOnlyGuard) {
         return Err(reason);
     }
-    if !super::is_read_only_sql(trimmed) {
-        return Err("This statement is not read-only. Veloxy will not execute writes.".to_string());
-    }
-    Ok(())
+    // No `is_read_only_sql` here on purpose. That word-based check also flags
+    // write keywords inside string literals and identifiers, which is fine in
+    // the editor (it only asks for a confirmation) but would make agents refuse
+    // harmless queries such as `WHERE note ILIKE '%nextval%'`. The AST walk above
+    // already rejects every write statement, SELECT ... INTO, row locks and each
+    // side-effect function on that list (including dblink*), and agent SQL then
+    // runs in a database-enforced read-only transaction.
+    Ok(match statements[0] {
+        Statement::Explain { .. } => engines::AgentStatement::Explain,
+        _ => engines::AgentStatement::Query,
+    })
 }
 
 #[tauri::command]
@@ -435,19 +536,20 @@ pub async fn veloxy_run_readonly(
 ) -> Result<crate::models::QueryResult, String> {
     let (connection_id, engine) = resolve_connection_engine(&app, &state, input.connection_id.clone()).await?;
     let sql = input.sql.trim().to_string();
-    assert_veloxy_readonly_sql(&sql, engine)?;
+    let kind = check_agent_readonly_sql(&sql, engine)?;
     let max_query_rows = input
         .max_rows
         .unwrap_or(VELOXY_MAX_READONLY_ROWS)
         .min(VELOXY_MAX_CHART_ROWS);
-    engines::run_query_bounded(
+    engines::run_agent_readonly(
         &app,
         &state,
         &connection_id,
         engine,
         &sql,
+        kind,
         max_query_rows,
-        Some(VELOXY_READONLY_TIMEOUT_MS),
+        VELOXY_READONLY_TIMEOUT_MS,
     )
     .await
     .map_err(|error| map_veloxy_query_error(error, VELOXY_READONLY_TIMEOUT_MS))
@@ -602,8 +704,8 @@ mod tests {
 
     #[test]
     fn veloxy_readonly_allows_select() {
-        super::assert_veloxy_readonly_sql("SELECT 1", DatabaseEngine::Postgres).expect("select");
-        super::assert_veloxy_readonly_sql(
+        super::check_agent_readonly_sql("SELECT 1", DatabaseEngine::Postgres).expect("select");
+        super::check_agent_readonly_sql(
             "WITH x AS (SELECT 1) SELECT * FROM x",
             DatabaseEngine::Postgres,
         )
@@ -612,19 +714,19 @@ mod tests {
 
     #[test]
     fn veloxy_readonly_allows_explain() {
-        super::assert_veloxy_readonly_sql("EXPLAIN SELECT 1", DatabaseEngine::Postgres)
+        super::check_agent_readonly_sql("EXPLAIN SELECT 1", DatabaseEngine::Postgres)
             .expect("explain");
     }
 
     #[test]
     fn veloxy_readonly_rejects_delete() {
-        assert!(super::assert_veloxy_readonly_sql("DELETE FROM t", DatabaseEngine::Postgres).is_err());
+        assert!(super::check_agent_readonly_sql("DELETE FROM t", DatabaseEngine::Postgres).is_err());
     }
 
     #[test]
     fn veloxy_readonly_rejects_multi_statement() {
         assert!(
-            super::assert_veloxy_readonly_sql("SELECT 1; DELETE FROM t", DatabaseEngine::Postgres)
+            super::check_agent_readonly_sql("SELECT 1; DELETE FROM t", DatabaseEngine::Postgres)
                 .is_err()
         );
     }
@@ -638,7 +740,7 @@ mod tests {
             "EXPLAIN INSERT INTO t VALUES (1)",
         ] {
             assert!(
-                super::assert_veloxy_readonly_sql(sql, DatabaseEngine::Postgres).is_err(),
+                super::check_agent_readonly_sql(sql, DatabaseEngine::Postgres).is_err(),
                 "should reject: {sql}"
             );
         }
@@ -646,7 +748,7 @@ mod tests {
 
     #[test]
     fn veloxy_readonly_allows_explain_analyze_select() {
-        super::assert_veloxy_readonly_sql("EXPLAIN ANALYZE SELECT * FROM t", DatabaseEngine::Postgres)
+        super::check_agent_readonly_sql("EXPLAIN ANALYZE SELECT * FROM t", DatabaseEngine::Postgres)
             .expect("explain analyze select");
     }
 
@@ -659,7 +761,7 @@ mod tests {
             "WITH ok AS (SELECT 1), d AS (DELETE FROM t RETURNING *) SELECT * FROM ok",
         ] {
             assert!(
-                super::assert_veloxy_readonly_sql(sql, DatabaseEngine::Postgres).is_err(),
+                super::check_agent_readonly_sql(sql, DatabaseEngine::Postgres).is_err(),
                 "should reject: {sql}"
             );
         }
@@ -677,7 +779,7 @@ mod tests {
             ("SELECT * FROM t FOR UPDATE", DatabaseEngine::Mysql),
         ] {
             assert!(
-                super::assert_veloxy_readonly_sql(sql, engine).is_err(),
+                super::check_agent_readonly_sql(sql, engine).is_err(),
                 "should reject: {sql}"
             );
         }
@@ -691,15 +793,71 @@ mod tests {
             "SELECT 1 UNION ALL SELECT 2",
             "WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 5) SELECT * FROM r",
         ] {
-            super::assert_veloxy_readonly_sql(sql, DatabaseEngine::Postgres)
+            super::check_agent_readonly_sql(sql, DatabaseEngine::Postgres)
                 .unwrap_or_else(|error| panic!("should allow {sql}: {error}"));
         }
     }
 
     #[test]
+    fn veloxy_readonly_rejects_side_effect_functions() {
+        for (sql, engine) in [
+            ("SELECT pg_terminate_backend(pid) FROM pg_stat_activity", DatabaseEngine::Postgres),
+            ("SELECT pg_catalog.set_config('default_transaction_read_only', 'off', false)", DatabaseEngine::Postgres),
+            ("SELECT nextval('orders_id_seq')", DatabaseEngine::Postgres),
+            ("SELECT lo_export(lo_from_bytea(0, 'x'), '/tmp/x')", DatabaseEngine::Postgres),
+            ("SELECT pg_advisory_lock(1)", DatabaseEngine::Postgres),
+            ("SELECT query_to_xml('DELETE FROM t RETURNING *', true, false, '')", DatabaseEngine::Postgres),
+            ("SELECT * FROM t WHERE id = (SELECT nextval('s'))", DatabaseEngine::Postgres),
+            ("SELECT * FROM dblink('dbname=x', 'DELETE FROM t') AS r(a int)", DatabaseEngine::Postgres),
+            ("SELECT * FROM pg_ls_dir('.')", DatabaseEngine::Postgres),
+            ("SELECT dblink_exec('dbname=x', 'DELETE FROM t')", DatabaseEngine::Postgres),
+            ("WITH x AS (SELECT pg_reload_conf()) SELECT * FROM x", DatabaseEngine::Postgres),
+            ("EXPLAIN ANALYZE SELECT pg_cancel_backend(1)", DatabaseEngine::Postgres),
+            ("SELECT LOAD_FILE('/etc/passwd')", DatabaseEngine::Mysql),
+            ("SELECT GET_LOCK('x', 10)", DatabaseEngine::Mysql),
+            ("SELECT load_extension('evil')", DatabaseEngine::Sqlite),
+            ("SELECT writefile('/tmp/x', 'y')", DatabaseEngine::Sqlite),
+        ] {
+            let error = super::check_agent_readonly_sql(sql, engine)
+                .expect_err(&format!("should reject: {sql}"));
+            assert!(error.contains("not allowed"), "unexpected message for {sql}: {error}");
+        }
+    }
+
+    #[test]
+    fn veloxy_readonly_allows_ordinary_functions() {
+        for sql in [
+            "SELECT count(*), max(created_at), coalesce(name, 'n/a') FROM t GROUP BY name",
+            "SELECT * FROM generate_series(1, 10) AS g(n)",
+            "SELECT now(), current_setting('TimeZone'), pg_size_pretty(pg_database_size(current_database()))",
+            "SELECT lower(name) FROM users WHERE name ILIKE '%nextval%'",
+        ] {
+            super::check_agent_readonly_sql(sql, DatabaseEngine::Postgres)
+                .unwrap_or_else(|error| panic!("should allow {sql}: {error}"));
+        }
+    }
+
+    #[test]
+    fn agent_readonly_reports_statement_kind() {
+        use crate::engines::AgentStatement;
+        assert_eq!(
+            super::check_agent_readonly_sql("SELECT 1", DatabaseEngine::Postgres),
+            Ok(AgentStatement::Query)
+        );
+        assert_eq!(
+            super::check_agent_readonly_sql("WITH x AS (SELECT 1) SELECT * FROM x", DatabaseEngine::Sqlite),
+            Ok(AgentStatement::Query)
+        );
+        assert_eq!(
+            super::check_agent_readonly_sql("EXPLAIN SELECT 1", DatabaseEngine::Mysql),
+            Ok(AgentStatement::Explain)
+        );
+    }
+
+    #[test]
     fn veloxy_readonly_rejects_non_sql_engines() {
-        assert!(super::assert_veloxy_readonly_sql("SELECT 1", DatabaseEngine::Mongo).is_err());
-        assert!(super::assert_veloxy_readonly_sql("SELECT 1", DatabaseEngine::Redis).is_err());
+        assert!(super::check_agent_readonly_sql("SELECT 1", DatabaseEngine::Mongo).is_err());
+        assert!(super::check_agent_readonly_sql("SELECT 1", DatabaseEngine::Redis).is_err());
     }
 
     #[test]

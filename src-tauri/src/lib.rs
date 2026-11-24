@@ -4,6 +4,7 @@ pub mod db;
 pub mod engines;
 pub mod error;
 mod export;
+pub mod mcp;
 pub mod models;
 mod pg_error;
 pub mod sql_split;
@@ -26,6 +27,7 @@ use commands::{
   export_dashboard_pdf,
 };
 use db::AppState;
+use mcp::{mcp_clear_activity, mcp_get_status, mcp_set_enabled, set_connection_ai_tools, McpState};
 use tauri::Manager;
 
 /// Enables or disables native window background blur where supported by the OS.
@@ -69,6 +71,7 @@ fn set_window_blur(window: tauri::WebviewWindow, enabled: bool) -> Result<(), St
 pub fn run() {
   tauri::Builder::default()
     .manage(AppState::default())
+    .manage(McpState::default())
     .plugin(tauri_plugin_store::Builder::default().build())
     .plugin(tauri_plugin_dialog::init())
     // AI provider calls go through Rust so the webview CSP and provider CORS
@@ -87,6 +90,7 @@ pub fn run() {
       let handle = app.handle().clone();
       let meta = tauri::async_runtime::block_on(db::open_app_meta_db(&handle))?;
       app.manage(meta);
+      mcp::start_if_enabled(app.handle());
       Ok(())
     })
     .on_window_event(|window, event| {
@@ -165,7 +169,16 @@ pub fn run() {
       delete_veloxy_thread,
       read_text_file,
       export_dashboard_pdf,
+      mcp_get_status,
+      mcp_set_enabled,
+      mcp_clear_activity,
+      set_connection_ai_tools,
     ])
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|app, event| {
+      if let tauri::RunEvent::Exit = event {
+        mcp::shutdown(app);
+      }
+    });
 }

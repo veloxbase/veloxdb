@@ -144,6 +144,10 @@ pub struct StoredConnection {
     pub ssh_config: Option<SshConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_params: Option<std::collections::HashMap<String, String>>,
+    /// Lets AI apps reach this connection through VeloxDB's MCP server.
+    /// Off unless the user turns it on for this connection.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub allow_ai_tools: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,6 +172,8 @@ pub struct ConnectionSummary {
     pub extra_params: Option<std::collections::HashMap<String, String>>,
     #[serde(default)]
     pub table_property_editing_supported: bool,
+    #[serde(default)]
+    pub allow_ai_tools: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -544,7 +550,21 @@ impl StoredConnection {
             srv_enabled: input.srv_enabled,
             ssh_config: input.ssh_config,
             extra_params: input.extra_params,
+            allow_ai_tools: false,
         }
+    }
+
+    /// True when `other` points at the same database as this connection, so
+    /// a per-connection opt-in such as `allow_ai_tools` can carry over when
+    /// the connection is saved again. Editing where it points (engine, host,
+    /// port, database, file or user) turns the opt-in off.
+    pub fn same_target(&self, other: &StoredConnection) -> bool {
+        self.engine == other.engine
+            && self.host == other.host
+            && self.port == other.port
+            && self.database == other.database
+            && self.file_path == other.file_path
+            && self.user == other.user
     }
 
     /// Returns a copy with DB and SSH credentials stripped for safe persistence.
@@ -571,6 +591,7 @@ impl StoredConnection {
             ssh_config: self.ssh_config.as_ref().map(SshConfig::redacted),
             extra_params: self.extra_params.clone(),
             table_property_editing_supported: self.engine == DatabaseEngine::Postgres,
+            allow_ai_tools: self.allow_ai_tools,
         }
     }
 
@@ -1011,6 +1032,7 @@ mod connection_secret_tests {
                 passphrase: Some("super-secret-passphrase".to_string()),
             }),
             extra_params: None,
+            allow_ai_tools: false,
         }
     }
 

@@ -54,6 +54,7 @@ bson = "2"
 duckdb = { version = "1", features = ["bundled"] }
 redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
 semver = "1"
+dirs = "6"
 sqlparser = { version = "0.58", features = ["visitor"] }
 tiberius = { version = "0.12", default-features = false, features = ["tokio-rustls", "chrono", "tds73"] }
 tokio-util = { version = "0.7", features = ["compat"] }

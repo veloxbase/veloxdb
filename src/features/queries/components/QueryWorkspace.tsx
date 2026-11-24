@@ -79,7 +79,8 @@ export type QueryWorkspaceHandle = {
 	replaceQuerySql: (sql: string) => void;
 	/** Append SQL to the editor without executing (binds active connection when set). */
 	appendQuerySql: (sql: string) => void;
-	openTabWithSql: (sql: string) => void;
+	/** New tab with `sql`, bound to `bindConnectionId` or else the active connection. Does not run it. */
+	openTabWithSql: (sql: string, bindConnectionId?: string | null) => void;
 	openTabWithSqlAndRun: (sql: string) => void;
 	runLastQuery: () => void;
 	refreshFocusedResults: () => void;
@@ -878,11 +879,11 @@ export const QueryWorkspace = forwardRef<
 					bindConnectionId: connectionId ?? undefined,
 				});
 			},
-			openTabWithSql: (sql: string) => {
+			openTabWithSql: (sql: string, bindConnectionId?: string | null) => {
 				dispatch({
 					type: "addTabWithSql",
 					sql,
-					connectionId: connectionId ?? null,
+					connectionId: bindConnectionId ?? connectionId ?? null,
 				});
 			},
 			openTabWithSqlAndRun: (sql: string) => {

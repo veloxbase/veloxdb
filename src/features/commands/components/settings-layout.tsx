@@ -70,15 +70,22 @@ export function SettingsToggle({
   value,
   onChange,
   label,
+  disabled,
 }: {
   value: boolean
   onChange: (value: boolean) => void
   label?: string
+  disabled?: boolean
 }) {
   // h-8 matches the other row controls, so the switch lines up with the label.
   return (
     <div className="flex h-8 items-center">
-      <Switch checked={value} onCheckedChange={onChange} aria-label={label} />
+      <Switch
+        checked={value}
+        onCheckedChange={onChange}
+        aria-label={label}
+        disabled={disabled}
+      />
     </div>
   )
 }

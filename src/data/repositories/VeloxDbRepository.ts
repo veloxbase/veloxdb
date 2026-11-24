@@ -17,6 +17,7 @@ import type {
   ForeignKeyEdge,
   LintSqlRequest,
   LintSqlResult,
+  McpStatus,
   QueryEditorMetadata,
   QueryRequest,
   QueryResult,
@@ -45,6 +46,12 @@ export interface VeloxDbRepository {
   pingConnection(connectionId: string): Promise<void>
   refreshConnection(connectionId: string): Promise<void>
   listConnections(): Promise<ConnectionSummary[]>
+  /** "Allow AI tools on this connection" (MCP). */
+  setConnectionAiTools(connectionId: string, allowed: boolean): Promise<ConnectionSummary>
+  getMcpStatus(): Promise<McpStatus>
+  /** The app-level "Let AI apps use VeloxDB" switch; starts or stops the server. */
+  setMcpEnabled(enabled: boolean): Promise<McpStatus>
+  clearMcpActivity(): Promise<void>
   setActiveConnection(connectionId: string): Promise<ConnectionSummary>
   runQuery(request: QueryRequest): Promise<QueryResult>
   veloxyRunReadonly(request: QueryRequest): Promise<QueryResult>

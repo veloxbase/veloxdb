@@ -2,6 +2,7 @@ import type { TableInfo } from '@/data/types'
 
 export const queryKeys = {
   connections: () => ['connections'] as const,
+  mcpStatus: () => ['mcpStatus'] as const,
 
   tables: (connectionId?: string | null) =>
     ['tables', connectionId ?? null] as const,

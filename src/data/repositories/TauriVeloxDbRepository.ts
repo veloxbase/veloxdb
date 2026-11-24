@@ -20,6 +20,7 @@ import type {
   ForeignKeyEdge,
   LintSqlRequest,
   LintSqlResult,
+  McpStatus,
   QueryEditorMetadata,
   QueryRequest,
   QueryResult,
@@ -97,6 +98,24 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
     return invokeCommand('list_connections', () =>
       invoke<ConnectionSummary[]>('list_connections_command'),
     )
+  }
+
+  async setConnectionAiTools(connectionId: string, allowed: boolean): Promise<ConnectionSummary> {
+    return invokeCommand('set_connection_ai_tools', () =>
+      invoke<ConnectionSummary>('set_connection_ai_tools', { connectionId, allowed }),
+    )
+  }
+
+  async getMcpStatus(): Promise<McpStatus> {
+    return invokeCommand('mcp_get_status', () => invoke<McpStatus>('mcp_get_status'))
+  }
+
+  async setMcpEnabled(enabled: boolean): Promise<McpStatus> {
+    return invokeCommand('mcp_set_enabled', () => invoke<McpStatus>('mcp_set_enabled', { enabled }))
+  }
+
+  async clearMcpActivity(): Promise<void> {
+    return invokeCommand('mcp_clear_activity', () => invoke<void>('mcp_clear_activity'))
   }
 
   async setActiveConnection(connectionId: string): Promise<ConnectionSummary> {
