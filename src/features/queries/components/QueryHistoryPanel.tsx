@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import type { QueryHistoryEntry } from '@/features/queries/query-workspace-state'
+import { useVeloxyThreadsQuery } from '@/features/queries/veloxy/queries'
 import { cn } from '@/lib/utils'
 
 type QueryHistoryPanelProps = {
@@ -27,6 +28,8 @@ type QueryHistoryPanelProps = {
   onClearHistory: () => void
   favorites: Set<string>
   onToggleFavorite: (entryId: string) => void
+  connectionId?: string | null
+  onOpenVeloxy?: () => void
 }
 
 export function QueryHistoryPanel({
@@ -37,10 +40,14 @@ export function QueryHistoryPanel({
   onClearHistory,
   favorites,
   onToggleFavorite,
+  connectionId,
+  onOpenVeloxy,
 }: QueryHistoryPanelProps) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'all' | 'favorites'>('all')
+  const [activePane, setActivePane] = useState<'sql' | 'chats'>('sql')
+  const threadsQuery = useVeloxyThreadsQuery(connectionId ?? null)
 
   const searchLower = search.trim().toLowerCase()
 
@@ -67,12 +74,33 @@ export function QueryHistoryPanel({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl border-border p-0 sm:max-w-2xl">
         <DialogHeader className="border-b border-border px-4 py-3">
-          <DialogTitle className="text-sm">{t("editor.queryHistory")}</DialogTitle>
+          <DialogTitle className="text-sm">{t("editor.historyTitle")}</DialogTitle>
           <DialogDescription className="text-xs">
             {t("editor.queryHistoryDesc")}
           </DialogDescription>
         </DialogHeader>
 
+        <div className="flex items-center gap-1 border-b border-border px-3 py-2">
+          <Button
+            variant={activePane === 'sql' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 text-[10px]"
+            onClick={() => setActivePane('sql')}
+          >
+            {t("editor.historySqlTab")}
+          </Button>
+          <Button
+            variant={activePane === 'chats' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 text-[10px]"
+            onClick={() => setActivePane('chats')}
+          >
+            {t("editor.historyChatsTab")}
+          </Button>
+        </div>
+
+        {activePane === 'sql' ? (
+        <>
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
           <div className="relative flex-1">
             <MagnifyingGlassIcon className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/50" />
@@ -164,6 +192,31 @@ export function QueryHistoryPanel({
             </div>
           )}
         </div>
+        </>
+        ) : (
+          <div className="max-h-[50vh] min-h-[120px] overflow-auto px-4 py-6">
+            <p className="mb-3 text-xs text-muted-foreground">{t("editor.openVeloxyForChats")}</p>
+            {(threadsQuery.data ?? []).length === 0 ? (
+              <p className="text-xs text-muted-foreground">{t("veloxy.noConversation")}</p>
+            ) : (
+              <div className="space-y-1">
+                {(threadsQuery.data ?? []).map((thread) => (
+                  <p key={thread.id} className="truncate text-xs text-foreground">
+                    {thread.title || 'Untitled chat'}
+                  </p>
+                ))}
+              </div>
+            )}
+            {onOpenVeloxy ? (
+              <Button className="mt-4" size="sm" onClick={() => {
+                onOpenChange(false)
+                onOpenVeloxy()
+              }}>
+                {t("veloxy.askVeloxy")}
+              </Button>
+            ) : null}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )

@@ -118,6 +118,10 @@ fn duckdb_value_to_string(value: duckdb::types::Value) -> Option<String> {
                 .join(", ")
         )),
         Value::Union(inner) => duckdb_value_to_string(*inner),
+        // `Value` is non-exhaustive in newer duckdb releases; show any new
+        // variant rather than failing to compile.
+        #[allow(unreachable_patterns)]
+        other => Some(format!("{other:?}")),
     }
 }
 

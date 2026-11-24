@@ -1,6 +1,6 @@
 import type { ConnectionSummary, TableInfo } from "@/data/types";
 
-export type MainWorkspaceId = "query" | "model";
+export type MainWorkspaceId = "query" | "model" | "dashboard";
 
 export interface WorkspaceShellProps {
 	connection: ConnectionSummary | null;

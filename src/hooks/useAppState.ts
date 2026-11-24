@@ -11,12 +11,7 @@ import { isTauri } from "@tauri-apps/api/core";
 
 import { queryKeys } from "@/data/query-keys";
 import { veloxDbRepository } from "@/data/repositories";
-import type {
-	ConnectionSummary,
-	TableInfo,
-	AskVeloxyChatResponse,
-	AskVeloxyConversationResponse,
-} from "@/data/types";
+import type { ConnectionSummary, TableInfo } from "@/data/types";
 import {
 	useActivateConnectionMutation,
 	useConnectionsQuery,
@@ -42,10 +37,13 @@ import { isInsertFormColumn } from "@/features/queries/result-edits";
 import { quoteIdent } from "@/lib/sql-ident";
 import { notifyError, notifySuccess } from "@/lib/error-notifier";
 import { fetchTablesPropertiesSql } from "@/features/schema/format-table-properties-sql";
-import { loadOpenRouterApiKey } from "@/lib/openrouter-credentials";
+import { consumeOpenConnectOnLaunch } from "@/features/onboarding/constants";
+import { loadAiApiKey } from "@/lib/ai-credentials";
 import { useSettings, resolveTheme, themeClassName, THEME_CLASSES, resolveFontSizePx } from "@/lib/settings";
 
 import type { QueryWorkspaceHandle } from "@/features/queries/components/QueryWorkspace";
+import type { MainWorkspaceId } from "@/features/workspace/types";
+import { loadLastWorkspaceMode } from "@/features/workspace/workspace-ui-persistence";
 
 export const SIDEBAR_WIDTH_KEY = "veloxdb.sidebarWidth";
 export const SIDEBAR_COLLAPSED_KEY = "veloxdb.sidebarCollapsed";
@@ -118,7 +116,9 @@ export function useAppState(
 	const [selectedTable, setSelectedTable] = useState<TableInfo | null>(null);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-	const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
+	const [connectionDialogOpen, setConnectionDialogOpen] = useState(() =>
+		consumeOpenConnectOnLaunch(),
+	);
 	const [renamingConnection, setRenamingConnection] = useState<ConnectionSummary | null>(null);
 	const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() =>
 		window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true",
@@ -136,13 +136,9 @@ export function useAppState(
 		connectionId: string; table: TableInfo;
 	} | null>(null);
 	const [insertRowTrigger, setInsertRowTrigger] = useState(0);
-	const [mainWorkspace, setMainWorkspace] = useState<"query" | "model">("query");
-	const [askVeloxyPending, setAskVeloxyPending] = useState(false);
-	const [askVeloxyError, setAskVeloxyError] = useState<string | null>(null);
-
-	const veloxyOpenRouterApiKey = useSettings((s) => s.veloxyOpenRouterApiKey);
+	const [mainWorkspace, setMainWorkspace] = useState<MainWorkspaceId>(() => loadLastWorkspaceMode() ?? "query");
+	const veloxyApiKey = useSettings((s) => s.veloxyApiKey);
 	const veloxyModel = useSettings((s) => s.veloxyModel);
-	const veloxyBaseUrl = useSettings((s) => s.veloxyBaseUrl);
 	const autoReconnect = useSettings((s) => s.autoReconnect);
 
   const themeSetting = useSettings((s) => s.theme);
@@ -182,6 +178,12 @@ export function useAppState(
 		document.documentElement.style.fontSize = `${sizePx}px`;
 	}, [fontSize]);
 
+	const veloxyProvider = useSettings((s) => s.veloxyProvider);
+	useEffect(() => {
+		// Each provider has its own keychain entry; reload when it changes.
+		void loadAiApiKey();
+	}, [veloxyProvider]);
+
 	useEffect(() => {
 		const radius = Number.isFinite(borderRadius) ? Math.max(0, Math.min(16, borderRadius)) : 0;
 		document.documentElement.style.setProperty("--radius", `${radius}px`);
@@ -196,10 +198,6 @@ export function useAppState(
 		if (!isTauri()) return;
 		void veloxDbRepository.setWindowBlur(Boolean(backgroundBlur)).catch(() => {});
 	}, [backgroundBlur]);
-
-	useEffect(() => {
-		void loadOpenRouterApiKey();
-	}, []);
 
 	useEffect(() => {
 		window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(isSidebarCollapsed));
@@ -330,6 +328,11 @@ export function useAppState(
 	}, [connection?.id, queryClient, selectedTable]);
 
 	const handleSelectTable = (table: TableInfo) => {
+		setSelectedTable(table);
+		queryWorkspaceRef.current?.replaceQuerySql(table.previewQuery);
+	};
+
+	const handlePreviewTable = (table: TableInfo) => {
 		setSelectedTable(table);
 		queryWorkspaceRef.current?.applyTablePreview(table.previewQuery);
 	};
@@ -564,106 +567,6 @@ export function useAppState(
 		: !hasPrimaryKey ? t("editor.requiresPrimaryKey")
 		: undefined;
 
-	// --- Veloxy handlers ---
-
-	const handleAskVeloxyChatSubmit = async (naturalPrompt: string, requestId: string): Promise<AskVeloxyChatResponse> => {
-		if (!connection?.id) {
-			const message = t("veloxy.selectConnection"); setAskVeloxyError(message); throw new Error(message);
-		}
-		if (!veloxyOpenRouterApiKey.trim()) {
-			const message = t("veloxy.addApiKey"); setAskVeloxyError(message); throw new Error(message);
-		}
-		if (!veloxyModel.trim()) {
-			const message = t("veloxy.chooseModel"); setAskVeloxyError(message); throw new Error(message);
-		}
-		setAskVeloxyPending(true); setAskVeloxyError(null);
-		try {
-			return await veloxDbRepository.chatWithDb({
-				connectionId: connection.id, naturalPrompt, requestId,
-				targetTable: selectedTable ? { schema: selectedTable.schema, name: selectedTable.name } : undefined,
-				providerConfig: { apiKey: veloxyOpenRouterApiKey, model: veloxyModel, baseUrl: veloxyBaseUrl },
-				maxRows: useSettings.getState().maxQueryRows,
-			});
-		} catch (error) {
-			const message = error instanceof Error ? error.message : t("veloxy.chatFailed");
-			setAskVeloxyError(message);
-			notifyError(error, { category: "query", title: t("veloxy.chatFailed") });
-			throw error instanceof Error ? error : new Error(message);
-		} finally { setAskVeloxyPending(false); }
-	};
-
-	const handleCancelVeloxyRequest = async () => {
-		try { await veloxDbRepository.cancelVeloxyRequest(); }
-		catch (error) {
-			const message = error instanceof Error ? error.message : "Failed to stop Veloxy.";
-			setAskVeloxyError(message);
-		}
-	};
-
-	const handleAskVeloxyActionSubmit = async (naturalPrompt: string) => {
-		if (!connection?.id) {
-			const message = t("veloxy.selectConnection"); setAskVeloxyError(message); throw new Error(message);
-		}
-		if (!veloxyOpenRouterApiKey.trim()) {
-			const message = t("veloxy.addApiKey"); setAskVeloxyError(message); throw new Error(message);
-		}
-		if (!veloxyModel.trim()) {
-			const message = t("veloxy.chooseModel"); setAskVeloxyError(message); throw new Error(message);
-		}
-		setAskVeloxyPending(true); setAskVeloxyError(null);
-		try {
-			const response = await veloxDbRepository.generateSqlFromNl({
-				connectionId: connection.id, naturalPrompt,
-				targetTable: selectedTable ? { schema: selectedTable.schema, name: selectedTable.name } : undefined,
-				providerConfig: { apiKey: veloxyOpenRouterApiKey, model: veloxyModel, baseUrl: veloxyBaseUrl },
-				maxRows: useSettings.getState().maxQueryRows,
-			});
-			const sql = response.sql.trim();
-			const lower = sql.toLowerCase();
-			const isReadIntent = response.intent === "select";
-			const isLikelyLarge = sql.length > 1800 || (lower.includes("select") && !lower.includes(" limit ")) || /\bcross\s+join\b|\bpg_sleep\s*\(/i.test(lower);
-			const canAutoRun = isReadIntent && !isLikelyLarge;
-
-			if (canAutoRun) {
-				queryWorkspaceRef.current?.openTabWithSqlAndRun(sql);
-				notifySuccess(t("veloxy.generatedSql"), t("veloxy.autoRan"));
-				return { response, decision: "auto-ran" as const };
-			}
-			queryWorkspaceRef.current?.openTabWithSql(sql);
-			return {
-				response,
-				decision: "needs-confirmation" as const,
-				decisionReason: isReadIntent ? t("veloxy.needsConfirmation") : t("veloxy.nonReadConfirmation"),
-				pendingSql: sql,
-			};
-		} catch (error) {
-			const message = error instanceof Error ? error.message : t("veloxy.generateFailed");
-			setAskVeloxyError(message);
-			notifyError(error, { category: "query", title: t("veloxy.generateFailed") });
-			throw error instanceof Error ? error : new Error(message);
-		} finally { setAskVeloxyPending(false); }
-	};
-
-	const handleLoadVeloxyConversation = async (): Promise<AskVeloxyConversationResponse> => {
-		if (!connection?.id) return { messages: [] };
-		try { return await veloxDbRepository.loadVeloxyConversation(connection.id); }
-		catch (error) {
-			const message = error instanceof Error ? error.message : t("veloxy.loadFailed");
-			setAskVeloxyError(message);
-			return { messages: [] };
-		}
-	};
-
-	const handleClearVeloxyConversation = async () => {
-		if (!connection?.id) return;
-		try { await veloxDbRepository.clearVeloxyConversation(connection.id); }
-		catch (error) {
-			const message = error instanceof Error ? error.message : t("veloxy.clearFailed");
-			setAskVeloxyError(message);
-			throw error;
-		}
-	};
-
 	return {
 		// State
 		connection, setConnection,
@@ -681,11 +584,9 @@ export function useAppState(
 		tablePropertiesTarget, setTablePropertiesTarget,
 		insertRowTrigger,
 		mainWorkspace, setMainWorkspace,
-		askVeloxyPending, setAskVeloxyPending,
-		askVeloxyError, setAskVeloxyError,
 		// Derived
 		isDark,
-		veloxyOpenRouterApiKey, veloxyModel, veloxyBaseUrl,
+		veloxyApiKey, veloxyModel,
 		// Queries
 		connectionsQuery, tablesQuery, schemaQuery, tablePropertiesQuery,
 		saveResultEditsMutation, deleteRowsMutation,
@@ -700,6 +601,7 @@ export function useAppState(
 		isResultSingleTableEditable, saveDisabledReason,
 		// Handlers
 		handleSelectTable,
+		handlePreviewTable,
 		handleTableQuickAction,
 		handleSelectConnection,
 		handleRefreshConnection,
@@ -720,10 +622,5 @@ export function useAppState(
 		handleDeleteRows,
 		requestInsertRow,
 		handleInsertRowSuccess,
-		handleAskVeloxyChatSubmit,
-		handleCancelVeloxyRequest,
-		handleAskVeloxyActionSubmit,
-		handleLoadVeloxyConversation,
-		handleClearVeloxyConversation,
 	};
 }

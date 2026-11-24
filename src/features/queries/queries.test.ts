@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildExplainSql, buildTransactionalSql } from '@/features/queries/queries'
+import {
+  buildExplainSql,
+  buildTransactionalSql,
+  isReadOnlyTransactionViolation,
+} from '@/features/queries/queries'
 import { useSettings } from '@/lib/settings'
 
 describe('maxQueryRows wiring', () => {
@@ -31,6 +35,18 @@ describe('engine-aware explain sql', () => {
 
   it('builds sqlite explain wrapper', () => {
     expect(buildExplainSql('sqlite', 'select 1')).toContain('EXPLAIN QUERY PLAN')
+  })
+
+  it('builds postgres plan-only explain without analyze', () => {
+    expect(buildExplainSql('postgres', 'select 1', { analyze: false })).toBe(
+      'EXPLAIN (FORMAT TEXT)\nselect 1',
+    )
+  })
+
+  it('builds duckdb plan-only explain without analyze', () => {
+    expect(buildExplainSql('duckdb', 'select 1', { analyze: false })).toBe(
+      'EXPLAIN\nselect 1',
+    )
   })
 
   it('builds clickhouse explain wrapper', () => {
@@ -72,5 +88,20 @@ describe('transactional result mutations', () => {
     expect(buildTransactionalSql('cassandra', ['UPDATE t SET a = 1 WHERE id = 1;'])).toBe(
       'UPDATE t SET a = 1 WHERE id = 1;',
     )
+  })
+})
+
+describe('isReadOnlyTransactionViolation', () => {
+  it('matches the Postgres read-only transaction error', () => {
+    expect(
+      isReadOnlyTransactionViolation(
+        new Error('ERROR: cannot execute SELECT INTO in a read-only transaction\nSQLSTATE: 25006'),
+      ),
+    ).toBe(true)
+  })
+
+  it('ignores other errors', () => {
+    expect(isReadOnlyTransactionViolation(new Error('ERROR: syntax error\nSQLSTATE: 42601'))).toBe(false)
+    expect(isReadOnlyTransactionViolation('connection refused')).toBe(false)
   })
 })

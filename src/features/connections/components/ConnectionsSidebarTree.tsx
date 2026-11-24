@@ -211,7 +211,7 @@ function isDatabaseContextMenuTarget(
   return target.kind === 'database'
 }
 
-type ConnectionsSidebarTreeProps = {
+export type ConnectionsSidebarTreeProps = {
   activeConnection: ConnectionSummary | null
   connections: ConnectionSummary[]
   tables: TableInfo[]
@@ -225,6 +225,7 @@ type ConnectionsSidebarTreeProps = {
   onOpenConnection: () => void
   onSelectConnection: (connection: ConnectionSummary) => void
   onSelectTable: (table: TableInfo) => void
+  onPreviewTable?: (table: TableInfo) => void
   onTableQuickAction: (
     action: TableQuickSqlAction,
     connectionId: string,
@@ -366,6 +367,7 @@ type TableTreeItemProps = {
   isSelected: boolean
   highlightTableNeedleLower: string
   onSelectTable: (table: TableInfo) => void
+  onPreviewTable?: (table: TableInfo) => void
   onToggleExpanded: () => void
   onOpenContextMenu: (
     event: ReactMouseEvent<HTMLButtonElement>,
@@ -384,6 +386,7 @@ const TableTreeItem = memo(function TableTreeItem({
   isSelected,
   highlightTableNeedleLower,
   onSelectTable,
+  onPreviewTable,
   onToggleExpanded,
   onOpenContextMenu,
 }: TableTreeItemProps) {
@@ -416,14 +419,8 @@ const TableTreeItem = memo(function TableTreeItem({
               isExpanded,
             })
           }}
-          onDoubleClick={(event) => {
-            onOpenContextMenu(event, {
-              kind: 'table',
-              connectionId,
-              table,
-              onToggleExpanded,
-              isExpanded,
-            })
+          onDoubleClick={() => {
+            onPreviewTable?.(table)
           }}
         >
           {table.kind === 'view' || table.kind === 'materialized_view' ? (
@@ -504,6 +501,7 @@ export function ConnectionsSidebarTree({
   onOpenConnection,
   onSelectConnection,
   onSelectTable,
+  onPreviewTable,
   onTableQuickAction,
   onRefreshConnection,
   onRefreshTable,
@@ -528,7 +526,6 @@ export function ConnectionsSidebarTree({
     target: SidebarContextMenuTarget
   } | null>(null)
   const contextMenuRef = useRef<HTMLDivElement | null>(null)
-  const pendingSelectTimeoutRef = useRef<number | null>(null)
   const activeConnectionId = activeConnection?.id ?? null
   const databasesQuery = useDatabasesQuery(activeConnectionId)
   const switchDatabaseMutation = useSwitchDatabaseMutation({
@@ -665,24 +662,6 @@ export function ConnectionsSidebarTree({
     window.addEventListener('pointerdown', onPointerDown, true)
     return () => window.removeEventListener('pointerdown', onPointerDown, true)
   }, [contextMenu])
-
-  const cancelPendingSelect = useCallback(() => {
-    if (pendingSelectTimeoutRef.current != null) {
-      window.clearTimeout(pendingSelectTimeoutRef.current)
-      pendingSelectTimeoutRef.current = null
-    }
-  }, [])
-
-  const scheduleSelectConnection = useCallback(
-    (connection: ConnectionSummary) => {
-      cancelPendingSelect()
-      pendingSelectTimeoutRef.current = window.setTimeout(() => {
-        onSelectConnection(connection)
-        setIsTablesPanelExpanded(true)
-      }, 160)
-    },
-    [cancelPendingSelect, onSelectConnection],
-  )
 
   const visibleConnections = useMemo(() => {
     if (connections.length <= 5) return connections
@@ -1009,6 +988,7 @@ export function ConnectionsSidebarTree({
                                 params.select()
                                 onSelectTable(table)
                               }}
+                              onPreviewTable={onPreviewTable}
                               onToggleExpanded={params.toggle}
                               onOpenContextMenu={(event, target) => openSidebarContextMenu(event, target)}
                             />
@@ -1080,11 +1060,11 @@ export function ConnectionsSidebarTree({
             <div className="rounded-md border border-dashed border-sidebar-border px-3 py-5 text-center">
               <p className="text-xs font-medium text-sidebar-foreground">{t("sidebar.noConnection")}</p>
               <p className="text-[11px] text-sidebar-foreground/60 mt-1">
-                Create a new connection
+                {t("sidebar.connectDatabaseHint")}
               </p>
-              <p className="text-[11px] text-sidebar-foreground/60">
-                Add a connection to start browsing tables and fields.
-              </p>
+              <Button className="mt-3" size="sm" onClick={onOpenConnection}>
+                {t("sidebar.connectDatabase")}
+              </Button>
             </div>
           </div>
         ) : null}
@@ -1105,35 +1085,27 @@ export function ConnectionsSidebarTree({
                     <button
                       type="button"
                       className="flex min-w-0 flex-1 items-start gap-2 px-3 py-2.5"
-                      onClick={(event) => {
-                        if (event.detail > 1) {
-                          cancelPendingSelect()
-                          return
-                        }
-
+                      onClick={() => {
                         if (isActivatingConnection) return
 
                         if (isActive) {
-                          cancelPendingSelect()
                           if (isSearching) {
                             setIsTablesPanelExpanded(true)
                           } else {
                             setIsTablesPanelExpanded((prev) => !prev)
                           }
                         } else {
-                          scheduleSelectConnection(connection)
+                          setIsTablesPanelExpanded(true)
+                          onSelectConnection(connection)
+                        }
+                      }}
+                      onDoubleClick={() => {
+                        if (isActive) {
+                          setIsTablesPanelExpanded((prev) => !prev)
                         }
                       }}
                       disabled={isActivatingConnection}
                       onContextMenu={(event) => {
-                        cancelPendingSelect()
-                        openSidebarContextMenu(event, {
-                          kind: 'connection',
-                          connection,
-                        })
-                      }}
-                      onDoubleClick={(event) => {
-                        cancelPendingSelect()
                         openSidebarContextMenu(event, {
                           kind: 'connection',
                           connection,

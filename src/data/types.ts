@@ -58,6 +58,37 @@ export type ConnectionSummary = {
   sshConfig?: SshConfig | null
   extraParams?: Record<string, string> | null
   tablePropertyEditingSupported: boolean
+  /** "Allow AI tools on this connection": shared with AI apps over MCP. */
+  allowAiTools?: boolean
+}
+
+/** One tool call from an AI app, newest first in `McpStatus.activity`. */
+export type McpActivity = {
+  atMs: number
+  client: string
+  tool: string
+  connection?: string | null
+  summary?: string | null
+  ok: boolean
+}
+
+/** Settings → Veloxy → AI tools: the MCP server's switch and state. */
+export type McpStatus = {
+  enabled: boolean
+  running: boolean
+  /** Executable AI clients launch, with `launcherArgs`. */
+  launcher?: string | null
+  launcherArgs: string[]
+  launcherWarning?: string | null
+  activity: McpActivity[]
+}
+
+/** Payload of the `mcp://open-in-editor` event. Nothing has run. */
+export type McpOpenInEditorRequest = {
+  connectionId: string
+  sql: string
+  title?: string | null
+  client: string
 }
 
 export type QueryRequest = {
@@ -68,6 +99,12 @@ export type QueryRequest = {
   /** Allows non-read-only statements to run. The editor sets this after confirming a write. */
   allowWrite?: boolean
 }
+
+/** Hard cap for Veloxy agent `run_readonly` (independent of Settings max rows). */
+export const VELOXY_MAX_READONLY_ROWS = 50
+export const VELOXY_SAMPLE_ROWS = 20
+/** Higher cap for chart-backing queries so charts bind to full aggregates, not samples. */
+export const VELOXY_MAX_CHART_ROWS = 500
 
 export type LintSqlRequest = {
   connectionId?: string
@@ -90,12 +127,18 @@ export type LintSqlResult = {
 export type QueryEditorColumn = {
   name: string
   dataType: string
+  comment?: string | null
+  isNullable?: boolean | null
+  isPrimaryKey?: boolean | null
 }
 
 export type QueryEditorTable = {
   schema: string
   name: string
   columns: QueryEditorColumn[]
+  /** Planner estimate (e.g. `pg_class.reltuples`); absent when the engine has no cheap estimate. */
+  estimatedRows?: number | null
+  comment?: string | null
 }
 
 export type QueryEditorFunction = {
@@ -105,9 +148,16 @@ export type QueryEditorFunction = {
   returnType: string
 }
 
+/** Enum type with its allowed labels, e.g. `public.order_status`. */
+export type QueryEditorEnum = {
+  name: string
+  values: string[]
+}
+
 export type QueryEditorMetadata = {
   tables: QueryEditorTable[]
   functions: QueryEditorFunction[]
+  enums?: QueryEditorEnum[]
   truncatedTables: boolean
   truncatedColumns: boolean
   truncatedFunctions: boolean
@@ -335,4 +385,176 @@ export type ExportQueryRequest = {
   connectionId?: string
   sql: string
   outputPath: string
+}
+
+// ── BI: saved queries + dashboards ──────────────────────────
+
+export type SavedQuery = {
+  id: string
+  name: string
+  description?: string | null
+  connectionId: string
+  sql: string
+  createdAt: number
+  updatedAt: number
+}
+
+export type SavedQueryInput = {
+  id?: string | null
+  name: string
+  description?: string | null
+  connectionId: string
+  sql: string
+}
+
+export type WidgetKind =
+  | 'chart' | 'kpi' | 'table' | 'text' | 'markdown' | 'image' | 'divider' | 'filter'
+
+export type ChartType =
+  | 'line' | 'area' | 'bar' | 'horizontalBar' | 'pie' | 'donut'
+  | 'scatter' | 'heatmap' | 'treemap' | 'gauge' | 'kpi'
+  | 'combo' | 'histogram' | 'box' | 'waterfall'
+
+export type ColumnRole = 'temporal' | 'categorical' | 'numeric'
+
+export type ColumnRef = {
+  column: string
+  role?: ColumnRole
+}
+
+export type VizConfig = {
+  chartType: ChartType
+  encodings: { x?: ColumnRef; y?: ColumnRef[]; series?: ColumnRef; size?: ColumnRef }
+  options: Record<string, unknown>
+}
+
+export type NotebookCell =
+  | {
+      id: string
+      type: 'sql'
+      title: string
+      sql: string
+      outputName: string
+      showInApp: boolean
+    }
+  | {
+      id: string
+      type: 'input'
+      varName: string
+      inputType: 'text' | 'number' | 'date' | 'dropdown'
+      defaultValue: string
+      options?: string[]
+    }
+  | {
+      id: string
+      type: 'visual'
+      kind: 'chart' | 'kpi' | 'table'
+      title: string
+      sourceCellId: string
+      viz: VizConfig | null
+      showInApp: boolean
+    }
+  | {
+      id: string
+      type: 'markdown'
+      title: string
+      content: string
+      showInApp: boolean
+    }
+
+export type WidgetQuery = {
+  providerId: 'sql-query'
+  connectionId: string
+  sql: string
+  savedQueryId?: string | null
+  sourceCellId?: string | null
+}
+
+export type WidgetLayout = {
+  i: string
+  x: number
+  y: number
+  w: number
+  h: number
+  isStatic?: boolean
+}
+
+export type Widget = {
+  id: string
+  kind: WidgetKind
+  title: string
+  query: WidgetQuery | null
+  viz: VizConfig | null
+  locked: boolean
+}
+
+export type DashboardVariableType = 'text' | 'number' | 'date' | 'select'
+
+export type DashboardVariable = {
+  name: string
+  type: DashboardVariableType
+  defaultValue: string
+  /** Dropdown values for `select` variables (sampled from a dimension column). */
+  options?: string[]
+  /** Human label shown in the filter bar; falls back to `name`. */
+  label?: string
+}
+
+export type DashboardTheme = 'inherit' | 'light' | 'dark'
+
+export type DashboardPage = {
+  id: string
+  name: string
+  widgetIds: string[]
+}
+
+export type DashboardStory = {
+  id: string
+  title: string
+  beats: Array<{ pageId: string; caption: string }>
+}
+
+export type Dashboard = {
+  version: number
+  id: string
+  name: string
+  description?: string | null
+  connectionId: string
+  cells: NotebookCell[]
+  layout: WidgetLayout[]
+  widgets: Record<string, Widget>
+  variables: DashboardVariable[]
+  theme: DashboardTheme
+  refreshIntervalSec: number | null
+  pages?: DashboardPage[]
+  story?: DashboardStory | null
+  createdAt: number
+  updatedAt: number
+}
+
+export type VeloxyChatState = {
+  messages: unknown[]
+  resume?: unknown
+}
+
+export type VeloxyThreadSummary = {
+  id: string
+  connectionId: string
+  databaseName?: string | null
+  title: string
+  createdAt: number
+  updatedAt: number
+  openedAt: number
+}
+
+export type VeloxyThread = VeloxyThreadSummary & {
+  state: VeloxyChatState
+}
+
+export type VeloxyThreadInput = {
+  id: string
+  connectionId: string
+  databaseName?: string | null
+  title?: string | null
+  state: VeloxyChatState
 }

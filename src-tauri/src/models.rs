@@ -144,6 +144,10 @@ pub struct StoredConnection {
     pub ssh_config: Option<SshConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_params: Option<std::collections::HashMap<String, String>>,
+    /// Lets AI apps reach this connection through VeloxDB's MCP server.
+    /// Off unless the user turns it on for this connection.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub allow_ai_tools: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,6 +172,8 @@ pub struct ConnectionSummary {
     pub extra_params: Option<std::collections::HashMap<String, String>>,
     #[serde(default)]
     pub table_property_editing_supported: bool,
+    #[serde(default)]
+    pub allow_ai_tools: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -317,6 +323,12 @@ pub struct TableIndexesResult {
 pub struct QueryEditorColumn {
     pub name: String,
     pub data_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_nullable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_primary_key: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -325,6 +337,19 @@ pub struct QueryEditorTable {
     pub schema: String,
     pub name: String,
     pub columns: Vec<QueryEditorColumn>,
+    /// Planner estimate (`pg_class.reltuples`); `None` when the engine has no cheap estimate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_rows: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryEditorEnum {
+    /// Schema-qualified enum type name, e.g. `public.order_status`.
+    pub name: String,
+    pub values: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -341,6 +366,8 @@ pub struct QueryEditorFunction {
 pub struct QueryEditorMetadata {
     pub tables: Vec<QueryEditorTable>,
     pub functions: Vec<QueryEditorFunction>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub enums: Vec<QueryEditorEnum>,
     pub truncated_tables: bool,
     pub truncated_columns: bool,
     pub truncated_functions: bool,
@@ -523,7 +550,21 @@ impl StoredConnection {
             srv_enabled: input.srv_enabled,
             ssh_config: input.ssh_config,
             extra_params: input.extra_params,
+            allow_ai_tools: false,
         }
+    }
+
+    /// True when `other` points at the same database as this connection, so
+    /// a per-connection opt-in such as `allow_ai_tools` can carry over when
+    /// the connection is saved again. Editing where it points (engine, host,
+    /// port, database, file or user) turns the opt-in off.
+    pub fn same_target(&self, other: &StoredConnection) -> bool {
+        self.engine == other.engine
+            && self.host == other.host
+            && self.port == other.port
+            && self.database == other.database
+            && self.file_path == other.file_path
+            && self.user == other.user
     }
 
     /// Returns a copy with DB and SSH credentials stripped for safe persistence.
@@ -550,6 +591,7 @@ impl StoredConnection {
             ssh_config: self.ssh_config.as_ref().map(SshConfig::redacted),
             extra_params: self.extra_params.clone(),
             table_property_editing_supported: self.engine == DatabaseEngine::Postgres,
+            allow_ai_tools: self.allow_ai_tools,
         }
     }
 
@@ -580,8 +622,389 @@ pub fn timestamp_string() -> String {
         .to_string()
 }
 
+// ── BI: saved queries + dashboards (Pro) ────────────────────────
+
+pub const SAVED_QUERIES_STORE_PATH: &str = "saved_queries.json";
+pub const DASHBOARDS_STORE_PATH: &str = "dashboards.json";
+pub const MAX_DASHBOARD_WIDGETS: usize = 50;
+pub const DASHBOARD_VERSION: u32 = 1;
+
+pub fn now_epoch_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedQuery {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(alias = "connection_id")]
+    pub connection_id: String,
+    pub sql: String,
+    #[serde(alias = "created_at")]
+    pub created_at: i64,
+    #[serde(alias = "updated_at")]
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedQueryInput {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub connection_id: String,
+    pub sql: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum WidgetKind {
+    #[default]
+    Chart,
+    Kpi,
+    Table,
+    Text,
+    Markdown,
+    Image,
+    Divider,
+    Filter,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ChartType {
+    #[default]
+    Line,
+    Area,
+    Bar,
+    HorizontalBar,
+    Pie,
+    Donut,
+    Scatter,
+    Heatmap,
+    Treemap,
+    Gauge,
+    Kpi,
+    Combo,
+    Histogram,
+    Box,
+    Waterfall,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ColumnRole {
+    Temporal,
+    Categorical,
+    Numeric,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnRef {
+    pub column: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<ColumnRole>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VizEncodings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<ColumnRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub y: Vec<ColumnRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub series: Option<ColumnRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<ColumnRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VizConfig {
+    pub chart_type: ChartType,
+    #[serde(default)]
+    pub encodings: VizEncodings,
+    #[serde(default)]
+    pub options: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum WidgetQueryProvider {
+    #[default]
+    SqlQuery,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetQuery {
+    #[serde(default)]
+    pub provider_id: WidgetQueryProvider,
+    pub connection_id: String,
+    pub sql: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saved_query_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "source_cell_id")]
+    pub source_cell_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetLayout {
+    pub i: String,
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_static: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Widget {
+    pub id: String,
+    pub kind: WidgetKind,
+    pub title: String,
+    #[serde(default)]
+    pub query: Option<WidgetQuery>,
+    #[serde(default)]
+    pub viz: Option<VizConfig>,
+    #[serde(default)]
+    pub locked: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DashboardVariableType {
+    Text,
+    Number,
+    Date,
+    Select,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardVariable {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub variable_type: DashboardVariableType,
+    pub default_value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DashboardTheme {
+    #[default]
+    Inherit,
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardPage {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub widget_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardStoryBeat {
+    pub page_id: String,
+    pub caption: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardStory {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub beats: Vec<DashboardStoryBeat>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dashboard {
+    pub version: u32,
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(alias = "connection_id")]
+    pub connection_id: String,
+    #[serde(default)]
+    pub cells: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub layout: Vec<WidgetLayout>,
+    #[serde(default)]
+    pub widgets: std::collections::BTreeMap<String, Widget>,
+    #[serde(default)]
+    pub variables: Vec<DashboardVariable>,
+    #[serde(default)]
+    pub theme: DashboardTheme,
+    #[serde(default, alias = "refresh_interval_sec")]
+    pub refresh_interval_sec: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pages: Vec<DashboardPage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub story: Option<DashboardStory>,
+    #[serde(alias = "created_at")]
+    pub created_at: i64,
+    #[serde(alias = "updated_at")]
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VeloxyThreadSummary {
+    pub id: String,
+    #[serde(alias = "connection_id")]
+    pub connection_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "database_name")]
+    pub database_name: Option<String>,
+    pub title: String,
+    #[serde(alias = "created_at")]
+    pub created_at: i64,
+    #[serde(alias = "updated_at")]
+    pub updated_at: i64,
+    #[serde(alias = "opened_at")]
+    pub opened_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VeloxyThread {
+    pub id: String,
+    #[serde(alias = "connection_id")]
+    pub connection_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "database_name")]
+    pub database_name: Option<String>,
+    pub title: String,
+    #[serde(alias = "created_at")]
+    pub created_at: i64,
+    #[serde(alias = "updated_at")]
+    pub updated_at: i64,
+    #[serde(alias = "opened_at")]
+    pub opened_at: i64,
+    pub state: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VeloxyThreadInput {
+    pub id: String,
+    pub connection_id: String,
+    #[serde(default)]
+    pub database_name: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    pub state: serde_json::Value,
+}
+
 #[cfg(test)]
-mod tests {
+mod dashboard_contract_tests {
+    use super::{ChartType, Dashboard, DashboardVariableType};
+
+    /// Keep in lockstep with `src/data/types.ts` `ChartType` and `GENERATED_CHART_TYPES`.
+    const FRONTEND_CHART_TYPES: &[&str] = &[
+        "line",
+        "area",
+        "bar",
+        "horizontalBar",
+        "pie",
+        "donut",
+        "scatter",
+        "heatmap",
+        "treemap",
+        "gauge",
+        "kpi",
+        "combo",
+        "histogram",
+        "box",
+        "waterfall",
+    ];
+
+    /// Keep in lockstep with `src/data/types.ts` `DashboardVariableType`.
+    const FRONTEND_VARIABLE_TYPES: &[&str] = &["text", "number", "date", "select"];
+
+    #[test]
+    fn chart_types_accept_every_frontend_variant() {
+        for name in FRONTEND_CHART_TYPES {
+            serde_json::from_value::<ChartType>(serde_json::json!(name))
+                .unwrap_or_else(|error| panic!("Rust ChartType rejected `{name}`: {error}"));
+        }
+    }
+
+    #[test]
+    fn variable_types_accept_every_frontend_variant() {
+        for name in FRONTEND_VARIABLE_TYPES {
+            serde_json::from_value::<DashboardVariableType>(serde_json::json!(name))
+                .unwrap_or_else(|error| panic!("Rust DashboardVariableType rejected `{name}`: {error}"));
+        }
+    }
+
+    #[test]
+    fn save_payload_accepts_generated_combo_and_select_filters() {
+        let payload = serde_json::json!({
+            "version": 2,
+            "id": "dash-ai",
+            "name": "Generated",
+            "connectionId": "conn-1",
+            "cells": [],
+            "layout": [{ "i": "w1", "x": 0, "y": 0, "w": 6, "h": 4 }],
+            "widgets": {
+                "w1": {
+                    "id": "w1",
+                    "kind": "chart",
+                    "title": "Revenue vs orders",
+                    "query": { "providerId": "sql-query", "connectionId": "conn-1", "sql": "SELECT 1" },
+                    "viz": {
+                        "chartType": "combo",
+                        "encodings": { "x": { "column": "month" }, "y": [{ "column": "revenue" }, { "column": "orders" }] },
+                        "options": {}
+                    },
+                    "locked": false
+                }
+            },
+            "variables": [{
+                "name": "region",
+                "type": "select",
+                "defaultValue": "",
+                "options": ["EU", "US"],
+                "label": "Region"
+            }],
+            "theme": "inherit",
+            "refreshIntervalSec": null,
+            "createdAt": 1,
+            "updatedAt": 1
+        });
+
+        let dashboard: Dashboard = serde_json::from_value(payload).expect("generated dashboard payload");
+        assert_eq!(dashboard.widgets["w1"].viz.as_ref().unwrap().chart_type, ChartType::Combo);
+        assert_eq!(dashboard.variables[0].variable_type, DashboardVariableType::Select);
+    }
+}
+
+#[cfg(test)]
+mod connection_secret_tests {
     use super::*;
 
     fn sample_connection() -> StoredConnection {
@@ -609,6 +1032,7 @@ mod tests {
                 passphrase: Some("super-secret-passphrase".to_string()),
             }),
             extra_params: None,
+            allow_ai_tools: false,
         }
     }
 

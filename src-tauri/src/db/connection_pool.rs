@@ -966,6 +966,35 @@ pub fn rename_connection_in_store(
     Ok(stored.summary())
 }
 
+/// Turns "Allow AI tools on this connection" on or off. Edits the stored
+/// record directly, so the password is never loaded or written back.
+pub fn set_connection_allow_ai_tools(
+    app: &AppHandle,
+    connection_id: &str,
+    allowed: bool,
+) -> Result<ConnectionSummary, VeloxError> {
+    let store = app
+        .store(CONNECTION_STORE_PATH)
+        .map_err(|error| error.to_string())?;
+    let value = store
+        .get(connection_id)
+        .ok_or_else(|| format!("Connection {} not found.", connection_id))?;
+    let mut stored: StoredConnection =
+        serde_json::from_value(value).map_err(|error| error.to_string())?;
+    if allowed && !crate::engines::enforces_readonly_in_database(stored.engine) {
+        return Err(VeloxError::Validation(
+            "AI tools work with PostgreSQL, MySQL, MariaDB and SQLite connections for now.".to_string(),
+        ));
+    }
+    stored.allow_ai_tools = allowed;
+    store.set(
+        connection_id.to_string(),
+        serde_json::to_value(&stored).map_err(|error| error.to_string())?,
+    );
+    store.save().map_err(|error| error.to_string())?;
+    Ok(stored.summary())
+}
+
 pub fn delete_connection_from_store(app: &AppHandle, connection_id: &str) -> Result<(), VeloxError> {
     let store = app
         .store(CONNECTION_STORE_PATH)

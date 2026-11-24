@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <strong>Databases, unleashed on your desktop.</strong>
+  <strong>Talk to your database. Built for pure speed.</strong>
 </p>
 
 <p align="center">
@@ -26,7 +26,7 @@
 
 ---
 
-**VeloxDB** is a **fast, memory-efficient, developer-focused** desktop client supporting **13 database engines**: **PostgreSQL, MySQL, SQLite, DuckDB, MongoDB, Redis, ClickHouse, LibSQL, Turso, ScyllaDB, Apache Cassandra, Microsoft SQL Server, and Azure SQL**. Connect directly to your databases — no cloud, no middleware, no telemetry. Built with performance and productivity at its core.
+**VeloxDB** is an **AI-native, fast, developer-focused** desktop client supporting **13 database engines**: **PostgreSQL, MySQL, SQLite, DuckDB, MongoDB, Redis, ClickHouse, LibSQL, Turso, ScyllaDB, Apache Cassandra, Microsoft SQL Server, and Azure SQL**. Talk to your data in plain English, query directly with zero cloud middleware, and inspect schemas with zero telemetry. Built with performance and productivity at its core.
 
 Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 
@@ -40,6 +40,7 @@ Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 - **Fast** — Native desktop application powered by Rust and Tauri 2. Direct database connections with zero latency from cloud proxies.
 - **Memory-Efficient** — Virtual scrolling for massive result sets. Only loads what's visible on screen so million-row queries stay fast and responsive.
 - **Developer-Focused** — CodeMirror 6 with dialect-specific parsers, schema-aware autocomplete, multi-tab workspace, keyboard-first design, command palette, and visual ER modeling.
+- **Fully Open Source, Bring Your Own Key** — Every feature is free and MIT-licensed: the Veloxy AI agent, dashboards and notebooks included. AI runs on your own API key or a local model. No account, no cloud, no telemetry.
 
 ---
 
@@ -64,6 +65,40 @@ Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 ---
 
 ## Features
+
+### Veloxy, the AI Database Agent
+- **Ask in Plain English** — Veloxy searches your schema, describes tables, runs read-only queries, explains plans, and proposes charts to answer questions about your data.
+- **Read-Only by Design** — Agent SQL is parsed and rejected if it can write (including `EXPLAIN ANALYZE <write>`, data-modifying CTEs and functions with side effects such as `pg_terminate_backend` or `set_config`). On PostgreSQL, MySQL/MariaDB and SQLite the database enforces it too: the query runs in a `READ ONLY` transaction (SQLite: a read-only connection with `PRAGMA query_only`) that is always rolled back. Anything that writes goes to your editor for you to run.
+- **Inline Edits** — Select SQL in the editor and ask Veloxy to rewrite it in place, with a diff before you accept.
+- **Persistent Threads** — Conversations are saved per connection.
+
+### Dashboards & Notebooks
+- **Dashboards** — Drag-and-resize grid of charts, KPIs, tables, and rich-text notes, with variables/filters and multiple pages.
+- **Chart Builder** — Bar, line, combo, pie, scatter, histogram, box plot, heatmap, treemap, gauge, waterfall, KPI, and table from any query.
+- **Logic View (Notebook)** — Build dashboards from SQL and visual cells that feed each other.
+- **AI Dashboard Generation** — Describe what you want and Veloxy profiles your schema and builds a dashboard.
+- **Saved Queries** — Keep and reuse queries per connection.
+- **Export** — Save any dashboard as a PDF or PNG, exactly as it looks on screen. Files stay on your computer.
+
+### Bring Your Own AI Key
+Pick a provider in **Settings → Veloxy** and paste your key (stored in the OS keychain):
+
+| Provider | Notes |
+|----------|-------|
+| DeepSeek (default), OpenAI, Anthropic (Claude), Google Gemini, Groq, Mistral, xAI (Grok), OpenRouter | Hosted, your own API key |
+| Ollama, LM Studio | Local models, no key |
+| Custom | Any OpenAI-compatible endpoint (vLLM, LiteLLM, a proxy, ...) |
+
+AI requests go straight from the app to the provider you choose. Nothing passes through a VeloxDB server.
+
+### Use VeloxDB From Claude, Cursor or VS Code (MCP)
+Already pay for an AI app? Let it query your databases through VeloxDB, with no API key in VeloxDB. Claude Desktop, Claude Code, Cursor and VS Code connect over the [Model Context Protocol](https://modelcontextprotocol.io).
+
+1. In **Settings → Veloxy → AI tools for other apps**, turn on **Let AI apps use VeloxDB**.
+2. Turn on **Allow AI tools on this connection** for each connection the AI app may use (PostgreSQL, MySQL/MariaDB and SQLite).
+3. Pick your app, click **Copy**, and paste the config where it says. The config only launches VeloxDB with `--mcp`; it holds no secret.
+
+Tools: `list_connections`, `get_schema`, `run_readonly_query` (100 rows by default, 500 max, 30 s timeout), `explain_query` and `open_in_editor`. Queries run read-only at the database level, as above. Nothing an AI app sends can write: `open_in_editor` puts SQL in a new editor tab for you to review and run. Both switches are off by default, the server only runs while VeloxDB is open and listens on `127.0.0.1` only, and recent calls are listed in the same settings page. For sensitive data, connect with a read-only database user.
 
 ### Multi-Tab SQL & Query Workspace
 - **CodeMirror 6-Powered Editor** — Syntax highlighting and native SQL dialect parsers (`MSSQL`, `Cassandra`, `SQLite`, `StandardSQL`, `PostgreSQL`, `MySQL`), MongoDB JavaScript, and Redis CLI.
@@ -97,7 +132,7 @@ Watch the demo: **[veloxdb.dev](https://veloxdb.dev)**
 ### Developer Experience
 - **Command Palette** (`Cmd+P` / `Ctrl+P`) — Search and execute any command or navigate workspace views instantly.
 - **Keyboard-First Design** — Configurable shortcuts for running queries, formatting SQL, toggling sidebars, and switching tabs.
-- **Themes & Styling** — Sleek dark and light modes with automatic OS system preference matching.
+- **Themes & Styling** — Light, dark, and six tinted themes with live preview, plus automatic OS preference matching.
 - **Internationalization (i18n)** — Built-in localization support via `i18next`.
 - **Persistent Workspace State** — Restores open tabs, query drafts, active connections, and diagram layouts on launch.
 
@@ -210,6 +245,8 @@ docker compose -f docker-compose.pg.yml up -d
 |-------|--------------------------|
 | **UI Framework** | React 19, TypeScript, Tailwind CSS v4, shadcn/ui, Radix UI, Phosphor Icons |
 | **Code Editor** | CodeMirror 6 (`@uiw/react-codemirror`, `@codemirror/lang-sql`) |
+| **AI Agent** | TanStack AI (tool-calling agent loop), any OpenAI-compatible provider |
+| **Charts & Dashboards** | TanStack Charts, dnd-kit, react-moveable |
 | **Diagram Engine** | ReactFlow 12 (`@xyflow/react`), Dagre graph layout |
 | **State Management** | Zustand 5, TanStack Query v5 |
 | **Data Grid & Virtualization** | TanStack Virtual 3, TanStack Table 8 |

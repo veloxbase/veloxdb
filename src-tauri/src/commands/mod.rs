@@ -23,9 +23,12 @@ use crate::sql_split::split_sql_statements;
 
 pub(crate) const MAX_FOREIGN_KEY_ROWS: i64 = 5000;
 pub(crate) const MAX_TABLE_INDEX_ROWS: i64 = 500;
-pub(crate) const MAX_EDITOR_TABLES: i64 = 150;
+pub(crate) const MAX_EDITOR_TABLES: i64 = 500;
 pub(crate) const MAX_EDITOR_COLUMNS_PER_TABLE: i64 = 60;
+pub(crate) const MAX_EDITOR_ENUMS: i64 = 200;
 pub(crate) const MAX_EDITOR_FUNCTIONS: i64 = 200;
+/// Bound catalog reads (metadata, foreign keys, indexes) so Veloxy cannot pin a pool client.
+pub(crate) const CATALOG_STATEMENT_TIMEOUT: &str = "8000";
 pub(crate) const MAX_LINT_SQL_BYTES: usize = 65_536;
 pub(crate) const ASK_VELOXY_MAX_CONTEXT_TABLES: usize = 8;
 pub(crate) const ASK_VELOXY_MAX_CONTEXT_COLUMNS: usize = 18;
@@ -297,13 +300,30 @@ pub(crate) fn classify_sql_intent(sql: &str) -> String {
     "unknown".to_string()
 }
 
-/// Keywords that can appear after a `WITH` clause and still modify data.
-/// A data-modifying CTE (`WITH x AS (INSERT ...) SELECT ...`) starts with
-/// `WITH`, so it must not be treated as read-only just because of its prefix.
-const WRITE_KEYWORDS: [&str; 14] = [
+/// Words that make a statement a write wherever they appear, not only at its
+/// start. Checking the whole statement catches data-modifying CTEs
+/// (`WITH x AS (DELETE ...) SELECT ...`), `SELECT ... INTO`, and T-SQL batches,
+/// which run several statements without semicolons
+/// (`SELECT 1 DELETE FROM users`). A table, column or string literal that uses
+/// one of these words only costs an extra confirmation.
+/// Keep in sync with `WRITE_KEYWORDS` in `src/lib/sql-intent.ts`.
+const WRITE_KEYWORDS: &[&str] = &[
     "insert", "update", "delete", "merge",
     "create", "alter", "drop", "truncate",
-    "grant", "revoke", "copy", "call", "do", "vacuum",
+    "grant", "revoke", "deny", "copy", "call", "do", "vacuum",
+    // SELECT ... INTO creates a table (Postgres, T-SQL) or a file (MySQL INTO OUTFILE).
+    "into",
+    // T-SQL statements and rowset functions that can follow a SELECT in one batch.
+    "exec", "execute", "kill", "shutdown", "backup", "restore", "dbcc", "bulk",
+    "reconfigure", "openquery", "openrowset", "opendatasource",
+    // Functions that change data or server state when called from a SELECT.
+    "nextval", "setval", "set_config", "pg_notify", "pg_logical_emit_message",
+    "pg_terminate_backend", "pg_cancel_backend", "pg_reload_conf", "pg_rotate_logfile",
+    "pg_switch_wal", "pg_promote", "pg_create_restore_point",
+    "lo_import", "lo_export", "lo_unlink", "lo_create", "lo_creat", "lo_from_bytea",
+    "lo_put", "lo_truncate",
+    "dblink", "dblink_exec", "dblink_connect",
+    "pg_file_write", "pg_file_rename", "pg_file_unlink",
 ];
 
 fn contains_write_keyword(sql: &str) -> bool {
@@ -314,30 +334,25 @@ fn contains_write_keyword(sql: &str) -> bool {
         })
 }
 
+/// True when every statement in `sql` only reads. Queries that pass run without
+/// a confirmation, so anything uncertain counts as a write.
+///
+/// Statements are split on every `;`, even inside strings. That can only add
+/// extra pieces to check, while a quote-aware split could be led by engine
+/// specific escapes (MySQL's `\'`) into hiding a statement in a "string".
+/// Transaction control counts as a write: on Postgres an unconfirmed query runs
+/// in a read-only transaction, and a `COMMIT` inside it would end that.
 pub(crate) fn is_read_only_sql(sql: &str) -> bool {
     let mut saw_statement = false;
     for statement in sql.split(';').map(str::trim).filter(|s| !s.is_empty()) {
-        let normalized = statement.to_ascii_lowercase();
-        let is_transaction_control = ["begin", "commit", "rollback", "start", "savepoint", "release"]
-            .iter()
-            .any(|kw| normalized.starts_with(kw));
-        if is_transaction_control {
-            continue;
-        }
         saw_statement = true;
-        let intent = classify_sql_intent(statement);
-        let read_only = match intent.as_str() {
-            "select" => {
-                // WITH-prefixed statements can be data-modifying CTEs.
-                !normalized.starts_with("with") || !contains_write_keyword(statement)
-            }
-            "explain" => {
-                // EXPLAIN ANALYZE actually executes the statement it explains.
-                !contains_write_keyword(statement)
-            }
-            "show" | "describe" | "values" | "table" => true,
-            _ => false,
-        };
+        if contains_write_keyword(statement) {
+            return false;
+        }
+        let read_only = matches!(
+            classify_sql_intent(statement).as_str(),
+            "select" | "explain" | "show" | "describe" | "values" | "table"
+        );
         if !read_only {
             return false;
         }
@@ -1035,6 +1050,7 @@ pub(crate) fn veloxdb_unique_constraint_name(table_name: &str, column_name: &str
 // --- Sub-modules ---
 
 mod connections;
+mod dashboards;
 mod query;
 mod table_props;
 mod ddl;
@@ -1045,14 +1061,17 @@ pub(crate) mod mongo;
 pub(crate) mod duckdb;
 mod export_cmds;
 pub(crate) mod redis;
+mod saved_queries;
+mod veloxy_chats;
 mod updater;
+pub(crate) mod reports;
 
 // --- Re-exports ---
 
 pub use connections::{
     connect_db, list_connections_command, set_active_connection, ping_connection,
     refresh_connection, disconnect_db, rename_connection, delete_connection,
-    list_databases, switch_database,
+    list_databases, switch_database, test_connection,
 };
 pub use query::{
     run_query, get_tables, get_schema,
@@ -1068,15 +1087,15 @@ pub use editor_meta::{
 };
 pub use veloxy::{
     cancel_veloxy_request, chat_with_db, clear_veloxy_conversation, generate_sql_from_nl,
-    load_veloxy_conversation,
+    load_veloxy_conversation, veloxy_run_readonly,
 };
+pub(crate) use veloxy::{check_agent_readonly_sql, get_or_build_ask_veloxy_db_context};
 pub use lint::{
     lint_sql,
 };
 pub use export_cmds::{
     export_diagram_png, export_results_csv_command, export_results_json_command,
-    save_base64_png, save_text_file, store_openrouter_api_key, get_openrouter_api_key,
-    delete_openrouter_api_key,
+    save_base64_png, save_text_file, read_text_file, store_ai_api_key, get_ai_api_key,
 };
 pub use mongo::{
     mongo_run_query, mongo_get_collections, mongo_get_schema,
@@ -1111,7 +1130,7 @@ mod sql_intent_tests {
     fn read_only_sql_accepts_read_only_statements() {
         assert!(is_read_only_sql("SELECT 1"));
         assert!(is_read_only_sql("SELECT 1; SHOW TABLES"));
-        assert!(is_read_only_sql("BEGIN; SELECT 1; COMMIT;"));
+        assert!(is_read_only_sql("SELECT created_at, last_update FROM orders"));
         assert!(is_read_only_sql("EXPLAIN ANALYZE SELECT * FROM t"));
         assert!(is_read_only_sql("TABLE users"));
     }
@@ -1124,6 +1143,38 @@ mod sql_intent_tests {
         assert!(!is_read_only_sql("SELECT 1; DELETE FROM t"));
         assert!(!is_read_only_sql("EXPLAIN ANALYZE DELETE FROM t"));
         assert!(!is_read_only_sql(""));
+    }
+
+    #[test]
+    fn read_only_sql_rejects_writes_hidden_after_a_select() {
+        // T-SQL runs both statements of a batch with no semicolon between them.
+        assert!(!is_read_only_sql("SELECT 1 DELETE FROM users"));
+        assert!(!is_read_only_sql("SELECT * FROM users WHERE id = 1\nDROP TABLE users"));
+        assert!(!is_read_only_sql("SELECT 1 EXEC sp_executesql N'x'"));
+        assert!(!is_read_only_sql("SELECT 1 SHUTDOWN"));
+        // SELECT ... INTO creates a table or, on MySQL, writes a file.
+        assert!(!is_read_only_sql("SELECT * INTO users_copy FROM users"));
+        assert!(!is_read_only_sql("SELECT * FROM users INTO OUTFILE '/tmp/users'"));
+        assert!(!is_read_only_sql("TABLE users; TRUNCATE users"));
+    }
+
+    #[test]
+    fn read_only_sql_rejects_side_effect_functions() {
+        assert!(!is_read_only_sql(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid()"
+        ));
+        assert!(!is_read_only_sql("SELECT lo_export(lo_from_bytea(0, 'x'), '/tmp/x')"));
+        assert!(!is_read_only_sql("SELECT set_config('default_transaction_read_only', 'off', false)"));
+        assert!(!is_read_only_sql("SELECT nextval('orders_id_seq')"));
+        assert!(!is_read_only_sql("SELECT dblink_exec('dbname=x', 'DELETE FROM t')"));
+    }
+
+    #[test]
+    fn read_only_sql_rejects_transaction_control() {
+        assert!(!is_read_only_sql("BEGIN; SELECT 1; COMMIT;"));
+        assert!(!is_read_only_sql("COMMIT; SELECT archive_orders()"));
+        assert!(!is_read_only_sql("START TRANSACTION READ WRITE"));
+        assert!(!is_read_only_sql("ROLLBACK"));
     }
 
     #[test]
@@ -1171,3 +1222,15 @@ mod mysql_json_tests {
         assert!(meta.starts_with('['));
     }
 }
+pub use saved_queries::{
+    list_saved_queries, get_saved_query, save_saved_query, delete_saved_query,
+    duplicate_saved_query,
+};
+pub use dashboards::{
+    list_dashboards, get_dashboard, save_dashboard, delete_dashboard, duplicate_dashboard,
+};
+pub use veloxy_chats::{
+    list_veloxy_threads, load_veloxy_thread, save_veloxy_thread, touch_veloxy_thread,
+    delete_veloxy_thread,
+};
+pub use reports::export_dashboard_pdf;

@@ -102,24 +102,61 @@ pub fn delete_ssh_passphrase(connection_id: &str) -> Result<(), String> {
     }
 }
 
-pub fn store_openrouter_api_key(api_key: &str) -> Result<(), String> {
-    entry(OPENROUTER_API_KEY_ACCOUNT)?
+/// AI providers whose API key may be kept in the keychain. Anything else is
+/// rejected so the frontend cannot read or overwrite arbitrary entries (for
+/// example a connection password, whose account is the connection id).
+const AI_PROVIDERS: &[&str] = &[
+    "openrouter", "openai", "anthropic", "deepseek", "gemini", "groq", "mistral",
+    "xai", "ollama", "lmstudio", "custom",
+];
+
+fn ai_key_account(provider: &str) -> Result<String, String> {
+    if !AI_PROVIDERS.contains(&provider) {
+        return Err(format!("Unknown AI provider: {provider}"));
+    }
+    // Keep the pre-provider account name so existing OpenRouter keys survive.
+    Ok(if provider == "openrouter" {
+        OPENROUTER_API_KEY_ACCOUNT.to_string()
+    } else {
+        format!("ai-api-key-{provider}")
+    })
+}
+
+pub fn store_ai_api_key(provider: &str, api_key: &str) -> Result<(), String> {
+    entry(&ai_key_account(provider)?)?
         .set_password(api_key)
         .map_err(|e| format!("Failed to store API key in keychain: {}", e))
 }
 
-pub fn get_openrouter_api_key() -> Result<Option<String>, String> {
-    match entry(OPENROUTER_API_KEY_ACCOUNT)?.get_password() {
+pub fn get_ai_api_key(provider: &str) -> Result<Option<String>, String> {
+    match entry(&ai_key_account(provider)?)?.get_password() {
         Ok(api_key) => Ok(Some(api_key)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(format!("Failed to read API key from keychain: {}", e)),
     }
 }
 
-pub fn delete_openrouter_api_key() -> Result<(), String> {
-    match entry(OPENROUTER_API_KEY_ACCOUNT)?.delete_credential() {
+pub fn delete_ai_api_key(provider: &str) -> Result<(), String> {
+    match entry(&ai_key_account(provider)?)?.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("Failed to delete API key from keychain: {}", e)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ai_key_account;
+
+    #[test]
+    fn openrouter_keeps_its_legacy_account() {
+        assert_eq!(ai_key_account("openrouter").unwrap(), "openrouter-api-key");
+        assert_eq!(ai_key_account("deepseek").unwrap(), "ai-api-key-deepseek");
+    }
+
+    #[test]
+    fn rejects_unknown_providers() {
+        assert!(ai_key_account("3f2a-connection-id").is_err());
+        assert!(ai_key_account("").is_err());
     }
 }

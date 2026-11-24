@@ -35,12 +35,64 @@ function buildJsonContent(columns: string[], rows: ResultRow[]) {
   )
 }
 
+export function buildMarkdownTableContent(columns: string[], rows: ResultRow[]): string {
+  if (columns.length === 0) return ''
+  const escapeCell = (val: string | null | undefined) => {
+    if (val === null || val === undefined) return 'NULL'
+    return String(val).replaceAll('|', '\\|').replaceAll('\n', '<br>')
+  }
+  const header = `| ${columns.map((col) => col.replaceAll('|', '\\|')).join(' | ')} |`
+  const separator = `| ${columns.map(() => '---').join(' | ')} |`
+  const body = rows.map((row) =>
+    `| ${columns.map((col) => escapeCell(row[col])).join(' | ')} |`
+  )
+  return [header, separator, ...body].join('\n')
+}
+
+export function buildSqlInsertContent(
+  tableName: string,
+  columns: string[],
+  rows: ResultRow[],
+): string {
+  if (columns.length === 0 || rows.length === 0) return ''
+  const cleanTable = tableName.trim() || 'query_results'
+  const quotedColumns = columns
+    .map((col) => (col.startsWith('"') ? col : `"${col.replaceAll('"', '""')}"`))
+    .join(', ')
+
+  const formatSqlValue = (val: string | null | undefined) => {
+    if (val === null || val === undefined) return 'NULL'
+    return `'${String(val).replaceAll("'", "''")}'`
+  }
+
+  const valuesRows = rows.map((row) => {
+    const values = columns.map((col) => formatSqlValue(row[col])).join(', ')
+    return `  (${values})`
+  })
+
+  return `INSERT INTO ${cleanTable} (${quotedColumns})\nVALUES\n${valuesRows.join(',\n')};`
+}
+
 export async function copyRows(columns: string[], rows: ResultRow[]) {
   const header = columns.join('\t')
   const body = rows.map((row) =>
     columns.map((col) => toDisplay(row[col])).join('\t'),
   )
   await navigator.clipboard.writeText([header, ...body].join('\n'))
+}
+
+export async function copyRowsAsMarkdown(columns: string[], rows: ResultRow[]) {
+  const content = buildMarkdownTableContent(columns, rows)
+  await navigator.clipboard.writeText(content)
+}
+
+export async function copyRowsAsSqlInsert(
+  tableName: string,
+  columns: string[],
+  rows: ResultRow[],
+) {
+  const content = buildSqlInsertContent(tableName, columns, rows)
+  await navigator.clipboard.writeText(content)
 }
 
 export async function downloadRowsAsCsv(

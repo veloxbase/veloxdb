@@ -7,7 +7,7 @@ use crate::db::{
     drop_pool, get_or_create_duckdb_connection, get_or_create_mongo_client,
     get_or_create_redis_client,
     load_connection, persist_connection_with_password, refresh_connection_pools,
-    resolve_connection_engine, AppState, DEFAULT_MYSQL_PORT,
+    resolve_connection_engine, AppMetaDb, AppState, DEFAULT_MYSQL_PORT,
 };
 use mongodb::bson::doc;
 use crate::credentials;
@@ -31,12 +31,44 @@ pub async fn connect_db(
     let ops = engines::get_engine(input.engine);
     ops.connect(&app, &state, &input, &connection_id).await.map_err(String::from)?;
 
-    let stored_connection = StoredConnection::from_input(connection_id.clone(), input.clone());
+    let mut stored_connection = StoredConnection::from_input(connection_id.clone(), input.clone());
+    // Keep the "Allow AI tools" opt-in while the connection still points at
+    // the same database; pointing it somewhere else turns it off.
+    if let Ok(Some(previous)) = load_connection(&app, &connection_id) {
+        stored_connection.allow_ai_tools =
+            previous.allow_ai_tools && previous.same_target(&stored_connection);
+    }
     persist_connection_with_password(&app, &stored_connection, &input.password)?;
 
     *state.active_connection_id.write().await = Some(connection_id);
 
     Ok(stored_connection.summary())
+}
+
+/// Result of a connection test: how long connecting took.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionTestResult {
+    pub elapsed_ms: u128,
+}
+
+/// Connects with the form's details, without saving anything, then closes the
+/// connection. Uses a throwaway id so it never touches a saved connection's
+/// pools or SSH tunnel.
+#[tauri::command]
+pub async fn test_connection(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: ConnectionInput,
+) -> Result<ConnectionTestResult, String> {
+    let probe_id = format!("connection-test-{}", Uuid::new_v4());
+    let ops = engines::get_engine(input.engine);
+    let started = std::time::Instant::now();
+    let result = ops.connect(&app, &state, &input, &probe_id).await;
+    let elapsed_ms = started.elapsed().as_millis();
+    disconnect_connection(&state, &probe_id).await;
+    result.map_err(String::from)?;
+    Ok(ConnectionTestResult { elapsed_ms })
 }
 
 #[tauri::command]
@@ -103,6 +135,7 @@ pub async fn rename_connection(
 pub async fn delete_connection(
     app: AppHandle,
     state: State<'_, AppState>,
+    meta: State<'_, AppMetaDb>,
     connection_id: String,
 ) -> Result<(), String> {
     disconnect_connection(&state, &connection_id).await;
@@ -116,6 +149,9 @@ pub async fn delete_connection(
         log::warn!("Failed to delete SSH passphrase keychain entry for {}: {}", connection_id, e);
     }
     crate::db::delete_connection_from_store(&app, &connection_id)?;
+    crate::db::delete_veloxy_threads_for_connection(meta.pool(), &connection_id)
+        .await
+        .map_err(String::from)?;
     Ok(())
 }
 

@@ -4,25 +4,30 @@ pub mod db;
 pub mod engines;
 pub mod error;
 mod export;
+pub mod mcp;
 pub mod models;
 mod pg_error;
 pub mod sql_split;
 mod ssh_tunnel;
 
 use commands::{
-    apply_table_properties, cancel_veloxy_request, chat_with_db, check_for_updates,
-    clear_veloxy_conversation, connect_db, delete_connection, delete_openrouter_api_key,
-    disconnect_db, duckdb_get_schema, duckdb_get_tables, duckdb_run_query, execute_ddl_statement,
-    execute_ddl_transaction, export_diagram_png, export_results_csv_command,
-    export_results_json_command, generate_sql_from_nl, get_foreign_keys, get_openrouter_api_key,
-    get_query_editor_metadata, get_schema, get_table_indexes, get_table_properties, get_tables,
-    lint_sql, list_connections_command, list_databases, load_veloxy_conversation,
-    mongo_get_collections, mongo_get_schema, mongo_run_query, ping_connection, redis_get_keys,
-    redis_get_schema, redis_run_query, refresh_connection, rename_connection, run_query,
-    save_base64_png, save_text_file, set_active_connection, store_openrouter_api_key,
-    switch_database,
+  apply_table_properties, cancel_veloxy_request, chat_with_db, check_for_updates, clear_veloxy_conversation,
+  connect_db, test_connection, delete_connection,
+  disconnect_db, duckdb_get_schema, duckdb_get_tables, duckdb_run_query,
+  execute_ddl_statement, execute_ddl_transaction, export_diagram_png,
+  export_results_csv_command, export_results_json_command,   generate_sql_from_nl, veloxy_run_readonly, get_foreign_keys,
+  get_ai_api_key, get_query_editor_metadata, get_schema, get_table_indexes, get_table_properties, get_tables,
+  lint_sql, list_connections_command, list_databases, load_veloxy_conversation, mongo_get_collections,
+  mongo_get_schema, mongo_run_query, ping_connection, redis_get_keys, redis_get_schema, redis_run_query,
+  refresh_connection, rename_connection, run_query, save_base64_png, save_text_file, read_text_file, set_active_connection,
+  store_ai_api_key, switch_database,
+  list_saved_queries, get_saved_query, save_saved_query, delete_saved_query, duplicate_saved_query,
+  list_dashboards, get_dashboard, save_dashboard, delete_dashboard, duplicate_dashboard,
+  list_veloxy_threads, load_veloxy_thread, save_veloxy_thread, touch_veloxy_thread, delete_veloxy_thread,
+  export_dashboard_pdf,
 };
 use db::AppState;
+use mcp::{mcp_clear_activity, mcp_get_status, mcp_set_enabled, set_connection_ai_tools, McpState};
 use tauri::Manager;
 
 /// Enables or disables native window background blur where supported by the OS.
@@ -64,79 +69,116 @@ fn set_window_blur(window: tauri::WebviewWindow, enabled: bool) -> Result<(), St
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .manage(AppState::default())
-        .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
-            Ok(())
-        })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                let handle = window.app_handle();
-                let state: tauri::State<AppState> = handle.state();
-                let mut tunnels = state.ssh_tunnels.blocking_write();
-                for (_, mut tunnel) in tunnels.drain() {
-                    tauri::async_runtime::block_on(async {
-                        tunnel.close().await;
-                    });
-                }
-            }
-        })
-        .invoke_handler(tauri::generate_handler![
-            set_window_blur,
-            check_for_updates,
-            connect_db,
-            disconnect_db,
-            rename_connection,
-            delete_connection,
-            ping_connection,
-            refresh_connection,
-            list_connections_command,
-            set_active_connection,
-            list_databases,
-            switch_database,
-            run_query,
-            get_tables,
-            get_schema,
-            get_table_properties,
-            apply_table_properties,
-            get_foreign_keys,
-            get_table_indexes,
-            execute_ddl_transaction,
-            execute_ddl_statement,
-            export_diagram_png,
-            export_results_csv_command,
-            export_results_json_command,
-            get_query_editor_metadata,
-            save_base64_png,
-            save_text_file,
-            lint_sql,
-            generate_sql_from_nl,
-            chat_with_db,
-            cancel_veloxy_request,
-            load_veloxy_conversation,
-            clear_veloxy_conversation,
-            store_openrouter_api_key,
-            get_openrouter_api_key,
-            delete_openrouter_api_key,
-            mongo_run_query,
-            mongo_get_collections,
-            mongo_get_schema,
-            duckdb_run_query,
-            duckdb_get_tables,
-            duckdb_get_schema,
-            redis_run_query,
-            redis_get_keys,
-            redis_get_schema
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+  tauri::Builder::default()
+    .manage(AppState::default())
+    .manage(McpState::default())
+    .plugin(tauri_plugin_store::Builder::default().build())
+    .plugin(tauri_plugin_dialog::init())
+    // AI provider calls go through Rust so the webview CSP and provider CORS
+    // rules cannot block bring-your-own-key endpoints.
+    .plugin(tauri_plugin_http::init())
+    // Opens provider sign-up pages and About links in the default browser.
+    .plugin(tauri_plugin_opener::init())
+    .setup(|app| {
+      if cfg!(debug_assertions) {
+        app.handle().plugin(
+          tauri_plugin_log::Builder::default()
+            .level(log::LevelFilter::Info)
+            .build(),
+        )?;
+      }
+      let handle = app.handle().clone();
+      let meta = tauri::async_runtime::block_on(db::open_app_meta_db(&handle))?;
+      app.manage(meta);
+      mcp::start_if_enabled(app.handle());
+      Ok(())
+    })
+    .on_window_event(|window, event| {
+      if let tauri::WindowEvent::Destroyed = event {
+        let handle = window.app_handle();
+        let state: tauri::State<AppState> = handle.state();
+        let mut tunnels = state.ssh_tunnels.blocking_write();
+        for (_, mut tunnel) in tunnels.drain() {
+          tauri::async_runtime::block_on(async {
+            tunnel.close().await;
+          });
+        }
+      }
+    })
+    .invoke_handler(tauri::generate_handler![
+      set_window_blur,
+      check_for_updates,
+      connect_db,
+      test_connection,
+      disconnect_db,
+      rename_connection,
+      delete_connection,
+      ping_connection,
+      refresh_connection,
+      list_connections_command,
+      set_active_connection,
+      list_databases,
+      switch_database,
+      run_query,
+      get_tables,
+      get_schema,
+      get_table_properties,
+      apply_table_properties,
+      get_foreign_keys,
+      get_table_indexes,
+      execute_ddl_transaction,
+      execute_ddl_statement,
+      export_diagram_png,
+      export_results_csv_command,
+      export_results_json_command,
+      get_query_editor_metadata,
+      save_base64_png,
+      save_text_file,
+      lint_sql,
+      generate_sql_from_nl,
+      chat_with_db,
+      veloxy_run_readonly,
+      cancel_veloxy_request,
+      load_veloxy_conversation,
+      clear_veloxy_conversation,
+      store_ai_api_key,
+      get_ai_api_key,
+      mongo_run_query,
+      mongo_get_collections,
+      mongo_get_schema,
+      duckdb_run_query,
+      duckdb_get_tables,
+      duckdb_get_schema,
+  redis_run_query,
+      redis_get_keys,
+      redis_get_schema,
+      list_saved_queries,
+      get_saved_query,
+      save_saved_query,
+      delete_saved_query,
+      duplicate_saved_query,
+      list_dashboards,
+      get_dashboard,
+      save_dashboard,
+      delete_dashboard,
+      duplicate_dashboard,
+      list_veloxy_threads,
+      load_veloxy_thread,
+      save_veloxy_thread,
+      touch_veloxy_thread,
+      delete_veloxy_thread,
+      read_text_file,
+      export_dashboard_pdf,
+      mcp_get_status,
+      mcp_set_enabled,
+      mcp_clear_activity,
+      set_connection_ai_tools,
+    ])
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|app, event| {
+      if let tauri::RunEvent::Exit = event {
+        mcp::shutdown(app);
+      }
+    });
 }

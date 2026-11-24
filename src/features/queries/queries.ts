@@ -17,6 +17,7 @@ import {
   type SaveResultEditsRequest,
   type DeleteRowsRequest,
 } from "@/features/queries/result-edits";
+import i18n from "i18next";
 import { shouldRetryTransientDbInvoke } from "@/lib/transient-invoke-retry";
 import { useSettings } from "@/lib/settings";
 
@@ -96,13 +97,33 @@ type UseRunQueryMutationOptions = {
 	) => void;
 };
 
+/** Postgres SQLSTATE 25006: a write was attempted inside a read-only transaction. */
+export function isReadOnlyTransactionViolation(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return /SQLSTATE:\s*25006\b/.test(message);
+}
+
 export function useRunQueryMutation(options: UseRunQueryMutationOptions = {}) {
 	const maxQueryRows = useSettings((s) => s.maxQueryRows);
 
 	return useMutation({
 		retry: shouldRetryTransientDbInvoke,
-		mutationFn: ({ connectionId, sql, allowWrite }: RunQueryTabVariables) =>
-			veloxDbRepository.runQuery({ connectionId, sql, allowWrite, maxRows: maxQueryRows }),
+		mutationFn: async ({ connectionId, sql, allowWrite }: RunQueryTabVariables) => {
+			try {
+				return await veloxDbRepository.runQuery({ connectionId, sql, allowWrite, maxRows: maxQueryRows });
+			} catch (error) {
+				// The database refused a write that the read-only check did not
+				// spot (e.g. a function that modifies data). Let the user decide.
+				if (
+					!allowWrite &&
+					isReadOnlyTransactionViolation(error) &&
+					window.confirm(i18n.t("editor.confirmWriteAfterReadOnly"))
+				) {
+					return veloxDbRepository.runQuery({ connectionId, sql, allowWrite: true, maxRows: maxQueryRows });
+				}
+				throw error;
+			}
+		},
 		onSuccess: (result, variables) => {
 			options.onSuccess?.(result, variables);
 		},
@@ -152,17 +173,27 @@ type UseExplainPlanMutationOptions = {
 	) => void;
 };
 
-export function buildExplainSql(engine: DatabaseEngine, sql: string): string {
+export function buildExplainSql(
+	engine: DatabaseEngine,
+	sql: string,
+	options?: { analyze?: boolean },
+): string {
 	const trimmed = sql.trim();
 	const upper = trimmed.toUpperCase();
 	if (upper.startsWith("EXPLAIN") || upper.startsWith("PREPARE")) {
 		return trimmed;
 	}
+	const analyze = options?.analyze !== false;
 	if (engine === "postgres") {
-		return `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)\n${trimmed}`;
+		return analyze
+			? `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)\n${trimmed}`
+			: `EXPLAIN (FORMAT TEXT)\n${trimmed}`;
 	}
 	if (engine === "mysql") {
 		return `EXPLAIN FORMAT=TRADITIONAL\n${trimmed}`;
+	}
+	if (engine === "duckdb") {
+		return analyze ? `EXPLAIN ANALYZE\n${trimmed}` : `EXPLAIN\n${trimmed}`;
 	}
 	if (engine === "clickhouse") {
 		return `EXPLAIN SYNTAX\n${trimmed}`;

@@ -1,0 +1,64 @@
+.chart-canvas {
+  --ts-chart-tooltip-background: color-mix(in oklch, var(--popover) 88%, transparent);
+  --ts-chart-tooltip-color: var(--popover-foreground);
+  --ts-chart-tooltip-border: 1px solid color-mix(in oklch, var(--foreground) 16%, transparent);
+  --ts-chart-tooltip-border-radius: 0;
+  --ts-chart-tooltip-padding: 0.4rem 0.55rem;
+  --ts-chart-tooltip-font: 500 11px/1.35 inherit;
+  --ts-chart-tooltip-shadow: none;
+  --ts-chart-tooltip-max-width: min(18rem, 80%);
+  overflow: hidden;
+}
+
+.chart-grain-surface {
+  --chart-1: oklch(0.88 0.13 300);
+  --chart-2: oklch(0.84 0.14 210);
+  --chart-3: oklch(0.9 0.08 280);
+  --chart-4: oklch(0.8 0.16 268);
+  --chart-5: oklch(0.92 0.07 200);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  background-color: #000;
+}
+
+.chart-canvas--selectable svg {
+  cursor: pointer;
+}
+
+.chart-canvas svg {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  background: transparent;
+}
+
+.chart-canvas svg text {
+  font-family: inherit;
+  font-size: 11px;
+  fill: var(--foreground);
+  opacity: 0.82;
+}
+
+.ts-chart-tooltip {
+  --ts-chart-tooltip-background: var(--popover);
+  --ts-chart-tooltip-color: var(--popover-foreground);
+  --ts-chart-tooltip-border: 1px solid var(--border);
+  --ts-chart-tooltip-border-radius: 0;
+  --ts-chart-tooltip-padding: 0.35rem 0.5rem;
+  --ts-chart-tooltip-font: 500 11px/1.35 inherit;
+  --ts-chart-tooltip-shadow: none;
+}
+
+.ts-chart-tooltip__title,
+.ts-chart-tooltip__row,
+.ts-chart-tooltip__body {
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.ts-chart-tooltip__swatch {
+  border-radius: 0;
+}

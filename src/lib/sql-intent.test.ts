@@ -22,7 +22,7 @@ describe("isReadOnlySql", () => {
 	it("treats selects and explain as read-only", () => {
 		expect(isReadOnlySql("SELECT 1")).toBe(true);
 		expect(isReadOnlySql("EXPLAIN ANALYZE SELECT * FROM t")).toBe(true);
-		expect(isReadOnlySql("BEGIN; SELECT 1; COMMIT;")).toBe(true);
+		expect(isReadOnlySql("SELECT created_at, last_update FROM orders")).toBe(true);
 		expect(isReadOnlySql("SHOW TABLES")).toBe(true);
 		expect(isReadOnlySql("DESCRIBE users")).toBe(true);
 		expect(isReadOnlySql("VALUES (1)")).toBe(true);
@@ -36,6 +36,31 @@ describe("isReadOnlySql", () => {
 		expect(isReadOnlySql("SELECT 1; DELETE FROM t")).toBe(false);
 		expect(isReadOnlySql("EXPLAIN ANALYZE DELETE FROM t")).toBe(false);
 		expect(isReadOnlySql("")).toBe(false);
+	});
+
+	it("rejects writes hidden after a select", () => {
+		// T-SQL runs both statements of a batch with no semicolon between them.
+		expect(isReadOnlySql("SELECT 1 DELETE FROM users", "mssql")).toBe(false);
+		expect(isReadOnlySql("SELECT * FROM users WHERE id = 1\nDROP TABLE users", "mssql")).toBe(false);
+		expect(isReadOnlySql("SELECT 1 EXEC sp_executesql N'x'", "mssql")).toBe(false);
+		expect(isReadOnlySql("SELECT * INTO users_copy FROM users", "postgres")).toBe(false);
+		expect(isReadOnlySql("SELECT * FROM users INTO OUTFILE '/tmp/users'", "mysql")).toBe(false);
+		expect(isReadOnlySql("TABLE users; TRUNCATE users")).toBe(false);
+	});
+
+	it("rejects functions with side effects", () => {
+		expect(
+			isReadOnlySql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid()"),
+		).toBe(false);
+		expect(isReadOnlySql("SELECT lo_export(lo_from_bytea(0, 'x'), '/tmp/x')")).toBe(false);
+		expect(isReadOnlySql("SELECT set_config('default_transaction_read_only', 'off', false)")).toBe(false);
+		expect(isReadOnlySql("SELECT nextval('orders_id_seq')")).toBe(false);
+	});
+
+	it("treats transaction control as a write", () => {
+		expect(isReadOnlySql("BEGIN; SELECT 1; COMMIT;")).toBe(false);
+		expect(isReadOnlySql("COMMIT; SELECT archive_orders()")).toBe(false);
+		expect(isReadOnlySql("START TRANSACTION READ WRITE")).toBe(false);
 	});
 
 	it("flags data-modifying CTEs as writes", () => {

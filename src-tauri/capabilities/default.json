@@ -8,6 +8,21 @@
   "permissions": [
     "core:default",
     "store:default",
-    "dialog:default"
+    "dialog:default",
+    "opener:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://*/*"
+        },
+        {
+          "url": "http://localhost:*/*"
+        },
+        {
+          "url": "http://127.0.0.1:*/*"
+        }
+      ]
+    }
   ]
 }
